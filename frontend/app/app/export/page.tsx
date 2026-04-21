@@ -16,10 +16,12 @@ import {
   getApiErrorMessage,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useProject } from "@/contexts/project-context";
 
 type Scenario = "best" | "likely";
 
 export default function ExportPage() {
+  const { selectedProjectId } = useProject();
   const [standards, setStandards] = useState<Standard[]>([]);
   const [selectedStandardId, setSelectedStandardId] = useState<string>("");
   const [fragnets, setFragnets] = useState<Fragnet[]>([]);
@@ -36,7 +38,12 @@ export default function ExportPage() {
   const fetchStandards = async () => {
     setLoadingStandards(true);
     try {
-      const { data } = await standardsApi.list();
+      if (!selectedProjectId) {
+        setStandards([]);
+        setSelectedStandardId("");
+        return;
+      }
+      const { data } = await standardsApi.list(selectedProjectId);
       setStandards(data);
       if (data.length > 0 && !selectedStandardId) setSelectedStandardId(data[0].id);
     } catch (err: unknown) {
@@ -68,7 +75,11 @@ export default function ExportPage() {
 
   const fetchUnassignedDeliverables = async () => {
     try {
-      const { data } = await deliverablesApi.list();
+      if (!selectedProjectId) {
+        setUnassignedDeliverables([]);
+        return;
+      }
+      const { data } = await deliverablesApi.list(selectedProjectId);
       const unassigned = data.filter((d) => d.fragnetId == null);
       setUnassignedDeliverables(unassigned);
       setIncludedUnassignedIds((prev) => {
@@ -89,7 +100,7 @@ export default function ExportPage() {
 
   useEffect(() => {
     fetchStandards();
-  }, []);
+  }, [selectedProjectId]);
 
   useEffect(() => {
     fetchFragnets();
@@ -97,7 +108,7 @@ export default function ExportPage() {
 
   useEffect(() => {
     fetchUnassignedDeliverables();
-  }, []);
+  }, [selectedProjectId]);
 
   const handleExport = async () => {
     if (!selectedFragnetId) {
@@ -119,20 +130,30 @@ export default function ExportPage() {
       const unassignedIds = unassignedDeliverables
         .filter((d) => includedUnassignedIds[d.id])
         .map((d) => d.id);
-      const { data } = await exportApi.fragnet(selectedFragnetId, {
+      const response = await exportApi.fragnet(selectedFragnetId, {
         scenario,
         projectName: pname,
         projectId: pid,
         ...(unassignedIds.length > 0 && { unassignedDeliverableIds: unassignedIds }),
       });
-      const filename = `fragnet-${pid}-${scenario}.xlsx`;
+      const data = response.data;
+      const headersAny = response.headers as unknown as { get?: (k: string) => string | null } & Record<string, unknown>;
+      const contentDisposition =
+        (typeof headersAny?.get === "function" ? headersAny.get("content-disposition") : null) ??
+        (headersAny?.["content-disposition"] as string | undefined);
+      let filename = "project_export.zip";
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="?([^"]+)"?/i);
+        if (match?.[1]) filename = match[1];
+      }
+
       const url = URL.createObjectURL(data);
       const a = document.createElement("a");
       a.href = url;
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success("Export downloaded (Excel with TASK and TASKPRED sheets)");
+      toast.success("Export downloaded (TASK, TASKPRED, TASKRSRC; RSRC sheet if rate card is uploaded)");
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err) || "Failed to export");
     } finally {
@@ -148,7 +169,7 @@ export default function ExportPage() {
       <div>
         <h2 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">Export</h2>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Export fragnets as a single Excel file (sheets: TASK, TASKPRED).
+          Export fragnets as a single Excel file (TASK, TASKPRED, TASKRSRC; RSRC resource definitions when a rate card exists).
         </p>
       </div>
 
@@ -290,7 +311,7 @@ export default function ExportPage() {
           <CardHeader>
             <CardTitle>Export summary</CardTitle>
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Fragnet &quot;{selectedFragnet.name}&quot; under {selectedStandard?.name} — scenario: {scenario}. Project ID: {projectId || "—"}, Project Name: {projectName || "—"}. File: fragnet-{projectId || "…"}-{scenario}.xlsx with TASK and TASKPRED sheets.
+              Fragnet &quot;{selectedFragnet.name}&quot; under {selectedStandard?.name} — scenario: {scenario}. Project ID: {projectId || "—"}, Project Name: {projectName || "—"}. File: fragnet-{projectId || "…"}-{scenario}.xlsx: TASK, TASKPRED, RSRC (from rate card if uploaded), TASKRSRC (assignments).
               {unassignedDeliverables.filter((d) => includedUnassignedIds[d.id]).length > 0 && (
                 <> Including {unassignedDeliverables.filter((d) => includedUnassignedIds[d.id]).length} unassigned deliverable(s) in the export.</>
               )}

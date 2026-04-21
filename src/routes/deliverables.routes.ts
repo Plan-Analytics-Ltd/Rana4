@@ -1,8 +1,10 @@
 import { Router } from "express";
 import * as deliverablesController from "../controllers/deliverables.controller.js";
+import { requireAuth } from "../middleware/auth.middleware.js";
 
 const router = Router();
 
+router.use(requireAuth);
 router.post("/", deliverablesController.create);
 router.get("/fragnet/:fragnetId", deliverablesController.getByFragnetId);
 router.get("/", deliverablesController.getAll);

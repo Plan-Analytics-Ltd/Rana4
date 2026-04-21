@@ -1,5 +1,11 @@
-import type { Request, Response } from "express";
+import type { Response } from "express";
 import { prisma } from "../utils/prisma.js";
+import type { AuthRequest } from "../middleware/auth.middleware.js";
+import { isPrismaForeignKeyViolation } from "../utils/prismaErrors.js";
+import { auditLog } from "../services/audit.service.js";
+import { requireProjectAccess } from "../services/projectAccess.service.js";
+import { requirePermission } from "../permissions/projectPermissions.js";
+import { auditUpdateIfChanged } from "../services/auditDiff.service.js";
 
 const RELATIONSHIP_TYPES = ["FS", "SS", "FF", "SF"] as const;
 
@@ -14,8 +20,12 @@ function parseLag(value: unknown): number {
   return n;
 }
 
-export async function create(req: Request, res: Response): Promise<void> {
+export async function create(req: AuthRequest, res: Response): Promise<void> {
   try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
     const {
       fragnetId,
       predecessorActivityId,
@@ -51,15 +61,17 @@ export async function create(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const fragnet = await prisma.fragnet.findUnique({ where: { id: fragnetId } });
+    const fragnet = await prisma.fragnet.findFirst({ where: { id: fragnetId, companyId: req.user.companyId } });
     if (!fragnet) {
       res.status(404).json({ error: "Fragnet not found" });
       return;
     }
+    const membership = await requireProjectAccess(fragnet.projectId, req.user);
+    requirePermission(membership.role, "relationship", "create");
 
     const [predecessor, successor] = await Promise.all([
-      prisma.activity.findUnique({ where: { id: predecessorActivityId } }),
-      prisma.activity.findUnique({ where: { id: successorActivityId } }),
+      prisma.activity.findFirst({ where: { id: predecessorActivityId, companyId: req.user.companyId } }),
+      prisma.activity.findFirst({ where: { id: successorActivityId, companyId: req.user.companyId } }),
     ]);
 
     if (!predecessor) {
@@ -98,26 +110,45 @@ export async function create(req: Request, res: Response): Promise<void> {
         successorActivityId: successor.id,
         relationshipType,
         lag: parseLag(lagRaw),
+        projectId: fragnet.projectId,
+        companyId: req.user.companyId,
       },
+    });
+    await auditLog({
+      userId: req.user.id,
+      companyId: req.user.companyId,
+      projectId: fragnet.projectId,
+      action: "CREATE_RELATIONSHIP",
+      entity: "Relationship",
+      entityId: relationship.id,
     });
     res.status(201).json(relationship);
   } catch (err) {
+    if (isPrismaForeignKeyViolation(err)) {
+      res.status(400).json({ error: "Invalid cross-company reference" });
+      return;
+    }
     console.error(err);
     res.status(500).json({ error: "Failed to create relationship" });
   }
 }
 
-export async function getByFragnetId(req: Request, res: Response): Promise<void> {
+export async function getByFragnetId(req: AuthRequest, res: Response): Promise<void> {
   try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
     const { fragnetId } = req.params;
     const fragnet = await prisma.fragnet.findUnique({
       where: { id: fragnetId },
-      include: { relationships: true },
+      include: { relationships: { where: { companyId: req.user.companyId } } },
     });
     if (!fragnet) {
       res.status(404).json({ error: "Fragnet not found" });
       return;
     }
+    await requireProjectAccess(fragnet.projectId, req.user);
     res.json(fragnet.relationships);
   } catch (err) {
     console.error(err);
@@ -125,18 +156,91 @@ export async function getByFragnetId(req: Request, res: Response): Promise<void>
   }
 }
 
-export async function remove(req: Request, res: Response): Promise<void> {
+export async function remove(req: AuthRequest, res: Response): Promise<void> {
   try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
     const { id } = req.params;
-    const existing = await prisma.relationship.findUnique({ where: { id } });
+    const existing = await prisma.relationship.findFirst({ where: { id, companyId: req.user.companyId } });
     if (!existing) {
       res.status(404).json({ error: "Relationship not found" });
       return;
     }
+    const membership = await requireProjectAccess(existing.projectId, req.user);
+    requirePermission(membership.role, "relationship", "delete");
     await prisma.relationship.delete({ where: { id } });
+    await auditLog({
+      userId: req.user.id,
+      companyId: req.user.companyId,
+      projectId: existing.projectId,
+      action: "DELETE_RELATIONSHIP",
+      entity: "Relationship",
+      entityId: id,
+    });
     res.status(204).send();
   } catch (err) {
+    if (isPrismaForeignKeyViolation(err)) {
+      res.status(400).json({ error: "Invalid cross-company reference" });
+      return;
+    }
     console.error(err);
     res.status(500).json({ error: "Failed to delete relationship" });
+  }
+}
+
+export async function update(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const { id } = req.params as { id: string };
+    const { relationshipType, lag: lagRaw } = req.body as { relationshipType?: string; lag?: number };
+
+    if (relationshipType !== undefined && !isValidRelationshipType(relationshipType)) {
+      res.status(400).json({ error: "relationshipType must be one of FS, SS, FF, SF" });
+      return;
+    }
+
+    const existing = await prisma.relationship.findFirst({ where: { id, companyId: req.user.companyId } });
+    if (!existing) {
+      res.status(404).json({ error: "Relationship not found" });
+      return;
+    }
+
+    const membership = await requireProjectAccess(existing.projectId, req.user);
+    requirePermission(membership.role, "relationship", "update");
+
+    const nextLag = lagRaw !== undefined ? parseLag(lagRaw) : undefined;
+    const updated = await prisma.relationship.update({
+      where: { id },
+      data: {
+        ...(relationshipType !== undefined && { relationshipType }),
+        ...(nextLag !== undefined && { lag: nextLag }),
+      },
+    });
+
+    await auditUpdateIfChanged({
+      userId: req.user.id,
+      companyId: req.user.companyId,
+      projectId: existing.projectId,
+      action: "UPDATE_RELATIONSHIP",
+      entity: "Relationship",
+      entityId: id,
+      before: existing as any,
+      after: updated as any,
+      fields: ["relationshipType", "lag"],
+    });
+
+    res.json(updated);
+  } catch (err) {
+    if (isPrismaForeignKeyViolation(err)) {
+      res.status(400).json({ error: "Invalid cross-company reference" });
+      return;
+    }
+    console.error(err);
+    res.status(500).json({ error: "Failed to update relationship" });
   }
 }

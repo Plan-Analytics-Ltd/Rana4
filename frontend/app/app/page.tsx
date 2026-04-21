@@ -24,6 +24,7 @@ import {
   type Fragnet,
   getApiErrorMessage,
 } from "@/lib/api";
+import { useProject } from "@/contexts/project-context";
 
 type DashboardMetrics = {
   standards: number;
@@ -33,6 +34,7 @@ type DashboardMetrics = {
 };
 
 export default function AppDashboardPage() {
+  const { selectedProjectId } = useProject();
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [recentFragnets, setRecentFragnets] = useState<Array<Fragnet & { standardName?: string }>>([]);
   const [loading, setLoading] = useState(true);
@@ -42,7 +44,13 @@ export default function AppDashboardPage() {
     let cancelled = false;
     async function load() {
       try {
-        const [standardsRes] = await Promise.all([standardsApi.list()]);
+        if (!selectedProjectId) {
+          setStandards([]);
+          setMetrics({ standards: 0, fragnets: 0, activities: 0, deliverables: 0 });
+          setRecentFragnets([]);
+          return;
+        }
+        const [standardsRes] = await Promise.all([standardsApi.list(selectedProjectId)]);
         const standardsList = standardsRes.data;
         if (cancelled) return;
         setStandards(standardsList);
@@ -62,7 +70,7 @@ export default function AppDashboardPage() {
         setRecentFragnets(recent);
 
         const [deliverablesRes, activitiesPerFragnet] = await Promise.all([
-          deliverablesApi.list(),
+          deliverablesApi.list(selectedProjectId),
           Promise.all(allFragnets.map((f) => activitiesApi.listByFragnet(f.id))),
         ]);
         if (cancelled) return;
@@ -83,7 +91,7 @@ export default function AppDashboardPage() {
     }
     load();
     return () => { cancelled = true; };
-  }, []);
+  }, [selectedProjectId]);
 
   const metricCards = [
     { label: "Total Standards", value: metrics?.standards ?? "—", icon: FileText, href: "/app/standards" },

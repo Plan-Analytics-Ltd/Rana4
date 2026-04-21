@@ -1,8 +1,6 @@
-// Prisma schema – Neon PostgreSQL (scheduling system)
-// best_duration and likely_duration: validate > 0 at app level
-
 generator client {
   provider = "prisma-client-js"
+  engineType = "binary"
 }
 
 datasource db {
@@ -10,15 +8,301 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Role {
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+enum ProjectRole {
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+enum ActivityStatus {
+  DRAFT
+  PENDING_APPROVAL
+  ACTIVE
+  LOCKED
+}
+
 model User {
   id           String   @id @default(uuid())
   email        String   @unique @db.VarChar(255)
-  passwordHash String   @map("password_hash") @db.VarChar(255)
+  authUserId   String?  @unique @map("auth_user_id") @db.VarChar(255)
+  passwordHash String?  @map("password_hash") @db.VarChar(255)
   name         String?  @db.VarChar(255)
+  emailVerified Boolean  @default(false) @map("email_verified")
+  emailVerifiedAt DateTime? @map("email_verified_at")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
+  companyId    String   @map("company_id")
+  role         Role     @default(VIEWER)
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "users_company_fk")
+  projectMemberships ProjectMember[]
+  emailVerificationTokens EmailVerificationToken[]
+  adminRequests        AdminRequest[]
 
   @@map("users")
+}
+
+model AdminRequest {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  /// PENDING | APPROVED | REJECTED
+  status    String   @db.VarChar(24)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@map("admin_requests")
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  token     String   @unique @db.VarChar(255)
+  userId    String   @map("user_id")
+  companyId String   @map("company_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([companyId])
+  @@map("email_verification_tokens")
+}
+
+model Company {
+  id             String          @id @default(cuid())
+  name           String
+  joinCode       String          @unique @map("join_code") @db.VarChar(32)
+  activities     Activity[]
+  assuranceNotes AssuranceNote[]
+  deliverables   Deliverable[]
+  fragnets       Fragnet[]
+  projects       Project[]
+  rateCardRows   RateCardEntry[]
+  relationships  Relationship[]
+  standards      Standard[]
+  users          User[]
+
+  @@map("companies")
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  name      String   @db.VarChar(255)
+  companyId String   @map("company_id")
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "projects_company_fk")
+
+  members        ProjectMember[]
+  standards      Standard[]
+  assuranceNotes AssuranceNote[]
+  fragnets       Fragnet[]
+  deliverables   Deliverable[]
+  activities     Activity[]
+  relationships  Relationship[]
+  auditLogs      AuditLog[]
+
+  @@unique([id, companyId])
+  @@index([companyId])
+  @@map("projects")
+}
+
+model ProjectMember {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  projectId String   @map("project_id")
+  role      ProjectRole
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "project_members_user_fk")
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "project_members_project_fk")
+
+  @@unique([userId, projectId])
+  @@index([projectId])
+  @@index([userId])
+  @@map("project_members")
+}
+
+model Invitation {
+  id        String   @id @default(cuid())
+  email     String   @db.VarChar(255)
+  companyId String   @map("company_id")
+  role      Role
+
+  token     String   @unique @db.VarChar(255)
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([companyId])
+  @@index([email])
+  @@map("invitations")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  companyId String   @map("company_id")
+  projectId String   @map("project_id")
+
+  action    String   @db.VarChar(255)
+  entity    String   @db.VarChar(255)
+  entityId  String?  @map("entity_id") @db.VarChar(255)
+  details   Json     @default("{}")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project   Project  @relation(fields: [projectId, companyId], references: [id, companyId], onDelete: NoAction)
+
+  @@index([companyId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([userId, createdAt])
+  @@map("audit_logs")
+}
+
+/// Uploaded rate card rows (replaces entire set on each upload).
+model RateCardEntry {
+  id           String   @id @default(uuid())
+  resourceType String   @map("resource_type") @db.VarChar(120)
+  resourceName String   @map("resource_name") @db.VarChar(255)
+  unit         String   @db.VarChar(32)
+  rate         Float
+  createdAt    DateTime @default(now()) @map("created_at")
+  companyId    String   @map("company_id")
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "rate_card_entries_company_fk")
+
+  @@map("rate_card_entries")
+}
+
+model Standard {
+  id             String          @id @default(uuid())
+  name           String          @db.VarChar(255)
+  description    String?
+  createdAt      DateTime        @default(now()) @map("created_at")
+  projectId      String          @map("project_id")
+  companyId      String          @map("company_id")
+  assuranceNotes AssuranceNote[]
+  fragnets       Fragnet[]
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "standards_company_fk")
+  project        Project         @relation(fields: [projectId, companyId], references: [id, companyId], onDelete: NoAction)
+
+  @@unique([id, companyId])
+  @@index([projectId])
+  @@map("standards")
+}
+
+model AssuranceNote {
+  id         String     @id @default(uuid())
+  standardId String     @map("standard_id")
+  noteText   String     @map("note_text")
+  createdAt  DateTime   @default(now()) @map("created_at")
+  projectId  String     @map("project_id")
+  companyId  String     @map("company_id")
+  activities Activity[]
+  company    Company    @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "assurance_notes_company_fk")
+  standard   Standard   @relation(fields: [standardId, companyId], references: [id, companyId], onDelete: Cascade)
+  project    Project    @relation(fields: [projectId, companyId], references: [id, companyId], onDelete: NoAction)
+
+  @@unique([id, companyId])
+  @@index([projectId])
+  @@map("assurance_notes")
+}
+
+model Fragnet {
+  id            String         @id @default(uuid())
+  standardId    String         @map("standard_id")
+  name          String         @db.VarChar(255)
+  description   String?
+  createdAt     DateTime       @default(now()) @map("created_at")
+  projectId     String         @map("project_id")
+  companyId     String         @map("company_id")
+  activities    Activity[]
+  deliverables  Deliverable[]
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fragnets_company_fk")
+  standard      Standard       @relation(fields: [standardId, companyId], references: [id, companyId], onDelete: Cascade)
+  project       Project        @relation(fields: [projectId, companyId], references: [id, companyId], onDelete: NoAction)
+  relationships Relationship[]
+
+  @@unique([id, companyId])
+  @@index([projectId])
+  @@map("fragnets")
+}
+
+model Activity {
+  id                String         @id @default(uuid())
+  fragnetId         String         @map("fragnet_id")
+  activityCode      String         @map("activity_code") @db.VarChar(100)
+  name              String         @db.VarChar(255)
+  status            ActivityStatus @default(DRAFT)
+  bestDuration      Int            @map("best_duration")
+  likelyDuration    Int            @map("likely_duration")
+  assuranceNoteId   String?        @map("assurance_note_id")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  /// JSON array: { resourceType, resourceName, rate, unit, units? } — rate from rate card only
+  assignedResources Json           @default("[]") @map("assigned_resources")
+  deliverableId     String         @map("deliverable_id")
+  projectId         String         @map("project_id")
+  companyId         String         @map("company_id")
+  assuranceNote     AssuranceNote? @relation(fields: [assuranceNoteId, companyId], references: [id, companyId])
+  company           Company        @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "activities_company_fk")
+  deliverable       Deliverable    @relation(fields: [deliverableId, companyId], references: [id, companyId])
+  fragnet           Fragnet        @relation(fields: [fragnetId, companyId], references: [id, companyId], onDelete: Cascade)
+  project           Project        @relation(fields: [projectId, companyId], references: [id, companyId], onDelete: NoAction)
+  predecessorIn     Relationship[] @relation("Predecessor")
+  successorIn       Relationship[] @relation("Successor")
+
+  @@unique([id, companyId])
+  @@unique([companyId, fragnetId, activityCode])
+  @@index([projectId])
+  @@map("activities")
+}
+
+model Relationship {
+  id                    String           @id @default(uuid())
+  fragnetId             String           @map("fragnet_id")
+  predecessorActivityId String           @map("predecessor_activity_id")
+  successorActivityId   String           @map("successor_activity_id")
+  relationshipType      RelationshipType @map("relationship_type")
+  lag                   Int              @default(0)
+  projectId             String           @map("project_id")
+  companyId             String           @map("company_id")
+  company               Company          @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "relationships_company_fk")
+  fragnet               Fragnet          @relation(fields: [fragnetId, companyId], references: [id, companyId], onDelete: Cascade)
+  predecessorActivity   Activity         @relation("Predecessor", fields: [predecessorActivityId, companyId], references: [id, companyId], onDelete: Cascade)
+  successorActivity     Activity         @relation("Successor", fields: [successorActivityId, companyId], references: [id, companyId], onDelete: Cascade)
+  project               Project          @relation(fields: [projectId, companyId], references: [id, companyId], onDelete: NoAction)
+
+  @@index([projectId])
+  @@map("relationships")
+}
+
+model Deliverable {
+  id                String     @id @default(uuid())
+  name              String     @db.VarChar(255)
+  bestDuration      Int        @map("best_duration")
+  likelyDuration    Int        @map("likely_duration")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  fragnetId         String?    @map("fragnet_id")
+  /// JSON array: { resourceType, resourceName, rate, unit, units? }
+  assignedResources Json       @default("[]") @map("assigned_resources")
+  /// Project access scope within the company.
+  projectId         String     @map("project_id")
+  /// Optional P6 / external project identifier.
+  externalProjectId String?    @map("external_project_id") @db.VarChar(255)
+  companyId         String     @map("company_id")
+  activities        Activity[]
+  company           Company    @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "deliverables_company_fk")
+  fragnet           Fragnet?   @relation(fields: [fragnetId, companyId], references: [id, companyId], onDelete: Cascade)
+  project           Project    @relation(fields: [projectId, companyId], references: [id, companyId], onDelete: NoAction)
+
+  @@unique([id, companyId])
+  @@index([projectId])
+  @@map("deliverables")
 }
 
 enum RelationshipType {
@@ -26,84 +310,4 @@ enum RelationshipType {
   SS
   FF
   SF
-}
-
-model Standard {
-  id             String           @id @default(uuid())
-  name           String           @db.VarChar(255)
-  description    String?         @db.Text
-  createdAt      DateTime         @default(now()) @map("created_at")
-  assuranceNotes AssuranceNote[]
-  fragnets       Fragnet[]
-
-  @@map("standards")
-}
-
-model AssuranceNote {
-  id         String    @id @default(uuid())
-  standardId String    @map("standard_id")
-  noteText   String    @map("note_text") @db.Text
-  createdAt  DateTime  @default(now()) @map("created_at")
-  standard   Standard  @relation(fields: [standardId], references: [id], onDelete: Cascade)
-  activities Activity[]
-
-  @@map("assurance_notes")
-}
-
-model Fragnet {
-  id             String       @id @default(uuid())
-  standardId     String       @map("standard_id")
-  name           String       @db.VarChar(255)
-  description    String?      @db.Text
-  createdAt      DateTime     @default(now()) @map("created_at")
-  standard       Standard     @relation(fields: [standardId], references: [id], onDelete: Cascade)
-  activities     Activity[]
-  relationships  Relationship[]
-  deliverables   Deliverable[]
-
-  @@map("fragnets")
-}
-
-model Activity {
-  id                String          @id @default(uuid())
-  fragnetId         String         @map("fragnet_id")
-  activityCode      String         @map("activity_code") @db.VarChar(100)
-  name              String         @db.VarChar(255)
-  bestDuration     Int            @map("best_duration")   // validate > 0 at app level
-  likelyDuration   Int            @map("likely_duration") // validate > 0 at app level
-  assuranceNoteId  String?        @map("assurance_note_id")
-  createdAt         DateTime      @default(now()) @map("created_at")
-  fragnet           Fragnet       @relation(fields: [fragnetId], references: [id], onDelete: Cascade)
-  assuranceNote     AssuranceNote? @relation(fields: [assuranceNoteId], references: [id], onDelete: SetNull)
-  predecessorIn     Relationship[] @relation("Predecessor")
-  successorIn       Relationship[] @relation("Successor")
-
-  @@unique([fragnetId, activityCode])
-  @@map("activities")
-}
-
-model Relationship {
-  id                     String           @id @default(uuid())
-  fragnetId              String           @map("fragnet_id")
-  predecessorActivityId String           @map("predecessor_activity_id")
-  successorActivityId   String           @map("successor_activity_id")
-  relationshipType      RelationshipType @map("relationship_type")
-  lag                    Int             @default(0)
-  fragnet               Fragnet          @relation(fields: [fragnetId], references: [id], onDelete: Cascade)
-  predecessorActivity   Activity         @relation("Predecessor", fields: [predecessorActivityId], references: [id], onDelete: Cascade)
-  successorActivity     Activity         @relation("Successor", fields: [successorActivityId], references: [id], onDelete: Cascade)
-
-  @@map("relationships")
-}
-
-model Deliverable {
-  id             String    @id @default(uuid())
-  name           String    @db.VarChar(255)
-  bestDuration   Int       @map("best_duration")   // validate > 0 at app level
-  likelyDuration Int       @map("likely_duration") // validate > 0 at app level
-  fragnetId      String?   @map("fragnet_id")
-  fragnet        Fragnet?  @relation(fields: [fragnetId], references: [id], onDelete: Cascade)
-  createdAt      DateTime  @default(now()) @map("created_at")
-
-  @@map("deliverables")
 }

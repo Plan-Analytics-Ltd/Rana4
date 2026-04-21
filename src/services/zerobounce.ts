@@ -18,6 +18,10 @@ interface ZeroBounceResponse {
 
 export async function validateEmailWithZeroBounce(email: string): Promise<{ valid: boolean; error?: string }> {
   const apiKey = process.env.ZEROBOUNCE_API_KEY?.trim();
+  // In non-production, keep signup smooth and avoid flaky external dependency.
+  if (process.env.NODE_ENV !== "production") {
+    return { valid: true };
+  }
   if (!apiKey) {
     return { valid: true };
   }

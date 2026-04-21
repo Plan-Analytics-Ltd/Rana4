@@ -1,0 +1,145 @@
+import { prisma } from "../utils/prisma.js";
+import type { RateCardEntry } from "./rateCard.parser.js";
+
+export type { RateCardEntry };
+
+/** Stored on Activity / Deliverable after validation */
+export type AssignedResourceStored = {
+  resourceType: string;
+  resourceName: string;
+  rate: number;
+  unit: string;
+  /** Optional override; if omitted, export uses activity duration → hours */
+  units?: number;
+};
+
+function norm(s: string): string {
+  return s.trim().toLowerCase();
+}
+
+const lookupKey = (type: string, name: string) => `${norm(type)}|${norm(name)}`;
+
+function buildLookup(entries: RateCardEntry[]): Map<string, RateCardEntry> {
+  const m = new Map<string, RateCardEntry>();
+  for (const e of entries) {
+    m.set(lookupKey(e.resourceType, e.resourceName), e);
+  }
+  return m;
+}
+
+export async function getRateCardEntries(companyId: string): Promise<RateCardEntry[]> {
+  const rows = await prisma.rateCardEntry.findMany({
+    where: { companyId },
+    orderBy: [{ resourceType: "asc" }, { resourceName: "asc" }],
+  });
+  return rows.map((r) => ({
+    resourceType: r.resourceType,
+    resourceName: r.resourceName,
+    unit: r.unit,
+    rate: r.rate,
+  }));
+}
+
+export async function getRateCardSummary(companyId: string): Promise<{ type: string; count: number }[]> {
+  const entries = await getRateCardEntries(companyId);
+  const byType = new Map<string, number>();
+  for (const e of entries) {
+    byType.set(e.resourceType, (byType.get(e.resourceType) ?? 0) + 1);
+  }
+  return [...byType.entries()].map(([type, count]) => ({ type, count }));
+}
+
+export async function replaceRateCardEntries(companyId: string, entries: RateCardEntry[]): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await tx.rateCardEntry.deleteMany({ where: { companyId } });
+    if (entries.length > 0) {
+      await tx.rateCardEntry.createMany({
+        data: entries.map((e) => ({
+          resourceType: e.resourceType.trim(),
+          resourceName: e.resourceName.trim(),
+          unit: e.unit.trim(),
+          rate: e.rate,
+          companyId,
+        })),
+      });
+    }
+  });
+}
+
+export type ParseAssignmentsResult =
+  | { ok: true; assignments: AssignedResourceStored[] }
+  | { ok: false; error: string };
+
+/**
+ * Validates assignments against the uploaded rate card. Ignores client-supplied rate; always from DB.
+ */
+export async function parseAndValidateAssignedResources(companyId: string, raw: unknown): Promise<ParseAssignmentsResult> {
+  if (raw === undefined || raw === null) {
+    return { ok: true, assignments: [] };
+  }
+  if (!Array.isArray(raw)) {
+    return { ok: false, error: "assignedResources must be an array" };
+  }
+  if (raw.length > 30) {
+    return { ok: false, error: "Too many resource assignments (max 30)" };
+  }
+
+  const cardEntries = await getRateCardEntries(companyId);
+  if (cardEntries.length === 0 && raw.length > 0) {
+    return { ok: false, error: "No rate card loaded. Upload a rate card first (App → Rate card)." };
+  }
+
+  const lookupMap = buildLookup(cardEntries);
+  const out: AssignedResourceStored[] = [];
+
+  for (let i = 0; i < raw.length; i++) {
+    const item = raw[i];
+    if (item === null || typeof item !== "object") {
+      return { ok: false, error: `Invalid assignment at index ${i}` };
+    }
+    const o = item as Record<string, unknown>;
+    const resourceType = o.resourceType != null ? String(o.resourceType).trim() : "";
+    const resourceName = o.resourceName != null ? String(o.resourceName).trim() : "";
+    if (!resourceType || !resourceName) {
+      return { ok: false, error: `Assignment at index ${i}: resourceType and resourceName are required` };
+    }
+
+    const entry = lookupMap.get(lookupKey(resourceType, resourceName));
+    if (!entry) {
+      return {
+        ok: false,
+        error: `Unknown resource: ${resourceType} / ${resourceName}`,
+      };
+    }
+
+    let units: number | undefined;
+    if (o.units !== undefined && o.units !== null) {
+      const u = Number(o.units);
+      if (!Number.isFinite(u) || u <= 0) {
+        return { ok: false, error: `Assignment at index ${i}: units must be a positive number` };
+      }
+      units = u;
+    }
+
+    out.push({
+      resourceType: entry.resourceType,
+      resourceName: entry.resourceName,
+      rate: entry.rate,
+      unit: entry.unit,
+      ...(units !== undefined ? { units } : {}),
+    });
+  }
+
+  return { ok: true, assignments: out };
+}
+
+/** Re-validate JSON from DB before export (rate always from current card). */
+/** Re-validate JSON from DB before export (rate always from current company rate card). */
+export async function assignmentsFromDb(companyId: string, raw: unknown): Promise<AssignedResourceStored[]> {
+  const r = await parseAndValidateAssignedResources(companyId, raw === undefined || raw === null ? [] : raw);
+  if (!r.ok) {
+    console.warn("[rate-card] Invalid stored assignments skipped:", r.error);
+    return [];
+  }
+  return r.assignments;
+}

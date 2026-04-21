@@ -28,19 +28,35 @@ import {
   activitiesApi,
   relationshipsApi,
   assuranceNotesApi,
+  rateCardApi,
   type Standard,
   type Fragnet,
   type Activity,
   type Relationship,
   type AssuranceNote,
   type RelationshipType,
+  type RateCardEntry,
   getApiErrorMessage,
 } from "@/lib/api";
+import {
+  ResourceAssignmentsEditor,
+  draftsToPayload,
+  storedToDrafts,
+  type ResourceAssignmentDraft,
+} from "@/components/resource-assignments-editor";
 import { cn } from "@/lib/utils";
+import { useProject } from "@/contexts/project-context";
+import { checkPermission, hasPermission } from "@/lib/project-permissions";
+import { allowedTransitions, type ActivityStatus } from "@/lib/activity-workflow";
 
 const RELATIONSHIP_TYPES: RelationshipType[] = ["FS", "SS", "FF", "SF"];
 
 export default function ActivitiesPage() {
+  const { selectedProjectId, selectedProjectRole } = useProject();
+  const mayCreate = hasPermission(selectedProjectRole, "activity", "create");
+  const mayEditByRole = hasPermission(selectedProjectRole, "activity", "update");
+  const mayDeleteByRole = hasPermission(selectedProjectRole, "activity", "delete");
+  const mayDeleteRelationshipByRole = hasPermission(selectedProjectRole, "relationship", "delete");
   const [standards, setStandards] = useState<Standard[]>([]);
   const [selectedStandardId, setSelectedStandardId] = useState<string>("");
   const [fragnets, setFragnets] = useState<Fragnet[]>([]);
@@ -67,11 +83,25 @@ export default function ActivitiesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletingRelId, setDeletingRelId] = useState<string | null>(null);
+  const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+  const [historyForId, setHistoryForId] = useState<string | null>(null);
+  const [historyVersions, setHistoryVersions] = useState<
+    Array<{ version: number; createdAt: string; action: string; userId: string | null; details: any; state: Activity }> | null
+  >(null);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [rollingBack, setRollingBack] = useState<number | null>(null);
+  const [rateCardEntries, setRateCardEntries] = useState<RateCardEntry[] | null>(null);
+  const [formResourceDrafts, setFormResourceDrafts] = useState<ResourceAssignmentDraft[]>([]);
 
   const fetchStandards = async () => {
     setLoadingStandards(true);
     try {
-      const { data } = await standardsApi.list();
+      if (!selectedProjectId) {
+        setStandards([]);
+        setSelectedStandardId("");
+        return;
+      }
+      const { data } = await standardsApi.list(selectedProjectId);
       setStandards(data);
       if (data.length > 0 && !selectedStandardId) setSelectedStandardId(data[0].id);
     } catch (err: unknown) {
@@ -150,6 +180,17 @@ export default function ActivitiesPage() {
 
   useEffect(() => {
     fetchStandards();
+  }, [selectedProjectId]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await rateCardApi.get();
+        setRateCardEntries(data.entries);
+      } catch {
+        setRateCardEntries([]);
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -168,6 +209,7 @@ export default function ActivitiesPage() {
     setFormBestDuration("");
     setFormLikelyDuration("");
     setFormAssuranceNoteId("");
+    setFormResourceDrafts([]);
     setEditId(null);
     setCreateOpen(false);
   };
@@ -197,6 +239,7 @@ export default function ActivitiesPage() {
         bestDuration: best,
         likelyDuration: likely,
         assuranceNoteId: formAssuranceNoteId || undefined,
+        assignedResources: draftsToPayload(formResourceDrafts),
       });
       toast.success("Activity created");
       resetActivityForm();
@@ -228,6 +271,7 @@ export default function ActivitiesPage() {
         bestDuration: best,
         likelyDuration: likely,
         assuranceNoteId: formAssuranceNoteId || null,
+        assignedResources: draftsToPayload(formResourceDrafts),
       });
       toast.success("Activity updated");
       resetActivityForm();
@@ -251,6 +295,90 @@ export default function ActivitiesPage() {
       toast.error(getApiErrorMessage(err) || "Failed to delete activity");
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const statusLabel = (s: Activity["status"]) => {
+    if (s === "DRAFT") return "DRAFT";
+    if (s === "PENDING_APPROVAL") return "PENDING_APPROVAL";
+    if (s === "ACTIVE") return "ACTIVE";
+    return "LOCKED";
+  };
+
+  const statusBadgeClass = (s: Activity["status"]) => {
+    if (s === "DRAFT") return "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200";
+    if (s === "PENDING_APPROVAL") return "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200";
+    if (s === "ACTIVE") return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200";
+    return "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200";
+  };
+
+  const handleSubmitForApproval = async (activityId: string) => {
+    setStatusUpdatingId(activityId);
+    try {
+      await activitiesApi.submit(activityId);
+      toast.success("Submitted for approval");
+      await fetchActivities();
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err) || "Failed to submit for approval");
+    } finally {
+      setStatusUpdatingId(null);
+    }
+  };
+
+  const handleApprove = async (activityId: string) => {
+    setStatusUpdatingId(activityId);
+    try {
+      await activitiesApi.approve(activityId);
+      toast.success("Approved");
+      await fetchActivities();
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err) || "Failed to approve");
+    } finally {
+      setStatusUpdatingId(null);
+    }
+  };
+
+  const handleReject = async (activityId: string) => {
+    setStatusUpdatingId(activityId);
+    try {
+      await activitiesApi.reject(activityId);
+      toast.success("Rejected");
+      await fetchActivities();
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err) || "Failed to reject");
+    } finally {
+      setStatusUpdatingId(null);
+    }
+  };
+
+  const openHistory = async (activityId: string) => {
+    setHistoryForId(activityId);
+    setLoadingHistory(true);
+    setHistoryVersions(null);
+    try {
+      const { data } = await activitiesApi.getVersions(activityId);
+      setHistoryVersions(data.versions);
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err) || "Failed to load history");
+      setHistoryForId(null);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const doRollback = async (activityId: string, targetVersion: number) => {
+    if (selectedProjectRole !== "ADMIN") return;
+    if (!confirm(`Rollback activity to version ${targetVersion}? This will create a new version.`)) return;
+    setRollingBack(targetVersion);
+    try {
+      const { data } = await activitiesApi.rollback(activityId, targetVersion);
+      toast.success(`Rolled back to version ${data.toVersion}`);
+      await fetchActivities();
+      await openHistory(activityId);
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err) || "Rollback failed");
+    } finally {
+      setRollingBack(null);
     }
   };
 
@@ -304,6 +432,7 @@ export default function ActivitiesPage() {
     setFormBestDuration(String(a.bestDuration));
     setFormLikelyDuration(String(a.likelyDuration));
     setFormAssuranceNoteId(a.assuranceNoteId ?? "");
+    setFormResourceDrafts(storedToDrafts(a.assignedResources));
   };
 
   const selectedStandard = standards.find((s) => s.id === selectedStandardId);
@@ -371,20 +500,119 @@ export default function ActivitiesPage() {
 
       {selectedFragnetId && (
         <>
+          <Dialog
+            open={historyForId !== null}
+            onOpenChange={(o) => {
+              if (!o) {
+                setHistoryForId(null);
+                setHistoryVersions(null);
+              }
+            }}
+          >
+            <DialogContent className="max-w-3xl">
+              <DialogHeader>
+                <DialogTitle>Activity history</DialogTitle>
+              </DialogHeader>
+              {loadingHistory ? (
+                <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+                </div>
+              ) : !historyVersions ? (
+                <p className="text-sm text-slate-500 dark:text-slate-400">No history available.</p>
+              ) : (
+                <div className="space-y-3">
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    Versions are reconstructed from audit diffs. Rollback edits fields but does not change workflow status.
+                  </div>
+                  <div className="max-h-[60vh] overflow-auto rounded-md border border-slate-200 dark:border-slate-800">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Version</TableHead>
+                          <TableHead>When</TableHead>
+                          <TableHead>Action</TableHead>
+                          <TableHead>User</TableHead>
+                          <TableHead>Summary</TableHead>
+                          <TableHead className="text-right">Rollback</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {historyVersions.map((v) => {
+                          const changes =
+                            v.details && typeof v.details === "object" && (v.details as any).type === "update"
+                              ? Object.keys((v.details as any).changes ?? {})
+                              : [];
+                          const rollbackMeta =
+                            v.details && typeof v.details === "object" && (v.details as any).type === "activity.rollback"
+                              ? (v.details as any)
+                              : null;
+                          const summary =
+                            rollbackMeta
+                              ? `rollback ${rollbackMeta.fromVersion} → ${rollbackMeta.toVersion}`
+                              : changes.length > 0
+                                ? changes.join(", ")
+                                : `status=${v.state.status}`;
+
+                          return (
+                            <TableRow key={v.version}>
+                              <TableCell className="font-mono">v{v.version}</TableCell>
+                              <TableCell className="text-xs text-slate-600 dark:text-slate-400">{new Date(v.createdAt).toLocaleString()}</TableCell>
+                              <TableCell className="font-mono text-xs">{v.action}</TableCell>
+                              <TableCell className="font-mono text-xs">{v.userId ?? "-"}</TableCell>
+                              <TableCell className="text-xs">{summary}</TableCell>
+                              <TableCell className="text-right">
+                                {selectedProjectRole === "ADMIN" && historyForId ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={rollingBack === v.version}
+                                    onClick={() => doRollback(historyForId, v.version)}
+                                  >
+                                    {rollingBack === v.version ? "Rolling back…" : "Rollback"}
+                                  </Button>
+                                ) : (
+                                  <span className="text-xs text-slate-400">-</span>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setHistoryForId(null)}>
+                  Close
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
           <Card>
             <CardHeader className="flex flex-row items-start justify-between space-y-0">
               <div>
                 <CardTitle>Activities — {selectedFragnet?.name}</CardTitle>
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{activities.length} activit{activities.length === 1 ? "y" : "ies"}</p>
               </div>
-              <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (!o) resetActivityForm(); }}>
-                <DialogTrigger asChild>
-                  <Button><Plus className="h-4 w-4" /> Add Activity</Button>
-                </DialogTrigger>
+              <Dialog
+                open={createOpen}
+                onOpenChange={(o) => {
+                  setCreateOpen(o);
+                  if (o) setFormResourceDrafts([]);
+                  else resetActivityForm();
+                }}
+              >
+                {mayCreate ? (
+                  <DialogTrigger asChild>
+                    <Button><Plus className="h-4 w-4" /> Add Activity</Button>
+                  </DialogTrigger>
+                ) : null}
                 <DialogContent>
-                  <form onSubmit={handleCreateActivity}>
+                  <form onSubmit={handleCreateActivity} className="min-w-0">
                     <DialogHeader><DialogTitle>Create Activity</DialogTitle></DialogHeader>
-                    <div className="grid gap-4 py-4">
+                    <div className="grid min-w-0 gap-4 py-4">
                       <div className="grid gap-2">
                         <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Activity code</label>
                         <Input value={formActivityCode} onChange={(e) => setFormActivityCode(e.target.value)} placeholder="e.g. A100" required />
@@ -418,6 +646,12 @@ export default function ActivitiesPage() {
                           </select>
                         </div>
                       )}
+                      <ResourceAssignmentsEditor
+                        entries={rateCardEntries}
+                        value={formResourceDrafts}
+                        onChange={setFormResourceDrafts}
+                        disabled={submitting}
+                      />
                     </div>
                     <DialogFooter>
                       <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
@@ -438,67 +672,156 @@ export default function ActivitiesPage() {
                     <TableRow>
                       <TableHead>Code</TableHead>
                       <TableHead>Name</TableHead>
+                      <TableHead>Status</TableHead>
                       <TableHead>Best</TableHead>
                       <TableHead>Likely</TableHead>
+                      <TableHead>Resources</TableHead>
                       <TableHead className="w-[120px] text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {activities.map((a) => (
+                      (() => {
+                        const editCheck = checkPermission(selectedProjectRole, "activity", "update", { status: a.status, operation: "edit" });
+                        const mayEditThis = editCheck.ok;
+                        const deleteCheck = checkPermission(selectedProjectRole, "activity", "delete", { status: a.status, hasDependencies: false });
+                        // We don’t compute dependency counts client-side; backend is source of truth.
+                        // If status blocks, we can still give a precise tooltip; otherwise defer to backend response.
+                        const mayDeleteThis = deleteCheck.ok;
+                        const lockReason = !editCheck.ok && editCheck.kind === "rule" ? editCheck.message : null;
+                        const deleteReason = !deleteCheck.ok && deleteCheck.kind === "rule" ? deleteCheck.message : null;
+                        const canSubmit = (selectedProjectRole === "EDITOR" || selectedProjectRole === "ADMIN") && a.status === "DRAFT";
+                        const canApproveReject = selectedProjectRole === "ADMIN" && a.status === "PENDING_APPROVAL";
+                        return (
                       <TableRow key={a.id}>
                         <TableCell className="font-medium">{a.activityCode}</TableCell>
                         <TableCell>{a.name}</TableCell>
+                        <TableCell>
+                          <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", statusBadgeClass(a.status))}>
+                            {statusLabel(a.status)}
+                          </span>
+                        </TableCell>
                         <TableCell>{a.bestDuration}</TableCell>
                         <TableCell>{a.likelyDuration}</TableCell>
+                        <TableCell className="text-sm text-slate-600 dark:text-slate-400">
+                          {a.assignedResources?.length ?? 0}
+                        </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
-                            <Dialog open={editId === a.id} onOpenChange={(o) => { if (!o) resetActivityForm(); else openEditActivity(a); }}>
-                              <DialogTrigger asChild>
-                                <Button variant="outline" size="icon" type="button" onClick={() => openEditActivity(a)}><Pencil className="h-4 w-4" /></Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <form onSubmit={handleUpdateActivity}>
-                                  <DialogHeader><DialogTitle>Edit Activity</DialogTitle></DialogHeader>
-                                  <div className="grid gap-4 py-4">
-                                    <div className="grid gap-2">
-                                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Name</label>
-                                      <Input value={formName} onChange={(e) => setFormName(e.target.value)} required />
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                      <div className="grid gap-2">
-                                        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Best duration</label>
-                                        <Input type="number" min={1} value={formBestDuration} onChange={(e) => setFormBestDuration(e.target.value)} />
-                                      </div>
-                                      <div className="grid gap-2">
-                                        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Likely duration</label>
-                                        <Input type="number" min={1} value={formLikelyDuration} onChange={(e) => setFormLikelyDuration(e.target.value)} />
-                                      </div>
-                                    </div>
-                                    {assuranceNotes.length > 0 && (
-                                      <div className="grid gap-2">
-                                        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Assurance note</label>
-                                        <select value={formAssuranceNoteId} onChange={(e) => setFormAssuranceNoteId(e.target.value)} className={cn("flex h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2")}>
-                                          <option value="">None</option>
-                                          {assuranceNotes.map((n) => (
-                                            <option key={n.id} value={n.id}>{n.noteText.slice(0, 50)}{n.noteText.length > 50 ? "…" : ""}</option>
-                                          ))}
-                                        </select>
-                                      </div>
-                                    )}
-                                  </div>
-                                  <DialogFooter>
-                                    <Button type="button" variant="outline" onClick={() => setEditId(null)}>Cancel</Button>
-                                    <Button type="submit" disabled={submitting}>{submitting && <Loader2 className="h-4 w-4 animate-spin" />} Save</Button>
-                                  </DialogFooter>
-                                </form>
-                              </DialogContent>
-                            </Dialog>
-                            <Button variant="outline" size="icon" onClick={() => handleDeleteActivity(a.id)} disabled={deletingId === a.id}>
-                              {deletingId === a.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
+                            <Button variant="outline" size="sm" type="button" onClick={() => openHistory(a.id)}>
+                              History
                             </Button>
+                            {canSubmit ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleSubmitForApproval(a.id)}
+                                disabled={statusUpdatingId === a.id}
+                                title="Submit for approval"
+                              >
+                                {statusUpdatingId === a.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit"}
+                              </Button>
+                            ) : null}
+
+                            {canApproveReject ? (
+                              <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleApprove(a.id)}
+                                  disabled={statusUpdatingId === a.id}
+                                  title="Approve"
+                                >
+                                  {statusUpdatingId === a.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Approve"}
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleReject(a.id)}
+                                  disabled={statusUpdatingId === a.id}
+                                  title="Reject"
+                                >
+                                  {statusUpdatingId === a.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Reject"}
+                                </Button>
+                              </>
+                            ) : null}
+
+                            {hasPermission(selectedProjectRole, "activity", "update") ? (
+                              <Dialog open={editId === a.id} onOpenChange={(o) => { if (!o) resetActivityForm(); else openEditActivity(a); }}>
+                                <DialogTrigger asChild>
+                                  <span title={lockReason ?? undefined}>
+                                    <Button
+                                      variant="outline"
+                                      size="icon"
+                                      type="button"
+                                      onClick={() => openEditActivity(a)}
+                                      disabled={!mayEditThis}
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                    </Button>
+                                  </span>
+                                </DialogTrigger>
+                                <DialogContent>
+                                  <form onSubmit={handleUpdateActivity} className="min-w-0">
+                                    <DialogHeader><DialogTitle>Edit Activity</DialogTitle></DialogHeader>
+                                    <div className="grid min-w-0 gap-4 py-4">
+                                      <div className="grid gap-2">
+                                        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Name</label>
+                                        <Input value={formName} onChange={(e) => setFormName(e.target.value)} required />
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-4">
+                                        <div className="grid gap-2">
+                                          <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Best duration</label>
+                                          <Input type="number" min={1} value={formBestDuration} onChange={(e) => setFormBestDuration(e.target.value)} />
+                                        </div>
+                                        <div className="grid gap-2">
+                                          <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Likely duration</label>
+                                          <Input type="number" min={1} value={formLikelyDuration} onChange={(e) => setFormLikelyDuration(e.target.value)} />
+                                        </div>
+                                      </div>
+                                      {assuranceNotes.length > 0 && (
+                                        <div className="grid gap-2">
+                                          <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Assurance note</label>
+                                          <select value={formAssuranceNoteId} onChange={(e) => setFormAssuranceNoteId(e.target.value)} className={cn("flex h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2")}>
+                                            <option value="">None</option>
+                                            {assuranceNotes.map((n) => (
+                                              <option key={n.id} value={n.id}>{n.noteText.slice(0, 50)}{n.noteText.length > 50 ? "…" : ""}</option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                      )}
+                                      <ResourceAssignmentsEditor
+                                        entries={rateCardEntries}
+                                        value={formResourceDrafts}
+                                        onChange={setFormResourceDrafts}
+                                        disabled={submitting}
+                                      />
+                                    </div>
+                                    <DialogFooter>
+                                      <Button type="button" variant="outline" onClick={() => setEditId(null)}>Cancel</Button>
+                                      <Button type="submit" disabled={submitting}>{submitting && <Loader2 className="h-4 w-4 animate-spin" />} Save</Button>
+                                    </DialogFooter>
+                                  </form>
+                                </DialogContent>
+                              </Dialog>
+                            ) : null}
+                            {mayDeleteByRole ? (
+                              <span title={deleteReason ?? undefined}>
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  onClick={() => handleDeleteActivity(a.id)}
+                                  disabled={deletingId === a.id || !mayDeleteThis}
+                                >
+                                  {deletingId === a.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
+                                </Button>
+                              </span>
+                            ) : null}
                           </div>
                         </TableCell>
                       </TableRow>
+                        );
+                      })()
                     ))}
                   </TableBody>
                 </Table>
@@ -513,9 +836,11 @@ export default function ActivitiesPage() {
                 <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{relationships.length} relationship{relationships.length !== 1 ? "s" : ""}</p>
               </div>
               <Dialog open={relCreateOpen} onOpenChange={(o) => { setRelCreateOpen(o); if (!o) resetRelForm(); }}>
-                <DialogTrigger asChild>
-                  <Button disabled={activities.length < 2}><Plus className="h-4 w-4" /> Add Relationship</Button>
-                </DialogTrigger>
+                {mayEditByRole ? (
+                  <DialogTrigger asChild>
+                    <Button disabled={activities.length < 2}><Plus className="h-4 w-4" /> Add Relationship</Button>
+                  </DialogTrigger>
+                ) : null}
                 <DialogContent>
                   <form onSubmit={handleCreateRelationship}>
                     <DialogHeader><DialogTitle>Create Relationship</DialogTitle></DialogHeader>
@@ -583,9 +908,11 @@ export default function ActivitiesPage() {
                         <TableCell>{r.relationshipType}</TableCell>
                         <TableCell>{r.lag}</TableCell>
                         <TableCell className="text-right">
-                          <Button variant="outline" size="icon" onClick={() => handleDeleteRelationship(r.id)} disabled={deletingRelId === r.id}>
-                            {deletingRelId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
-                          </Button>
+                          {mayDeleteRelationshipByRole ? (
+                            <Button variant="outline" size="icon" onClick={() => handleDeleteRelationship(r.id)} disabled={deletingRelId === r.id}>
+                              {deletingRelId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
+                            </Button>
+                          ) : null}
                         </TableCell>
                       </TableRow>
                     ))}

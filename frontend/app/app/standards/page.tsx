@@ -24,8 +24,15 @@ import {
 } from "@/components/ui/table";
 import { standardsApi, assuranceNotesApi, type Standard, type AssuranceNote, getApiErrorMessage } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useProject } from "@/contexts/project-context";
+import { hasPermission } from "@/lib/project-permissions";
 
 export default function StandardsPage() {
+  const { selectedProjectId, selectedProjectRole } = useProject();
+  const mayEdit = hasPermission(selectedProjectRole, "standard", "update");
+  const mayDelete = hasPermission(selectedProjectRole, "standard", "delete");
+  const mayEditNotes = hasPermission(selectedProjectRole, "assuranceNote", "create");
+  const mayDeleteNotes = hasPermission(selectedProjectRole, "assuranceNote", "delete");
   const [standards, setStandards] = useState<Standard[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
@@ -46,7 +53,11 @@ export default function StandardsPage() {
   const fetchStandards = async () => {
     setLoading(true);
     try {
-      const { data } = await standardsApi.list();
+      if (!selectedProjectId) {
+        setStandards([]);
+        return;
+      }
+      const { data } = await standardsApi.list(selectedProjectId);
       setStandards(data);
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err) || "Failed to load standards");
@@ -73,7 +84,7 @@ export default function StandardsPage() {
 
   useEffect(() => {
     fetchStandards();
-  }, []);
+  }, [selectedProjectId]);
 
   useEffect(() => {
     if (standards.length > 0 && !notesStandardId) setNotesStandardId(standards[0].id);
@@ -99,6 +110,7 @@ export default function StandardsPage() {
     setSubmitting(true);
     try {
       await standardsApi.create({
+        projectId: selectedProjectId!,
         name: formName.trim(),
         description: formDescription.trim() || undefined,
       });
@@ -193,62 +205,64 @@ export default function StandardsPage() {
             Create and manage scheduling standards.
           </p>
         </div>
-        <Dialog open={createOpen} onOpenChange={(open) => {
-          setCreateOpen(open);
-          if (!open) resetForm();
-        }}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4" />
-              Create Standard
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <form onSubmit={handleCreate}>
-              <DialogHeader>
-                <DialogTitle>Create Standard</DialogTitle>
-              </DialogHeader>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <label htmlFor="create-name" className="text-sm font-medium text-slate-700">
-                    Name
-                  </label>
-                  <Input
-                    id="create-name"
-                    value={formName}
-                    onChange={(e) => setFormName(e.target.value)}
-                    placeholder="Standard name"
-                    required
-                  />
+        {mayEdit ? (
+          <Dialog open={createOpen} onOpenChange={(open) => {
+            setCreateOpen(open);
+            if (!open) resetForm();
+          }}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="h-4 w-4" />
+                Create Standard
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <form onSubmit={handleCreate}>
+                <DialogHeader>
+                  <DialogTitle>Create Standard</DialogTitle>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <label htmlFor="create-name" className="text-sm font-medium text-slate-700">
+                      Name
+                    </label>
+                    <Input
+                      id="create-name"
+                      value={formName}
+                      onChange={(e) => setFormName(e.target.value)}
+                      placeholder="Standard name"
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <label htmlFor="create-desc" className="text-sm font-medium text-slate-700">
+                      Description
+                    </label>
+                    <Input
+                      id="create-desc"
+                      value={formDescription}
+                      onChange={(e) => setFormDescription(e.target.value)}
+                      placeholder="Optional description"
+                    />
+                  </div>
                 </div>
-                <div className="grid gap-2">
-                  <label htmlFor="create-desc" className="text-sm font-medium text-slate-700">
-                    Description
-                  </label>
-                  <Input
-                    id="create-desc"
-                    value={formDescription}
-                    onChange={(e) => setFormDescription(e.target.value)}
-                    placeholder="Optional description"
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setCreateOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={submitting}>
-                  {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                  Create
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setCreateOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={submitting}>
+                    {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Create
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        ) : null}
       </div>
 
       <Card>
@@ -285,81 +299,85 @@ export default function StandardsPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Dialog
-                          open={editId === s.id}
-                          onOpenChange={(open) => {
-                            if (!open) resetForm();
-                            else openEdit(s);
-                          }}
-                        >
-                          <DialogTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              type="button"
-                              onClick={() => openEdit(s)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent>
-                            <form onSubmit={handleUpdate}>
-                              <DialogHeader>
-                                <DialogTitle>Edit Standard</DialogTitle>
-                              </DialogHeader>
-                              <div className="grid gap-4 py-4">
-                                <div className="grid gap-2">
-                                  <label htmlFor="edit-name" className="text-sm font-medium text-slate-700">
-                                    Name
-                                  </label>
-                                  <Input
-                                    id="edit-name"
-                                    value={formName}
-                                    onChange={(e) => setFormName(e.target.value)}
-                                    placeholder="Standard name"
-                                    required
-                                  />
+                        {mayEdit ? (
+                          <Dialog
+                            open={editId === s.id}
+                            onOpenChange={(open) => {
+                              if (!open) resetForm();
+                              else openEdit(s);
+                            }}
+                          >
+                            <DialogTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                type="button"
+                                onClick={() => openEdit(s)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <form onSubmit={handleUpdate}>
+                                <DialogHeader>
+                                  <DialogTitle>Edit Standard</DialogTitle>
+                                </DialogHeader>
+                                <div className="grid gap-4 py-4">
+                                  <div className="grid gap-2">
+                                    <label htmlFor="edit-name" className="text-sm font-medium text-slate-700">
+                                      Name
+                                    </label>
+                                    <Input
+                                      id="edit-name"
+                                      value={formName}
+                                      onChange={(e) => setFormName(e.target.value)}
+                                      placeholder="Standard name"
+                                      required
+                                    />
+                                  </div>
+                                  <div className="grid gap-2">
+                                    <label htmlFor="edit-desc" className="text-sm font-medium text-slate-700">
+                                      Description
+                                    </label>
+                                    <Input
+                                      id="edit-desc"
+                                      value={formDescription}
+                                      onChange={(e) => setFormDescription(e.target.value)}
+                                      placeholder="Optional description"
+                                    />
+                                  </div>
                                 </div>
-                                <div className="grid gap-2">
-                                  <label htmlFor="edit-desc" className="text-sm font-medium text-slate-700">
-                                    Description
-                                  </label>
-                                  <Input
-                                    id="edit-desc"
-                                    value={formDescription}
-                                    onChange={(e) => setFormDescription(e.target.value)}
-                                    placeholder="Optional description"
-                                  />
-                                </div>
-                              </div>
-                              <DialogFooter>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  onClick={() => setEditId(null)}
-                                >
-                                  Cancel
-                                </Button>
-                                <Button type="submit" disabled={submitting}>
-                                  {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                                  Save
-                                </Button>
-                              </DialogFooter>
-                            </form>
-                          </DialogContent>
-                        </Dialog>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => handleDelete(s.id)}
-                          disabled={deletingId === s.id}
-                        >
-                          {deletingId === s.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-4 w-4 text-red-600" />
-                          )}
-                        </Button>
+                                <DialogFooter>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => setEditId(null)}
+                                  >
+                                    Cancel
+                                  </Button>
+                                  <Button type="submit" disabled={submitting}>
+                                    {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                                    Save
+                                  </Button>
+                                </DialogFooter>
+                              </form>
+                            </DialogContent>
+                          </Dialog>
+                        ) : null}
+                        {mayDelete ? (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => handleDelete(s.id)}
+                            disabled={deletingId === s.id}
+                          >
+                            {deletingId === s.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4 text-red-600" />
+                            )}
+                          </Button>
+                        ) : null}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -380,9 +398,11 @@ export default function StandardsPage() {
               </p>
             </div>
             <Dialog open={noteDialogOpen} onOpenChange={(o) => { setNoteDialogOpen(o); if (!o) setFormNoteText(""); }}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm">Add note</Button>
-              </DialogTrigger>
+              {mayEditNotes ? (
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm">Add note</Button>
+                </DialogTrigger>
+              ) : null}
               <DialogContent>
                 <form onSubmit={handleCreateNote}>
                   <DialogHeader><DialogTitle>Add assurance note</DialogTitle></DialogHeader>
@@ -444,14 +464,16 @@ export default function StandardsPage() {
                     <TableRow key={n.id}>
                       <TableCell className="text-slate-700 dark:text-slate-200">{n.noteText}</TableCell>
                       <TableCell className="text-right">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() => handleDeleteNote(n.id)}
-                          disabled={deletingNoteId === n.id}
-                        >
-                          {deletingNoteId === n.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
-                        </Button>
+                        {mayDeleteNotes ? (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => handleDeleteNote(n.id)}
+                            disabled={deletingNoteId === n.id}
+                          >
+                            {deletingNoteId === n.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
+                          </Button>
+                        ) : null}
                       </TableCell>
                     </TableRow>
                   ))}

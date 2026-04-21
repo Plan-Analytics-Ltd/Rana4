@@ -104,9 +104,24 @@ async function main() {
     failed++;
   } else log("GET /fragnets/:id", true);
 
+  r = await request("POST", "/deliverables", {
+    fragnetId,
+    name: "Test Deliverable",
+    bestDuration: 1,
+    likelyDuration: 1,
+  });
+  if (!r.ok || !r.data?.id) {
+    log("POST /deliverables (for activities)", false, r.status + " " + JSON.stringify(r.data));
+    failed++;
+    process.exit(1);
+  }
+  const deliverableId = r.data.id;
+  log("POST /deliverables (for activities)", true);
+
   // Activities
   r = await request("POST", "/activities", {
     fragnetId,
+    deliverableId,
     activityCode: "A1",
     name: "Activity One",
     bestDuration: 5,
@@ -122,6 +137,7 @@ async function main() {
 
   r = await request("POST", "/activities", {
     fragnetId,
+    deliverableId,
     activityCode: "A2",
     name: "Activity Two",
     bestDuration: 3,
@@ -144,6 +160,30 @@ async function main() {
     log("GET /activities/:id", false, r.status);
     failed++;
   } else log("GET /activities/:id", true);
+
+  r = await request("POST", "/deliverables", {
+    fragnetId,
+    name: "Test Deliverable B",
+    bestDuration: 1,
+    likelyDuration: 1,
+  });
+  const deliverableBId = r.data?.id;
+  if (!r.ok || !deliverableBId) {
+    log("POST /deliverables (B for PUT)", false, r.status + " " + JSON.stringify(r.data));
+    failed++;
+  } else {
+    r = await request("PUT", `/activities/${activity1Id}`, { deliverableId: deliverableBId });
+    if (!r.ok || r.data?.deliverableId !== deliverableBId) {
+      log("PUT /activities/:id (move deliverableId)", false, r.status + " " + JSON.stringify(r.data));
+      failed++;
+    } else log("PUT /activities/:id (move deliverableId)", true);
+
+    r = await request("PUT", `/activities/${activity1Id}`, { deliverableId: "" });
+    if (r.status !== 400) {
+      log("PUT /activities/:id (empty deliverableId) → 400", false, "got " + r.status);
+      failed++;
+    } else log("PUT /activities/:id (empty deliverableId) → 400", true);
+  }
 
   // Relationships
   r = await request("POST", "/relationships", {
@@ -181,6 +221,7 @@ async function main() {
   // Stress test: A1→A2→A3, delete A2, export must not crash (cascade removes relationships)
   r = await request("POST", "/activities", {
     fragnetId,
+    deliverableId,
     activityCode: "A3",
     name: "Activity Three",
     bestDuration: 2,

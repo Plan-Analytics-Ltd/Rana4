@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "ActivityStatus" ADD VALUE 'PENDING_APPROVAL';

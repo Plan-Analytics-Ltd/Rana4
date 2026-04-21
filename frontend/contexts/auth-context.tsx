@@ -9,14 +9,22 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import { authApi, getStoredToken, setStoredToken, type User } from "@/lib/api";
+import { authApi, type User } from "@/lib/api";
+import { getStoredAuthToken, setStoredAuthToken } from "@/lib/auth-storage";
 
 type AuthState = {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, opts?: { redirectTo?: string }) => Promise<void>;
   logout: () => void;
-  register: (email: string, password: string, name?: string) => Promise<void>;
+  register: (
+    email: string,
+    password: string,
+    name?: string,
+    token?: string,
+    joinCode?: string,
+    companyName?: string
+  ) => Promise<void>;
   refreshUser: () => Promise<void>;
 };
 
@@ -28,17 +36,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
 
   const refreshUser = useCallback(async () => {
-    const token = getStoredToken();
-    if (!token) {
-      setUser(null);
-      setLoading(false);
-      return;
-    }
     try {
+      const token = getStoredAuthToken();
+      if (!token) {
+        setUser(null);
+        return;
+      }
       const { data } = await authApi.me();
       setUser(data);
     } catch {
-      setStoredToken(null);
+      setStoredAuthToken(null);
       setUser(null);
     } finally {
       setLoading(false);
@@ -46,34 +53,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const token = getStoredToken();
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-    refreshUser();
+    void refreshUser();
   }, [refreshUser]);
 
   const login = useCallback(
-    async (email: string, password: string) => {
-      const { data } = await authApi.login({ email, password });
-      setStoredToken(data.token);
+    async (email: string, password: string, opts?: { redirectTo?: string }) => {
+      const { data } = await authApi.login({
+        email: email.trim().toLowerCase(),
+        password,
+      });
+      setStoredAuthToken(data.token);
       setUser(data.user);
-      router.push("/app");
+      let dest = (opts?.redirectTo ?? "").trim() || "/app";
+      if (dest !== "/app" && dest !== "/dev") dest = "/app";
+      if (dest === "/dev" && !data.user.devPanelAccess) dest = "/app";
+      router.push(dest);
     },
     [router]
   );
 
   const logout = useCallback(() => {
-    setStoredToken(null);
+    setStoredAuthToken(null);
     setUser(null);
     router.push("/");
   }, [router]);
 
   const register = useCallback(
-    async (email: string, password: string, name?: string) => {
-      const { data } = await authApi.register({ email, password, name });
-      setStoredToken(data.token);
+    async (
+      email: string,
+      password: string,
+      name?: string,
+      token?: string,
+      joinCode?: string,
+      companyName?: string
+    ) => {
+      const { data } = await authApi.register({
+        email: email.trim().toLowerCase(),
+        password,
+        name: name?.trim() || undefined,
+        inviteToken: token?.trim() || undefined,
+        joinCode: joinCode?.trim() || undefined,
+        companyName: companyName?.trim() || undefined,
+      });
+      setStoredAuthToken(data.token);
       setUser(data.user);
       router.push("/app");
     },
@@ -81,9 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <AuthContext.Provider
-      value={{ user, loading, login, logout, register, refreshUser }}
-    >
+    <AuthContext.Provider value={{ user, loading, login, logout, register, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

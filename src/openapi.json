@@ -137,6 +137,7 @@
                 "required": ["fragnetId", "name", "bestDuration", "likelyDuration"],
                 "properties": {
                   "fragnetId": { "type": "string" },
+                  "projectId": { "type": "string", "nullable": true },
                   "name": { "type": "string" },
                   "bestDuration": { "type": "integer", "minimum": 1 },
                   "likelyDuration": { "type": "integer", "minimum": 1 }
@@ -185,6 +186,7 @@
                 "type": "object",
                 "properties": {
                   "fragnetId": { "type": "string" },
+                  "projectId": { "type": "string", "nullable": true },
                   "name": { "type": "string" },
                   "bestDuration": { "type": "integer", "minimum": 1 },
                   "likelyDuration": { "type": "integer", "minimum": 1 }
@@ -283,9 +285,10 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["fragnetId", "activityCode", "name", "bestDuration", "likelyDuration"],
+                "required": ["fragnetId", "deliverableId", "activityCode", "name", "bestDuration", "likelyDuration"],
                 "properties": {
                   "fragnetId": { "type": "string" },
+                  "deliverableId": { "type": "string" },
                   "activityCode": { "type": "string" },
                   "name": { "type": "string" },
                   "bestDuration": { "type": "integer", "minimum": 1 },
@@ -298,7 +301,9 @@
         },
         "responses": {
           "201": { "description": "Created" },
-          "400": { "description": "Invalid input or duplicate activityCode" },
+          "400": {
+            "description": "Invalid input, duplicate activityCode, missing deliverableId, or deliverable not on fragnet"
+          },
           "404": { "description": "Fragnet not found" },
           "500": { "description": "Server error" }
         }
@@ -330,6 +335,7 @@
                 "type": "object",
                 "properties": {
                   "name": { "type": "string" },
+                  "deliverableId": { "type": "string" },
                   "bestDuration": { "type": "integer", "minimum": 1 },
                   "likelyDuration": { "type": "integer", "minimum": 1 },
                   "assuranceNoteId": { "type": "string", "nullable": true }
@@ -340,7 +346,9 @@
         },
         "responses": {
           "200": { "description": "OK" },
-          "400": { "description": "Invalid durations" },
+          "400": {
+            "description": "Invalid durations, empty deliverableId, deliverable not found, or deliverable not on same fragnet"
+          },
           "404": { "description": "Not found" },
           "500": { "description": "Server error" }
         }
@@ -421,7 +429,9 @@
         },
         "responses": {
           "200": { "description": "Excel file (application/vnd.openxmlformats-officedocument.spreadsheetml.sheet)" },
-          "400": { "description": "scenario, projectName or projectId missing or invalid" },
+          "400": {
+            "description": "scenario, projectName or projectId missing/invalid, or WBS export validation failed (e.g. orphan activity / missing deliverable_id)"
+          },
           "404": { "description": "Fragnet not found" },
           "500": { "description": "Server error" }
         }

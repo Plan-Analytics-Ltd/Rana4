@@ -26,15 +26,28 @@ import {
   standardsApi,
   fragnetsApi,
   deliverablesApi,
+  rateCardApi,
   type Deliverable,
   type Standard,
   type Fragnet,
+  type RateCardEntry,
   getApiErrorMessage,
 } from "@/lib/api";
+import { useProject } from "@/contexts/project-context";
+import {
+  ResourceAssignmentsEditor,
+  draftsToPayload,
+  storedToDrafts,
+  type ResourceAssignmentDraft,
+} from "@/components/resource-assignments-editor";
+import { hasPermission } from "@/lib/project-permissions";
 
 type FragnetOption = { id: string; name: string; standardName?: string };
 
 export default function DeliverablesPage() {
+  const { selectedProjectId, selectedProjectRole } = useProject();
+  const mayEdit = hasPermission(selectedProjectRole, "deliverable", "update");
+  const mayDelete = hasPermission(selectedProjectRole, "deliverable", "delete");
   const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
   const [allFragnets, setAllFragnets] = useState<FragnetOption[]>([]);
   const [fragnetNameById, setFragnetNameById] = useState<Record<string, string>>({});
@@ -47,13 +60,21 @@ export default function DeliverablesPage() {
   const [formLikelyDuration, setFormLikelyDuration] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [rateCardEntries, setRateCardEntries] = useState<RateCardEntry[] | null>(null);
+  const [formResourceDrafts, setFormResourceDrafts] = useState<ResourceAssignmentDraft[]>([]);
 
   const loadInitialData = useCallback(async () => {
     setLoading(true);
     try {
+      if (!selectedProjectId) {
+        setDeliverables([]);
+        setAllFragnets([]);
+        setFragnetNameById({});
+        return;
+      }
       const [standardsRes, deliverablesRes] = await Promise.all([
-        standardsApi.list(),
-        deliverablesApi.list(),
+        standardsApi.list(selectedProjectId),
+        deliverablesApi.list(selectedProjectId),
       ]);
       const standards: Standard[] = standardsRes.data;
       const deliverablesList: Deliverable[] = deliverablesRes.data;
@@ -83,11 +104,22 @@ export default function DeliverablesPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedProjectId]);
 
   useEffect(() => {
     loadInitialData();
-  }, [loadInitialData]);
+  }, [loadInitialData, selectedProjectId]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await rateCardApi.get();
+        setRateCardEntries(data.entries);
+      } catch {
+        setRateCardEntries([]);
+      }
+    })();
+  }, []);
 
   const fetchDeliverables = useCallback(() => loadInitialData(), [loadInitialData]);
 
@@ -96,6 +128,7 @@ export default function DeliverablesPage() {
     setFormName("");
     setFormBestDuration("");
     setFormLikelyDuration("");
+    setFormResourceDrafts([]);
     setEditId(null);
     setCreateOpen(false);
   };
@@ -111,10 +144,12 @@ export default function DeliverablesPage() {
     setSubmitting(true);
     try {
       await deliverablesApi.create({
+        projectId: selectedProjectId!,
         ...(formFragnetId.trim() && { fragnetId: formFragnetId.trim() }),
         name: formName.trim(),
         bestDuration: best,
         likelyDuration: likely,
+        assignedResources: draftsToPayload(formResourceDrafts),
       });
       toast.success("Deliverable created");
       resetForm();
@@ -146,6 +181,7 @@ export default function DeliverablesPage() {
         name: formName.trim() || undefined,
         bestDuration: best,
         likelyDuration: likely,
+        assignedResources: draftsToPayload(formResourceDrafts),
       });
       toast.success("Deliverable updated");
       resetForm();
@@ -177,11 +213,13 @@ export default function DeliverablesPage() {
     setFormName(d.name);
     setFormBestDuration(String(d.bestDuration));
     setFormLikelyDuration(String(d.likelyDuration));
+    setFormResourceDrafts(storedToDrafts(d.assignedResources));
   };
 
   const unassignedDeliverables = deliverables.filter((d) => d.fragnetId == null);
   const openCreateUnassigned = () => {
     setFormFragnetId("");
+    setFormResourceDrafts([]);
     setCreateOpen(true);
   };
 
@@ -204,9 +242,11 @@ export default function DeliverablesPage() {
               {unassignedDeliverables.length} deliverable{unassignedDeliverables.length !== 1 ? "s" : ""} not assigned to any fragnet. You can include these in exports from the Export page.
             </p>
           </div>
-          <Button variant="outline" onClick={openCreateUnassigned} disabled={loading}>
-            <Plus className="h-4 w-4" /> Create unassigned deliverable
-          </Button>
+          {mayEdit ? (
+            <Button variant="outline" onClick={openCreateUnassigned} disabled={loading}>
+              <Plus className="h-4 w-4" /> Create unassigned deliverable
+            </Button>
+          ) : null}
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -220,6 +260,7 @@ export default function DeliverablesPage() {
                   <TableHead>Name</TableHead>
                   <TableHead>Best</TableHead>
                   <TableHead>Likely</TableHead>
+                  <TableHead>Res.</TableHead>
                   <TableHead className="w-[120px] text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -229,12 +270,17 @@ export default function DeliverablesPage() {
                     <TableCell className="font-medium">{d.name}</TableCell>
                     <TableCell>{d.bestDuration}</TableCell>
                     <TableCell>{d.likelyDuration}</TableCell>
+                    <TableCell className="text-sm text-slate-600 dark:text-slate-400">{d.assignedResources?.length ?? 0}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Button variant="outline" size="icon" type="button" onClick={() => openEdit(d)}><Pencil className="h-4 w-4" /></Button>
-                        <Button variant="outline" size="icon" onClick={() => handleDelete(d.id)} disabled={deletingId === d.id}>
-                          {deletingId === d.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
-                        </Button>
+                        {mayEdit ? (
+                          <Button variant="outline" size="icon" type="button" onClick={() => openEdit(d)}><Pencil className="h-4 w-4" /></Button>
+                        ) : null}
+                        {mayDelete ? (
+                          <Button variant="outline" size="icon" onClick={() => handleDelete(d.id)} disabled={deletingId === d.id}>
+                            {deletingId === d.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
+                          </Button>
+                        ) : null}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -253,16 +299,25 @@ export default function DeliverablesPage() {
               {deliverables.length} deliverable{deliverables.length !== 1 ? "s" : ""}
             </p>
           </div>
-          <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (!o) resetForm(); }}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="h-4 w-4" /> Create Deliverable
-              </Button>
-            </DialogTrigger>
+          <Dialog
+            open={createOpen}
+            onOpenChange={(o) => {
+              setCreateOpen(o);
+              if (o) setFormResourceDrafts([]);
+              else resetForm();
+            }}
+          >
+            {mayEdit ? (
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="h-4 w-4" /> Create Deliverable
+                </Button>
+              </DialogTrigger>
+            ) : null}
             <DialogContent>
-              <form onSubmit={handleCreate}>
+              <form onSubmit={handleCreate} className="min-w-0">
                 <DialogHeader><DialogTitle>Create Deliverable</DialogTitle></DialogHeader>
-                <div className="grid gap-4 py-4">
+                <div className="grid min-w-0 gap-4 py-4">
                   <div className="grid gap-2">
                     <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Fragnet (optional)</label>
                     <select
@@ -292,6 +347,12 @@ export default function DeliverablesPage() {
                       <Input type="number" min={1} value={formLikelyDuration} onChange={(e) => setFormLikelyDuration(e.target.value)} required />
                     </div>
                   </div>
+                  <ResourceAssignmentsEditor
+                    entries={rateCardEntries}
+                    value={formResourceDrafts}
+                    onChange={setFormResourceDrafts}
+                    disabled={submitting}
+                  />
                 </div>
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
@@ -314,6 +375,7 @@ export default function DeliverablesPage() {
                   <TableHead>Best</TableHead>
                   <TableHead>Likely</TableHead>
                   <TableHead>Fragnet</TableHead>
+                  <TableHead>Res.</TableHead>
                   <TableHead className="w-[120px] text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -324,56 +386,67 @@ export default function DeliverablesPage() {
                     <TableCell>{d.bestDuration}</TableCell>
                     <TableCell>{d.likelyDuration}</TableCell>
                     <TableCell className="text-slate-600 dark:text-slate-400">{d.fragnetId ? (fragnetNameById[d.fragnetId] ?? d.fragnetId) : "—"}</TableCell>
+                    <TableCell className="text-sm text-slate-600 dark:text-slate-400">{d.assignedResources?.length ?? 0}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
-                        <Dialog open={editId === d.id} onOpenChange={(o) => { if (!o) resetForm(); else openEdit(d); }}>
-                          <DialogTrigger asChild>
-                            <Button variant="outline" size="icon" type="button" onClick={() => openEdit(d)}><Pencil className="h-4 w-4" /></Button>
-                          </DialogTrigger>
-                          <DialogContent>
-                            <form onSubmit={handleUpdate}>
-                              <DialogHeader><DialogTitle>Edit Deliverable</DialogTitle></DialogHeader>
-                              <div className="grid gap-4 py-4">
-                                <div className="grid gap-2">
-                                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Fragnet (optional)</label>
-                                  <select
-                                    value={formFragnetId}
-                                    onChange={(e) => setFormFragnetId(e.target.value)}
-                                    className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-950 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                                  >
-                                    <option value="">No fragnet</option>
-                                    {allFragnets.map((f) => (
-                                      <option key={f.id} value={f.id}>
-                                        {f.standardName ? `${f.name} (${f.standardName})` : f.name}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </div>
-                                <div className="grid gap-2">
-                                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Name</label>
-                                  <Input value={formName} onChange={(e) => setFormName(e.target.value)} required />
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
+                        {mayEdit ? (
+                          <Dialog open={editId === d.id} onOpenChange={(o) => { if (!o) resetForm(); else openEdit(d); }}>
+                            <DialogTrigger asChild>
+                              <Button variant="outline" size="icon" type="button" onClick={() => openEdit(d)}><Pencil className="h-4 w-4" /></Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <form onSubmit={handleUpdate} className="min-w-0">
+                                <DialogHeader><DialogTitle>Edit Deliverable</DialogTitle></DialogHeader>
+                                <div className="grid min-w-0 gap-4 py-4">
                                   <div className="grid gap-2">
-                                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Best duration</label>
-                                    <Input type="number" min={1} value={formBestDuration} onChange={(e) => setFormBestDuration(e.target.value)} />
+                                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Fragnet (optional)</label>
+                                    <select
+                                      value={formFragnetId}
+                                      onChange={(e) => setFormFragnetId(e.target.value)}
+                                      className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-950 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                                    >
+                                      <option value="">No fragnet</option>
+                                      {allFragnets.map((f) => (
+                                        <option key={f.id} value={f.id}>
+                                          {f.standardName ? `${f.name} (${f.standardName})` : f.name}
+                                        </option>
+                                      ))}
+                                    </select>
                                   </div>
                                   <div className="grid gap-2">
-                                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Likely duration</label>
-                                    <Input type="number" min={1} value={formLikelyDuration} onChange={(e) => setFormLikelyDuration(e.target.value)} />
+                                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Name</label>
+                                    <Input value={formName} onChange={(e) => setFormName(e.target.value)} required />
                                   </div>
+                                  <div className="grid grid-cols-2 gap-4">
+                                    <div className="grid gap-2">
+                                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Best duration</label>
+                                      <Input type="number" min={1} value={formBestDuration} onChange={(e) => setFormBestDuration(e.target.value)} />
+                                    </div>
+                                    <div className="grid gap-2">
+                                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Likely duration</label>
+                                      <Input type="number" min={1} value={formLikelyDuration} onChange={(e) => setFormLikelyDuration(e.target.value)} />
+                                    </div>
+                                  </div>
+                                  <ResourceAssignmentsEditor
+                                    entries={rateCardEntries}
+                                    value={formResourceDrafts}
+                                    onChange={setFormResourceDrafts}
+                                    disabled={submitting}
+                                  />
                                 </div>
-                              </div>
-                              <DialogFooter>
-                                <Button type="button" variant="outline" onClick={() => setEditId(null)}>Cancel</Button>
-                                <Button type="submit" disabled={submitting}>{submitting && <Loader2 className="h-4 w-4 animate-spin" />} Save</Button>
-                              </DialogFooter>
-                            </form>
-                          </DialogContent>
-                        </Dialog>
-                        <Button variant="outline" size="icon" onClick={() => handleDelete(d.id)} disabled={deletingId === d.id}>
-                          {deletingId === d.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
-                        </Button>
+                                <DialogFooter>
+                                  <Button type="button" variant="outline" onClick={() => setEditId(null)}>Cancel</Button>
+                                  <Button type="submit" disabled={submitting}>{submitting && <Loader2 className="h-4 w-4 animate-spin" />} Save</Button>
+                                </DialogFooter>
+                              </form>
+                            </DialogContent>
+                          </Dialog>
+                        ) : null}
+                        {mayDelete ? (
+                          <Button variant="outline" size="icon" onClick={() => handleDelete(d.id)} disabled={deletingId === d.id}>
+                            {deletingId === d.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
+                          </Button>
+                        ) : null}
                       </div>
                     </TableCell>
                   </TableRow>

@@ -1,33 +1,41 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 import { getApiErrorMessage } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
-export default function LoginPage() {
+function LoginInner() {
   const { user, loading, login } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next")?.trim() || "";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  /** Avoid racing `login()` navigation (e.g. to /dev) with “already signed in → /app”. */
+  const loginSubmitNavigation = useRef(false);
 
   useEffect(() => {
-    if (!loading && user) router.replace("/app");
+    if (!loading && user && !loginSubmitNavigation.current) {
+      router.replace("/app");
+    }
   }, [user, loading, router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     setSubmitting(true);
+    loginSubmitNavigation.current = true;
     try {
-      await login(email, password);
+      await login(email, password, next ? { redirectTo: next } : undefined);
     } catch (err) {
+      loginSubmitNavigation.current = false;
       setError(getApiErrorMessage(err));
     } finally {
       setSubmitting(false);
@@ -47,7 +55,9 @@ export default function LoginPage() {
       <Card className="w-full max-w-sm dark:border-slate-800 dark:bg-slate-900/50">
         <CardHeader className="space-y-1 text-center">
           <CardTitle className="text-xl font-semibold">Sign in</CardTitle>
-          <CardDescription>Enter your email and password to access the platform.</CardDescription>
+          <CardDescription>
+            Use your email and password only. Join codes are for sign up, not for this screen.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -91,10 +101,11 @@ export default function LoginPage() {
             </Button>
           </form>
           <p className="mt-4 text-center text-sm text-slate-500 dark:text-slate-400">
-            Don&apos;t have an account?{" "}
+            Need an account?{" "}
             <Link href="/signup" className="font-medium text-cyan-600 hover:underline dark:text-cyan-400">
               Sign up
-            </Link>
+            </Link>{" "}
+            with a company join code or new company name.
           </p>
         </CardContent>
       </Card>
@@ -104,5 +115,19 @@ export default function LoginPage() {
         </Link>
       </p>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-slate-100 dark:bg-slate-950">
+          <p className="text-sm text-slate-500 dark:text-slate-400">Loading…</p>
+        </div>
+      }
+    >
+      <LoginInner />
+    </Suspense>
   );
 }

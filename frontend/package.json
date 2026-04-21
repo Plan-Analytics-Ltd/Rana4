@@ -3,12 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "db:generate": "npm run db:generate --prefix ..",
+    "db:migrate": "npm run db:migrate --prefix ..",
+    "db:deploy": "npm run db:deploy --prefix .."
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
     "@radix-ui/react-dialog": "^1.1.2",
     "@radix-ui/react-select": "^2.1.2",
     "@radix-ui/react-slot": "^1.1.0",

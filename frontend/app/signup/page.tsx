@@ -1,22 +1,34 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/auth-context";
 import { getApiErrorMessage } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
-export default function SignupPage() {
+function SignupInner() {
   const { user, loading, register } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const inviteToken = searchParams.get("token")?.trim() || "";
+  const joinCodeFromUrl =
+    searchParams.get("joinCode")?.trim() || searchParams.get("code")?.trim() || "";
   const [email, setEmail] = useState("");
+  const [joinCode, setJoinCode] = useState(joinCodeFromUrl);
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [companyName, setCompanyName] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const fromUrl =
+      searchParams.get("joinCode")?.trim() || searchParams.get("code")?.trim() || "";
+    if (fromUrl) setJoinCode(fromUrl);
+  }, [searchParams]);
 
   useEffect(() => {
     if (!loading && user) router.replace("/app");
@@ -31,7 +43,16 @@ export default function SignupPage() {
     }
     setSubmitting(true);
     try {
-      await register(email, password, name.trim() || undefined);
+      const jc = joinCode.trim();
+      const cn = companyName.trim();
+      await register(
+        email,
+        password,
+        name.trim() || undefined,
+        inviteToken || undefined,
+        inviteToken ? undefined : jc || undefined,
+        inviteToken ? undefined : !jc && cn ? cn : undefined
+      );
     } catch (err) {
       setError(getApiErrorMessage(err));
     } finally {
@@ -49,10 +70,26 @@ export default function SignupPage() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-slate-100 px-4 dark:bg-slate-950">
-      <Card className="w-full max-w-sm dark:border-slate-800 dark:bg-slate-900/50">
+      <Card className="w-full max-w-md dark:border-slate-800 dark:bg-slate-900/50">
         <CardHeader className="space-y-1 text-center">
-          <CardTitle className="text-xl font-semibold">Create an account</CardTitle>
-          <CardDescription>Enter your details to get started.</CardDescription>
+          <CardTitle className="text-xl font-semibold">
+            {inviteToken ? "Accept invitation" : "Create an account"}
+          </CardTitle>
+          <CardDescription>
+            {inviteToken ? (
+              "Create your account to join your company."
+            ) : (
+              <>
+                <span className="block font-medium text-slate-700 dark:text-slate-200">
+                  Create a new company or join an existing one with a join code.
+                </span>
+                <span className="mt-1 block text-slate-600 dark:text-slate-400">
+                  Invite link from your admin opens this page with the code filled in. No join code is used when you sign
+                  in later — only email and password.
+                </span>
+              </>
+            )}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -106,6 +143,43 @@ export default function SignupPage() {
                 className="dark:border-slate-700 dark:bg-slate-900"
               />
             </div>
+            {!inviteToken && (
+              <>
+                <div className="space-y-2">
+                  <label htmlFor="companyName" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    New company name <span className="text-slate-400">(optional)</span>
+                  </label>
+                  <Input
+                    id="companyName"
+                    type="text"
+                    placeholder="e.g. Acme Inc — only if you are not using a join code"
+                    value={companyName}
+                    onChange={(e) => setCompanyName(e.target.value)}
+                    autoComplete="organization"
+                    className="dark:border-slate-700 dark:bg-slate-900"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="joinCode" className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Join code <span className="text-slate-400">(optional)</span>
+                  </label>
+                  <Input
+                    id="joinCode"
+                    type="text"
+                    placeholder="From your admin invite link"
+                    value={joinCode}
+                    onChange={(e) => setJoinCode(e.target.value)}
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="font-mono dark:border-slate-700 dark:bg-slate-900"
+                  />
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    If both are filled, the join code is used first. Leave both empty only when using an invitation link
+                    above.
+                  </p>
+                </div>
+              </>
+            )}
             <Button type="submit" className="w-full" disabled={submitting}>
               {submitting ? "Creating account…" : "Sign up"}
             </Button>
@@ -124,5 +198,19 @@ export default function SignupPage() {
         </Link>
       </p>
     </div>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-slate-100 dark:bg-slate-950">
+          <p className="text-sm text-slate-500 dark:text-slate-400">Loading…</p>
+        </div>
+      }
+    >
+      <SignupInner />
+    </Suspense>
   );
 }

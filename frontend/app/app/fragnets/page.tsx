@@ -29,9 +29,14 @@ import {
   type Fragnet,
   getApiErrorMessage,
 } from "@/lib/api";
+import { useProject } from "@/contexts/project-context";
 import { cn } from "@/lib/utils";
+import { hasPermission } from "@/lib/project-permissions";
 
 export default function FragnetsPage() {
+  const { selectedProjectId, selectedProjectRole } = useProject();
+  const mayEdit = hasPermission(selectedProjectRole, "fragnet", "update");
+  const mayDelete = hasPermission(selectedProjectRole, "fragnet", "delete");
   const [standards, setStandards] = useState<Standard[]>([]);
   const [selectedStandardId, setSelectedStandardId] = useState<string>("");
   const [fragnets, setFragnets] = useState<Fragnet[]>([]);
@@ -47,7 +52,12 @@ export default function FragnetsPage() {
   const fetchStandards = async () => {
     setLoadingStandards(true);
     try {
-      const { data } = await standardsApi.list();
+      if (!selectedProjectId) {
+        setStandards([]);
+        setSelectedStandardId("");
+        return;
+      }
+      const { data } = await standardsApi.list(selectedProjectId);
       setStandards(data);
       if (data.length > 0 && !selectedStandardId) {
         setSelectedStandardId(data[0].id);
@@ -78,7 +88,7 @@ export default function FragnetsPage() {
 
   useEffect(() => {
     fetchStandards();
-  }, []);
+  }, [selectedProjectId]);
 
   useEffect(() => {
     fetchFragnets();
@@ -214,12 +224,14 @@ export default function FragnetsPage() {
               </p>
             </div>
             <Dialog open={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) resetForm(); }}>
-              <DialogTrigger asChild>
-                <Button disabled={standards.length === 0}>
-                  <Plus className="h-4 w-4" />
-                  Create Fragnet
-                </Button>
-              </DialogTrigger>
+              {mayEdit ? (
+                <DialogTrigger asChild>
+                  <Button disabled={standards.length === 0}>
+                    <Plus className="h-4 w-4" />
+                    Create Fragnet
+                  </Button>
+                </DialogTrigger>
+              ) : null}
               <DialogContent>
                 <form onSubmit={handleCreate}>
                   <DialogHeader>
@@ -288,59 +300,63 @@ export default function FragnetsPage() {
                       <TableCell className="text-slate-500 dark:text-slate-400">{f.description || "—"}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
-                          <Dialog
-                            open={editId === f.id}
-                            onOpenChange={(open) => { if (!open) resetForm(); else openEdit(f); }}
-                          >
-                            <DialogTrigger asChild>
-                              <Button variant="outline" size="icon" type="button" onClick={() => openEdit(f)}>
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                              <form onSubmit={handleUpdate}>
-                                <DialogHeader>
-                                  <DialogTitle>Edit Fragnet</DialogTitle>
-                                </DialogHeader>
-                                <div className="grid gap-4 py-4">
-                                  <div className="grid gap-2">
-                                    <label htmlFor="edit-name" className="text-sm font-medium text-slate-700">Name</label>
-                                    <Input
-                                      id="edit-name"
-                                      value={formName}
-                                      onChange={(e) => setFormName(e.target.value)}
-                                      placeholder="Fragnet name"
-                                      required
-                                    />
+                          {mayEdit ? (
+                            <Dialog
+                              open={editId === f.id}
+                              onOpenChange={(open) => { if (!open) resetForm(); else openEdit(f); }}
+                            >
+                              <DialogTrigger asChild>
+                                <Button variant="outline" size="icon" type="button" onClick={() => openEdit(f)}>
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent>
+                                <form onSubmit={handleUpdate}>
+                                  <DialogHeader>
+                                    <DialogTitle>Edit Fragnet</DialogTitle>
+                                  </DialogHeader>
+                                  <div className="grid gap-4 py-4">
+                                    <div className="grid gap-2">
+                                      <label htmlFor="edit-name" className="text-sm font-medium text-slate-700">Name</label>
+                                      <Input
+                                        id="edit-name"
+                                        value={formName}
+                                        onChange={(e) => setFormName(e.target.value)}
+                                        placeholder="Fragnet name"
+                                        required
+                                      />
+                                    </div>
+                                    <div className="grid gap-2">
+                                      <label htmlFor="edit-desc" className="text-sm font-medium text-slate-700">Description</label>
+                                      <Input
+                                        id="edit-desc"
+                                        value={formDescription}
+                                        onChange={(e) => setFormDescription(e.target.value)}
+                                        placeholder="Optional description"
+                                      />
+                                    </div>
                                   </div>
-                                  <div className="grid gap-2">
-                                    <label htmlFor="edit-desc" className="text-sm font-medium text-slate-700">Description</label>
-                                    <Input
-                                      id="edit-desc"
-                                      value={formDescription}
-                                      onChange={(e) => setFormDescription(e.target.value)}
-                                      placeholder="Optional description"
-                                    />
-                                  </div>
-                                </div>
-                                <DialogFooter>
-                                  <Button type="button" variant="outline" onClick={() => setEditId(null)}>Cancel</Button>
-                                  <Button type="submit" disabled={submitting}>
-                                    {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                                    Save
-                                  </Button>
-                                </DialogFooter>
-                              </form>
-                            </DialogContent>
-                          </Dialog>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => handleDelete(f.id)}
-                            disabled={deletingId === f.id}
-                          >
-                            {deletingId === f.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
-                          </Button>
+                                  <DialogFooter>
+                                    <Button type="button" variant="outline" onClick={() => setEditId(null)}>Cancel</Button>
+                                    <Button type="submit" disabled={submitting}>
+                                      {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                                      Save
+                                    </Button>
+                                  </DialogFooter>
+                                </form>
+                              </DialogContent>
+                            </Dialog>
+                          ) : null}
+                          {mayDelete ? (
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => handleDelete(f.id)}
+                              disabled={deletingId === f.id}
+                            >
+                              {deletingId === f.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
+                            </Button>
+                          ) : null}
                         </div>
                       </TableCell>
                     </TableRow>

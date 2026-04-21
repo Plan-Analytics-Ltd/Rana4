@@ -1,0 +1,207 @@
+import type { ProjectMembership } from "../services/projectAccess.service.js";
+
+export type ProjectRole = ProjectMembership["role"];
+export type ProjectEntity =
+  | "activity"
+  | "relationship"
+  | "deliverable"
+  | "standard"
+  | "fragnet"
+  | "assuranceNote"
+  | "auditLog"
+  | "rateCard"
+  | "invitation"
+  | "projectMember";
+
+export type ProjectAction = "read" | "create" | "update" | "delete" | "manageMembers";
+
+type PermissionMap = Record<ProjectEntity, Record<ProjectAction, readonly ProjectRole[]>>;
+
+export type PermissionCheckResult =
+  | { ok: true }
+  | { ok: false; kind: "role"; message: "Forbidden" }
+  | { ok: false; kind: "rule"; message: string };
+
+export const permissions: PermissionMap = {
+  activity: {
+    read: ["VIEWER", "EDITOR", "ADMIN"],
+    create: ["EDITOR", "ADMIN"],
+    update: ["EDITOR", "ADMIN"],
+    delete: ["ADMIN"],
+    manageMembers: ["ADMIN"],
+  },
+  relationship: {
+    read: ["VIEWER", "EDITOR", "ADMIN"],
+    create: ["EDITOR", "ADMIN"],
+    update: ["EDITOR", "ADMIN"],
+    delete: ["ADMIN"],
+    manageMembers: ["ADMIN"],
+  },
+  deliverable: {
+    read: ["VIEWER", "EDITOR", "ADMIN"],
+    create: ["EDITOR", "ADMIN"],
+    update: ["EDITOR", "ADMIN"],
+    delete: ["ADMIN"],
+    manageMembers: ["ADMIN"],
+  },
+  standard: {
+    read: ["VIEWER", "EDITOR", "ADMIN"],
+    create: ["EDITOR", "ADMIN"],
+    update: ["EDITOR", "ADMIN"],
+    delete: ["ADMIN"],
+    manageMembers: ["ADMIN"],
+  },
+  fragnet: {
+    read: ["VIEWER", "EDITOR", "ADMIN"],
+    create: ["EDITOR", "ADMIN"],
+    update: ["EDITOR", "ADMIN"],
+    delete: ["ADMIN"],
+    manageMembers: ["ADMIN"],
+  },
+  assuranceNote: {
+    read: ["VIEWER", "EDITOR", "ADMIN"],
+    create: ["EDITOR", "ADMIN"],
+    update: ["EDITOR", "ADMIN"],
+    delete: ["ADMIN"],
+    manageMembers: ["ADMIN"],
+  },
+  auditLog: {
+    read: ["ADMIN"],
+    create: ["ADMIN"],
+    update: ["ADMIN"],
+    delete: ["ADMIN"],
+    manageMembers: ["ADMIN"],
+  },
+  rateCard: {
+    read: ["VIEWER", "EDITOR", "ADMIN"],
+    create: ["ADMIN"],
+    update: ["ADMIN"],
+    delete: ["ADMIN"],
+    manageMembers: ["ADMIN"],
+  },
+  invitation: {
+    read: ["ADMIN"],
+    create: ["ADMIN"],
+    update: ["ADMIN"],
+    delete: ["ADMIN"],
+    manageMembers: ["ADMIN"],
+  },
+  projectMember: {
+    read: ["ADMIN"],
+    create: ["ADMIN"],
+    update: ["ADMIN"],
+    delete: ["ADMIN"],
+    manageMembers: ["ADMIN"],
+  },
+} as const;
+
+type RuleFn = (context: unknown) => boolean | { ok: boolean; message?: string };
+type RulesMap = Partial<Record<ProjectEntity, Partial<Record<ProjectAction, RuleFn>>>>;
+
+// Contextual business rules layered on top of role-based permissions.
+// Keep these simple and explicit; controllers should pass only the minimum context required.
+export const rules: RulesMap = {
+  activity: {
+    update: (ctx) => {
+      const c = ctx as { status?: string; operation?: "edit" | "transition" | "rollback" } | null | undefined;
+      const status = c?.status;
+      const op = c?.operation ?? "edit";
+
+      if (op === "transition") return { ok: true };
+
+      // Edits/rollbacks require DRAFT; no direct edits in approval/active phases.
+      if (status !== "DRAFT") {
+        return status === "PENDING_APPROVAL"
+          ? { ok: false, message: "This activity is pending approval and cannot be edited" }
+          : status === "ACTIVE"
+            ? { ok: false, message: "Active activities cannot be edited; make changes in DRAFT and submit for approval" }
+            : { ok: false, message: "This activity is locked and cannot be edited" };
+      }
+      return { ok: true };
+    },
+    delete: (ctx) => {
+      const c = ctx as { status?: string; hasDependencies?: boolean } | null | undefined;
+      if (c?.status !== "DRAFT") {
+        return c?.status === "PENDING_APPROVAL"
+          ? { ok: false, message: "This activity is pending approval and cannot be deleted" }
+          : c?.status === "ACTIVE"
+            ? { ok: false, message: "Active activities cannot be deleted" }
+            : { ok: false, message: "This activity is locked and cannot be deleted" };
+      }
+      const hasDependencies = Boolean(c?.hasDependencies);
+      return hasDependencies ? { ok: false, message: "This activity has dependencies and cannot be deleted" } : { ok: true };
+    },
+  },
+  projectMember: {
+    delete: (ctx) => {
+      const c = ctx as { isLastAdmin?: boolean } | null | undefined;
+      return c?.isLastAdmin
+        ? { ok: false, message: "Cannot remove the last project admin" }
+        : { ok: true };
+    },
+    update: (ctx) => {
+      const c = ctx as { isLastAdmin?: boolean; nextRole?: ProjectRole } | null | undefined;
+      // Only block demotions/removals of the last admin.
+      if (c?.isLastAdmin && c?.nextRole && c.nextRole !== "ADMIN") {
+        return { ok: false, message: "Cannot demote the last project admin" };
+      }
+      return { ok: true };
+    },
+  },
+};
+
+function requireDefined(entity: ProjectEntity, action: ProjectAction): readonly ProjectRole[] {
+  const entityDef = (permissions as any)[entity] as Record<string, readonly ProjectRole[]> | undefined;
+  if (!entityDef) {
+    throw new Error(`Permission not defined for entity/action: ${String(entity)}.${String(action)}`);
+  }
+  const allowed = (entityDef as any)[action] as readonly ProjectRole[] | undefined;
+  if (!allowed) {
+    throw new Error(`Permission not defined for entity/action: ${String(entity)}.${String(action)}`);
+  }
+  return allowed;
+}
+
+export function hasPermission(role: ProjectRole, entity: ProjectEntity, action: ProjectAction): boolean {
+  return requireDefined(entity, action).includes(role);
+}
+
+export function checkPermission(
+  role: ProjectRole,
+  entity: ProjectEntity,
+  action: ProjectAction,
+  context?: unknown
+): PermissionCheckResult {
+  const allowedRoles = requireDefined(entity, action);
+  if (!allowedRoles.includes(role)) {
+    return { ok: false, kind: "role", message: "Forbidden" };
+  }
+
+  const rule = rules?.[entity]?.[action];
+  if (!rule) return { ok: true };
+
+  const outcome = rule(context);
+  const ok = typeof outcome === "boolean" ? outcome : Boolean(outcome.ok);
+  if (ok) return { ok: true };
+  const message =
+    typeof outcome === "object" && outcome && "message" in outcome && typeof (outcome as any).message === "string"
+      ? String((outcome as any).message)
+      : "Action not allowed in current state";
+  return { ok: false, kind: "rule", message };
+}
+
+export function requirePermission(
+  role: ProjectRole,
+  entity: ProjectEntity,
+  action: ProjectAction,
+  context?: unknown
+): void {
+  const result = checkPermission(role, entity, action, context);
+  if (result.ok) return;
+
+  const err = new Error(result.message);
+  (err as any).status = result.kind === "role" ? 403 : 409;
+  (err as any).code = result.kind === "role" ? "FORBIDDEN" : "ACTION_NOT_ALLOWED";
+  throw err;
+}
+
