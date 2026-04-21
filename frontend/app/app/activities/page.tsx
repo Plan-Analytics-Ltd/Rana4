@@ -49,7 +49,6 @@ import {
 import { cn } from "@/lib/utils";
 import { useProject } from "@/contexts/project-context";
 import { checkPermission, hasPermission } from "@/lib/project-permissions";
-import { allowedTransitions, type ActivityStatus } from "@/lib/activity-workflow";
 
 const RELATIONSHIP_TYPES: RelationshipType[] = ["FS", "SS", "FF", "SF"];
 
@@ -88,13 +87,6 @@ export default function ActivitiesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletingRelId, setDeletingRelId] = useState<string | null>(null);
-  const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
-  const [historyForId, setHistoryForId] = useState<string | null>(null);
-  const [historyVersions, setHistoryVersions] = useState<
-    Array<{ version: number; createdAt: string; action: string; userId: string | null; details: any; state: Activity }> | null
-  >(null);
-  const [loadingHistory, setLoadingHistory] = useState(false);
-  const [rollingBack, setRollingBack] = useState<number | null>(null);
   const [rateCardEntries, setRateCardEntries] = useState<RateCardEntry[] | null>(null);
   const [formResourceDrafts, setFormResourceDrafts] = useState<ResourceAssignmentDraft[]>([]);
 
@@ -355,76 +347,6 @@ export default function ActivitiesPage() {
     return "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200";
   };
 
-  const handleSubmitForApproval = async (activityId: string) => {
-    setStatusUpdatingId(activityId);
-    try {
-      await activitiesApi.submit(activityId);
-      toast.success("Submitted for approval");
-      await fetchActivities();
-    } catch (err: unknown) {
-      toast.error(getApiErrorMessage(err) || "Failed to submit for approval");
-    } finally {
-      setStatusUpdatingId(null);
-    }
-  };
-
-  const handleApprove = async (activityId: string) => {
-    setStatusUpdatingId(activityId);
-    try {
-      await activitiesApi.approve(activityId);
-      toast.success("Approved");
-      await fetchActivities();
-    } catch (err: unknown) {
-      toast.error(getApiErrorMessage(err) || "Failed to approve");
-    } finally {
-      setStatusUpdatingId(null);
-    }
-  };
-
-  const handleReject = async (activityId: string) => {
-    setStatusUpdatingId(activityId);
-    try {
-      await activitiesApi.reject(activityId);
-      toast.success("Rejected");
-      await fetchActivities();
-    } catch (err: unknown) {
-      toast.error(getApiErrorMessage(err) || "Failed to reject");
-    } finally {
-      setStatusUpdatingId(null);
-    }
-  };
-
-  const openHistory = async (activityId: string) => {
-    setHistoryForId(activityId);
-    setLoadingHistory(true);
-    setHistoryVersions(null);
-    try {
-      const { data } = await activitiesApi.getVersions(activityId);
-      setHistoryVersions(data.versions);
-    } catch (err: unknown) {
-      toast.error(getApiErrorMessage(err) || "Failed to load history");
-      setHistoryForId(null);
-    } finally {
-      setLoadingHistory(false);
-    }
-  };
-
-  const doRollback = async (activityId: string, targetVersion: number) => {
-    if (selectedProjectRole !== "ADMIN") return;
-    if (!confirm(`Rollback activity to version ${targetVersion}? This will create a new version.`)) return;
-    setRollingBack(targetVersion);
-    try {
-      const { data } = await activitiesApi.rollback(activityId, targetVersion);
-      toast.success(`Rolled back to version ${data.toVersion}`);
-      await fetchActivities();
-      await openHistory(activityId);
-    } catch (err: unknown) {
-      toast.error(getApiErrorMessage(err) || "Rollback failed");
-    } finally {
-      setRollingBack(null);
-    }
-  };
-
   const handleCreateRelationship = async (e: React.FormEvent) => {
     e.preventDefault();
     const lag = parseInt(relLag, 10) || 0;
@@ -544,96 +466,6 @@ export default function ActivitiesPage() {
 
       {selectedFragnetId && (
         <>
-          <Dialog
-            open={historyForId !== null}
-            onOpenChange={(o) => {
-              if (!o) {
-                setHistoryForId(null);
-                setHistoryVersions(null);
-              }
-            }}
-          >
-            <DialogContent className="max-w-3xl">
-              <DialogHeader>
-                <DialogTitle>Activity history</DialogTitle>
-              </DialogHeader>
-              {loadingHistory ? (
-                <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading…
-                </div>
-              ) : !historyVersions ? (
-                <p className="text-sm text-slate-500 dark:text-slate-400">No history available.</p>
-              ) : (
-                <div className="space-y-3">
-                  <div className="text-xs text-slate-500 dark:text-slate-400">
-                    Versions are reconstructed from audit diffs. Rollback edits fields but does not change workflow status.
-                  </div>
-                  <div className="max-h-[60vh] overflow-auto rounded-md border border-slate-200 dark:border-slate-800">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Version</TableHead>
-                          <TableHead>When</TableHead>
-                          <TableHead>Action</TableHead>
-                          <TableHead>User</TableHead>
-                          <TableHead>Summary</TableHead>
-                          <TableHead className="text-right">Rollback</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {historyVersions.map((v) => {
-                          const changes =
-                            v.details && typeof v.details === "object" && (v.details as any).type === "update"
-                              ? Object.keys((v.details as any).changes ?? {})
-                              : [];
-                          const rollbackMeta =
-                            v.details && typeof v.details === "object" && (v.details as any).type === "activity.rollback"
-                              ? (v.details as any)
-                              : null;
-                          const summary =
-                            rollbackMeta
-                              ? `rollback ${rollbackMeta.fromVersion} → ${rollbackMeta.toVersion}`
-                              : changes.length > 0
-                                ? changes.join(", ")
-                                : `status=${v.state.status}`;
-
-                          return (
-                            <TableRow key={v.version}>
-                              <TableCell className="font-mono">v{v.version}</TableCell>
-                              <TableCell className="text-xs text-slate-600 dark:text-slate-400">{new Date(v.createdAt).toLocaleString()}</TableCell>
-                              <TableCell className="font-mono text-xs">{v.action}</TableCell>
-                              <TableCell className="font-mono text-xs">{v.userId ?? "-"}</TableCell>
-                              <TableCell className="text-xs">{summary}</TableCell>
-                              <TableCell className="text-right">
-                                {selectedProjectRole === "ADMIN" && historyForId ? (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    disabled={rollingBack === v.version}
-                                    onClick={() => doRollback(historyForId, v.version)}
-                                  >
-                                    {rollingBack === v.version ? "Rolling back…" : "Rollback"}
-                                  </Button>
-                                ) : (
-                                  <span className="text-xs text-slate-400">-</span>
-                                )}
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </div>
-              )}
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setHistoryForId(null)}>
-                  Close
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-
           <Card>
             <CardHeader className="flex flex-row items-start justify-between space-y-0">
               <div>
@@ -759,8 +591,6 @@ export default function ActivitiesPage() {
                         const mayDeleteThis = deleteCheck.ok;
                         const lockReason = !editCheck.ok && editCheck.kind === "rule" ? editCheck.message : null;
                         const deleteReason = !deleteCheck.ok && deleteCheck.kind === "rule" ? deleteCheck.message : null;
-                        const canSubmit = (selectedProjectRole === "EDITOR" || selectedProjectRole === "ADMIN") && a.status === "DRAFT";
-                        const canApproveReject = selectedProjectRole === "ADMIN" && a.status === "PENDING_APPROVAL";
                         return (
                       <TableRow key={a.id}>
                         <TableCell className="font-medium">{a.activityCode}</TableCell>
@@ -777,44 +607,6 @@ export default function ActivitiesPage() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
-                            <Button variant="outline" size="sm" type="button" onClick={() => openHistory(a.id)}>
-                              History
-                            </Button>
-                            {canSubmit ? (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleSubmitForApproval(a.id)}
-                                disabled={statusUpdatingId === a.id}
-                                title="Submit for approval"
-                              >
-                                {statusUpdatingId === a.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Submit"}
-                              </Button>
-                            ) : null}
-
-                            {canApproveReject ? (
-                              <>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleApprove(a.id)}
-                                  disabled={statusUpdatingId === a.id}
-                                  title="Approve"
-                                >
-                                  {statusUpdatingId === a.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Approve"}
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleReject(a.id)}
-                                  disabled={statusUpdatingId === a.id}
-                                  title="Reject"
-                                >
-                                  {statusUpdatingId === a.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Reject"}
-                                </Button>
-                              </>
-                            ) : null}
-
                             {hasPermission(selectedProjectRole, "activity", "update") ? (
                               <Dialog open={editId === a.id} onOpenChange={(o) => { if (!o) resetActivityForm(); else openEditActivity(a); }}>
                                 <DialogTrigger asChild>
