@@ -156,6 +156,11 @@ export async function approveRequest(req: AuthRequest, res: Response): Promise<v
         where: { id: row.userId },
         data: { role: "ADMIN" },
       });
+      // When a user becomes a company ADMIN, reflect that in their project roles too.
+      await tx.projectMember.updateMany({
+        where: { userId: row.userId, project: { companyId: row.user.companyId } },
+        data: { role: "ADMIN" },
+      });
       await tx.adminRequest.update({
         where: { id: row.id },
         data: { status: "APPROVED" },
