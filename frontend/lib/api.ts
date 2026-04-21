@@ -266,6 +266,7 @@ export const activitiesApi = {
   get: (id: string) => api.get<Activity>(`/activities/${id}`),
   create: (data: {
     fragnetId: string;
+    deliverableId: string;
     activityCode: string;
     name: string;
     bestDuration: number;
@@ -276,6 +277,7 @@ export const activitiesApi = {
   update: (id: string, data: {
     activityCode?: string;
     name?: string;
+    deliverableId?: string;
     bestDuration?: number;
     likelyDuration?: number;
     assuranceNoteId?: string | null;
