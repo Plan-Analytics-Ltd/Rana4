@@ -3,6 +3,7 @@ import type { Project } from "./api";
 export type ProjectRole = NonNullable<Project["myRole"]>;
 
 export type ProjectEntity =
+  | "project"
   | "activity"
   | "relationship"
   | "deliverable"
@@ -24,50 +25,57 @@ export type PermissionCheckResult =
   | { ok: false; kind: "rule"; message: string };
 
 export const permissions: PermissionMap = {
+  project: {
+    read: ["VIEWER", "EDITOR", "ADMIN"],
+    create: ["EDITOR", "ADMIN"],
+    update: ["EDITOR", "ADMIN"],
+    delete: ["EDITOR", "ADMIN"],
+    manageMembers: ["ADMIN"],
+  },
   activity: {
     read: ["VIEWER", "EDITOR", "ADMIN"],
     create: ["EDITOR", "ADMIN"],
     update: ["EDITOR", "ADMIN"],
-    delete: ["ADMIN"],
+    delete: ["EDITOR", "ADMIN"],
     manageMembers: ["ADMIN"],
   },
   relationship: {
     read: ["VIEWER", "EDITOR", "ADMIN"],
     create: ["EDITOR", "ADMIN"],
     update: ["EDITOR", "ADMIN"],
-    delete: ["ADMIN"],
+    delete: ["EDITOR", "ADMIN"],
     manageMembers: ["ADMIN"],
   },
   deliverable: {
     read: ["VIEWER", "EDITOR", "ADMIN"],
     create: ["EDITOR", "ADMIN"],
     update: ["EDITOR", "ADMIN"],
-    delete: ["ADMIN"],
+    delete: ["EDITOR", "ADMIN"],
     manageMembers: ["ADMIN"],
   },
   standard: {
     read: ["VIEWER", "EDITOR", "ADMIN"],
     create: ["EDITOR", "ADMIN"],
     update: ["EDITOR", "ADMIN"],
-    delete: ["ADMIN"],
+    delete: ["EDITOR", "ADMIN"],
     manageMembers: ["ADMIN"],
   },
   fragnet: {
     read: ["VIEWER", "EDITOR", "ADMIN"],
     create: ["EDITOR", "ADMIN"],
     update: ["EDITOR", "ADMIN"],
-    delete: ["ADMIN"],
+    delete: ["EDITOR", "ADMIN"],
     manageMembers: ["ADMIN"],
   },
   assuranceNote: {
     read: ["VIEWER", "EDITOR", "ADMIN"],
     create: ["EDITOR", "ADMIN"],
     update: ["EDITOR", "ADMIN"],
-    delete: ["ADMIN"],
+    delete: ["EDITOR", "ADMIN"],
     manageMembers: ["ADMIN"],
   },
   auditLog: {
-    read: ["VIEWER", "EDITOR", "ADMIN"],
+    read: ["ADMIN"],
     create: ["ADMIN"],
     update: ["ADMIN"],
     delete: ["ADMIN"],
@@ -75,9 +83,9 @@ export const permissions: PermissionMap = {
   },
   rateCard: {
     read: ["VIEWER", "EDITOR", "ADMIN"],
-    create: ["ADMIN"],
-    update: ["ADMIN"],
-    delete: ["ADMIN"],
+    create: ["EDITOR", "ADMIN"],
+    update: ["EDITOR", "ADMIN"],
+    delete: ["EDITOR", "ADMIN"],
     manageMembers: ["ADMIN"],
   },
   invitation: {

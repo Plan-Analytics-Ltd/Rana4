@@ -47,21 +47,36 @@ test("role hierarchy matches expected core CRUD rules", () => {
   assert.equal(hasPermission("VIEWER", "activity", "update"), false);
   assert.equal(hasPermission("VIEWER", "activity", "delete"), false);
 
-  // Editor: can create/update but not delete
+  // Editor: full CRUD for core entities (delete still subject to state rules)
   assert.equal(hasPermission("EDITOR", "deliverable", "read"), true);
   assert.equal(hasPermission("EDITOR", "deliverable", "create"), true);
   assert.equal(hasPermission("EDITOR", "deliverable", "update"), true);
-  assert.equal(hasPermission("EDITOR", "deliverable", "delete"), false);
+  assert.equal(hasPermission("EDITOR", "deliverable", "delete"), true);
 
   // Admin: full CRUD
   assert.equal(hasPermission("ADMIN", "standard", "delete"), true);
   assert.equal(hasPermission("ADMIN", "relationship", "delete"), true);
 });
 
+test("project management allowed for editor/admin", () => {
+  assert.equal(hasPermission("VIEWER", "project", "create"), false);
+  assert.equal(hasPermission("EDITOR", "project", "create"), true);
+  assert.equal(hasPermission("EDITOR", "project", "update"), true);
+  assert.equal(hasPermission("EDITOR", "project", "delete"), true);
+});
+
 test("member management is admin-only", () => {
   assert.equal(hasPermission("VIEWER", "projectMember", "create"), false);
   assert.equal(hasPermission("EDITOR", "projectMember", "update"), false);
   assert.equal(hasPermission("ADMIN", "projectMember", "delete"), true);
+});
+
+test("rate card management allowed for editor/admin", () => {
+  assert.equal(hasPermission("VIEWER", "rateCard", "create"), false);
+  assert.equal(hasPermission("EDITOR", "rateCard", "create"), true);
+  assert.equal(hasPermission("EDITOR", "rateCard", "update"), true);
+  assert.equal(hasPermission("EDITOR", "rateCard", "delete"), true);
+  assert.equal(hasPermission("ADMIN", "rateCard", "delete"), true);
 });
 
 test("role allows but rule blocks → denied (projectMember delete last admin)", () => {

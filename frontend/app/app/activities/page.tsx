@@ -25,6 +25,7 @@ import {
 import {
   standardsApi,
   fragnetsApi,
+  deliverablesApi,
   activitiesApi,
   relationshipsApi,
   assuranceNotesApi,
@@ -36,6 +37,7 @@ import {
   type AssuranceNote,
   type RelationshipType,
   type RateCardEntry,
+  type Deliverable,
   getApiErrorMessage,
 } from "@/lib/api";
 import {
@@ -75,6 +77,9 @@ export default function ActivitiesPage() {
   const [formName, setFormName] = useState("");
   const [formBestDuration, setFormBestDuration] = useState("");
   const [formLikelyDuration, setFormLikelyDuration] = useState("");
+  const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
+  const [loadingDeliverables, setLoadingDeliverables] = useState(false);
+  const [formDeliverableId, setFormDeliverableId] = useState<string>("");
   const [formAssuranceNoteId, setFormAssuranceNoteId] = useState<string>("");
   const [relPredecessorId, setRelPredecessorId] = useState("");
   const [relSuccessorId, setRelSuccessorId] = useState("");
@@ -148,6 +153,31 @@ export default function ActivitiesPage() {
     }
   };
 
+  const fetchDeliverables = async () => {
+    if (!selectedProjectId || !selectedFragnetId) {
+      setDeliverables([]);
+      setFormDeliverableId("");
+      return;
+    }
+    setLoadingDeliverables(true);
+    try {
+      const { data } = await deliverablesApi.list(selectedProjectId, selectedFragnetId);
+      setDeliverables(data);
+      // Auto-select first deliverable if none chosen.
+      if (!formDeliverableId) {
+        setFormDeliverableId(data[0]?.id ?? "");
+      } else if (data.length > 0 && !data.some((d) => d.id === formDeliverableId)) {
+        setFormDeliverableId(data[0]!.id);
+      }
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err) || "Failed to load deliverables");
+      setDeliverables([]);
+      setFormDeliverableId("");
+    } finally {
+      setLoadingDeliverables(false);
+    }
+  };
+
   const fetchRelationships = async () => {
     if (!selectedFragnetId) {
       setRelationships([]);
@@ -201,6 +231,7 @@ export default function ActivitiesPage() {
     fetchActivities();
     fetchRelationships();
     fetchAssuranceNotes();
+    fetchDeliverables();
   }, [selectedFragnetId, selectedStandardId]);
 
   const resetActivityForm = () => {
@@ -208,6 +239,7 @@ export default function ActivitiesPage() {
     setFormName("");
     setFormBestDuration("");
     setFormLikelyDuration("");
+    setFormDeliverableId("");
     setFormAssuranceNoteId("");
     setFormResourceDrafts([]);
     setEditId(null);
@@ -226,14 +258,24 @@ export default function ActivitiesPage() {
     e.preventDefault();
     const best = parseInt(formBestDuration, 10);
     const likely = parseInt(formLikelyDuration, 10);
-    if (!selectedFragnetId || !formActivityCode.trim() || !formName.trim() || !Number.isInteger(best) || best < 1 || !Number.isInteger(likely) || likely < 1) {
-      toast.error("Activity code, name, and positive durations are required");
+    if (
+      !selectedFragnetId ||
+      !formDeliverableId ||
+      !formActivityCode.trim() ||
+      !formName.trim() ||
+      !Number.isInteger(best) ||
+      best < 1 ||
+      !Number.isInteger(likely) ||
+      likely < 1
+    ) {
+      toast.error("Deliverable, activity code, name, and positive durations are required");
       return;
     }
     setSubmitting(true);
     try {
       await activitiesApi.create({
         fragnetId: selectedFragnetId,
+        deliverableId: formDeliverableId,
         activityCode: formActivityCode.trim(),
         name: formName.trim(),
         bestDuration: best,
@@ -268,6 +310,7 @@ export default function ActivitiesPage() {
     try {
       await activitiesApi.update(editId, {
         name: formName.trim() || undefined,
+        deliverableId: formDeliverableId || undefined,
         bestDuration: best,
         likelyDuration: likely,
         assuranceNoteId: formAssuranceNoteId || null,
@@ -431,6 +474,7 @@ export default function ActivitiesPage() {
     setFormName(a.name);
     setFormBestDuration(String(a.bestDuration));
     setFormLikelyDuration(String(a.likelyDuration));
+    setFormDeliverableId((a as any).deliverableId ?? "");
     setFormAssuranceNoteId(a.assuranceNoteId ?? "");
     setFormResourceDrafts(storedToDrafts(a.assignedResources));
   };
@@ -614,6 +658,31 @@ export default function ActivitiesPage() {
                     <DialogHeader><DialogTitle>Create Activity</DialogTitle></DialogHeader>
                     <div className="grid min-w-0 gap-4 py-4">
                       <div className="grid gap-2">
+                        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Deliverable</label>
+                        <select
+                          value={formDeliverableId}
+                          onChange={(e) => setFormDeliverableId(e.target.value)}
+                          disabled={loadingDeliverables || deliverables.length === 0}
+                          className={cn(
+                            "flex h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100",
+                            "focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 dark:focus:ring-offset-slate-900 disabled:opacity-50"
+                          )}
+                          required
+                        >
+                          {deliverables.length === 0 ? (
+                            <option value="">No deliverables found for this fragnet</option>
+                          ) : null}
+                          {deliverables.map((d) => (
+                            <option key={d.id} value={d.id}>{d.name}</option>
+                          ))}
+                        </select>
+                        {deliverables.length === 0 ? (
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            Create a deliverable for this fragnet before adding activities.
+                          </p>
+                        ) : null}
+                      </div>
+                      <div className="grid gap-2">
                         <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Activity code</label>
                         <Input value={formActivityCode} onChange={(e) => setFormActivityCode(e.target.value)} placeholder="e.g. A100" required />
                       </div>
@@ -765,6 +834,22 @@ export default function ActivitiesPage() {
                                   <form onSubmit={handleUpdateActivity} className="min-w-0">
                                     <DialogHeader><DialogTitle>Edit Activity</DialogTitle></DialogHeader>
                                     <div className="grid min-w-0 gap-4 py-4">
+                                      <div className="grid gap-2">
+                                        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Deliverable</label>
+                                        <select
+                                          value={formDeliverableId}
+                                          onChange={(e) => setFormDeliverableId(e.target.value)}
+                                          disabled={loadingDeliverables || deliverables.length === 0}
+                                          className={cn(
+                                            "flex h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100",
+                                            "focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 dark:focus:ring-offset-slate-900 disabled:opacity-50"
+                                          )}
+                                        >
+                                          {deliverables.map((d) => (
+                                            <option key={d.id} value={d.id}>{d.name}</option>
+                                          ))}
+                                        </select>
+                                      </div>
                                       <div className="grid gap-2">
                                         <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Name</label>
                                         <Input value={formName} onChange={(e) => setFormName(e.target.value)} required />

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { auditLogsApi, getApiErrorMessage, type AuditLogItem } from "@/lib/api";
@@ -9,6 +10,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { hasPermission } from "@/lib/project-permissions";
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
@@ -17,8 +19,9 @@ function formatTime(iso: string): string {
 }
 
 export default function AuditLogPage() {
-  const { selectedProjectId } = useProject();
+  const { selectedProjectId, selectedProjectRole } = useProject();
   const { user, loading: authLoading } = useAuth();
+  const router = useRouter();
 
   const [items, setItems] = useState<AuditLogItem[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -36,6 +39,15 @@ export default function AuditLogPage() {
     [userId, action]
   );
 
+  const canReadAudit = hasPermission(selectedProjectRole, "auditLog", "read");
+
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    if (!canReadAudit) {
+      router.replace("/app");
+    }
+  }, [canReadAudit, router, selectedProjectId]);
+
   useEffect(() => {
     let cancelled = false;
     async function loadFirstPage() {
@@ -45,9 +57,7 @@ export default function AuditLogPage() {
         setNextCursor(null);
         if (authLoading) return;
         if (!user) return;
-        if (user.role !== "ADMIN" && !user.devPanelAccess) {
-          return;
-        }
+        if (!canReadAudit) return;
         if (!selectedProjectId) {
           return;
         }
@@ -70,7 +80,7 @@ export default function AuditLogPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedProjectId, filters.userId, filters.action, user, authLoading]);
+  }, [selectedProjectId, filters.userId, filters.action, user, authLoading, canReadAudit]);
 
   async function loadMore() {
     if (!selectedProjectId) return;
@@ -109,11 +119,6 @@ export default function AuditLogPage() {
       ) : !user ? (
         <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
           Sign in to view audit logs.
-        </div>
-      ) : user.role !== "ADMIN" && !user.devPanelAccess ? (
-        <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-          <p className="font-medium text-slate-900 dark:text-white">403 Forbidden</p>
-          <p className="mt-1">Audit logs are available to admins only.</p>
         </div>
       ) : (
       <Card className="dark:border-slate-800 dark:bg-slate-900/50">

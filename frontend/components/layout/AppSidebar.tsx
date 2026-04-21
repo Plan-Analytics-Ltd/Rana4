@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useProject } from "@/contexts/project-context";
+import { hasPermission } from "@/lib/project-permissions";
 
 const platformNav = [
   { href: "/app", label: "Dashboard", icon: LayoutDashboard },
@@ -29,7 +30,6 @@ const platformNav = [
   { href: "/app/deliverables", label: "Deliverables", icon: Package },
   { href: "/app/rate-card", label: "Rate card", icon: TableProperties },
   { href: "/app/export", label: "Export", icon: Download },
-  { href: "/app/audit", label: "Audit log", icon: ClipboardList },
 ];
 
 const systemNav = [
@@ -42,9 +42,15 @@ export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const { selectedProjectRole } = useProject();
 
-  const items = selectedProjectRole === "ADMIN"
-    ? [...platformNav.slice(0, 7), { href: "/app/members", label: "Members", icon: Users }, platformNav[7]!]
-    : platformNav;
+  const items = [
+    ...platformNav,
+    ...(hasPermission(selectedProjectRole, "projectMember", "read")
+      ? [{ href: "/app/members", label: "Members", icon: Users }]
+      : []),
+    ...(hasPermission(selectedProjectRole, "auditLog", "read")
+      ? [{ href: "/app/audit", label: "Audit log", icon: ClipboardList }]
+      : []),
+  ];
 
   const isActive = (href: string) => {
     if (href === "/app") return pathname === "/app";

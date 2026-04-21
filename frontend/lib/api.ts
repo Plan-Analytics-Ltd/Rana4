@@ -165,6 +165,10 @@ export type ProjectMemberRow = {
 export const projectsApi = {
   listMine: () => api.get<Project[]>("/projects"),
   create: (data: { name: string }) => api.post<Project>("/projects", data),
+  update: (projectId: string, data: { name: string }) =>
+    api.put<Project>(`/projects/${encodeURIComponent(projectId)}`, data),
+  delete: (projectId: string) =>
+    api.delete<void>(`/projects/${encodeURIComponent(projectId)}`),
   listMembers: (projectId: string) =>
     api.get<{ members: ProjectMemberRow[] }>(`/projects/${encodeURIComponent(projectId)}/members`),
   addMember: (projectId: string, data: { userId: string; role?: "ADMIN" | "EDITOR" | "VIEWER" }) =>

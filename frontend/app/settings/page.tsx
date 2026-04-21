@@ -10,6 +10,7 @@ import {
   companyApi,
   getApiErrorMessage,
   projectsApi,
+  type Project,
   type AdminPendingRequest,
   type AdminRequestMine,
 } from "@/lib/api";
@@ -34,6 +35,10 @@ export default function SettingsPage() {
   const [nameSaving, setNameSaving] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [projectSaving, setProjectSaving] = useState(false);
+  const [projectsList, setProjectsList] = useState<Project[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectRowBusy, setProjectRowBusy] = useState<string | null>(null);
+  const [projectRenameDraft, setProjectRenameDraft] = useState<Record<string, string>>({});
   const [companyNameDisplay, setCompanyNameDisplay] = useState("");
   const [joinCodeDisplay, setJoinCodeDisplay] = useState("");
   const [joinCodeLoading, setJoinCodeLoading] = useState(false);
@@ -221,11 +226,69 @@ export default function SettingsPage() {
       await projectsApi.create({ name: nameStr });
       setProjectName("");
       await refreshProjects();
+      void loadProjects();
       toast.success("Project created");
     } catch (err) {
       toast.error(getApiErrorMessage(err));
     } finally {
       setProjectSaving(false);
+    }
+  }
+
+  const loadProjects = useCallback(() => {
+    if (!user) return;
+    if (user.role === "VIEWER") return;
+    setProjectsLoading(true);
+    projectsApi
+      .listMine()
+      .then(({ data }) => {
+        setProjectsList(data);
+        setProjectRenameDraft((prev) => {
+          const next: Record<string, string> = { ...prev };
+          for (const p of data) {
+            if (next[p.id] === undefined) next[p.id] = p.name;
+          }
+          return next;
+        });
+      })
+      .catch(() => setProjectsList([]))
+      .finally(() => setProjectsLoading(false));
+  }, [user]);
+
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
+
+  async function handleRenameProject(projectId: string) {
+    const nameStr = (projectRenameDraft[projectId] ?? "").trim();
+    if (!nameStr) {
+      toast.error("Project name is required");
+      return;
+    }
+    setProjectRowBusy(projectId);
+    try {
+      await projectsApi.update(projectId, { name: nameStr });
+      await refreshProjects();
+      loadProjects();
+      toast.success("Project updated");
+    } catch (err) {
+      toast.error(getApiErrorMessage(err));
+    } finally {
+      setProjectRowBusy(null);
+    }
+  }
+
+  async function handleDeleteProject(projectId: string) {
+    setProjectRowBusy(projectId);
+    try {
+      await projectsApi.delete(projectId);
+      await refreshProjects();
+      loadProjects();
+      toast.success("Project deleted");
+    } catch (err) {
+      toast.error(getApiErrorMessage(err));
+    } finally {
+      setProjectRowBusy(null);
     }
   }
 
@@ -527,6 +590,23 @@ export default function SettingsPage() {
               )}
             </div>
 
+            <p className="border-t border-slate-200 pt-4 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
+              Company onboarding uses the join link only (no email flow). After someone joins, add them to projects from
+              the workspace as needed.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {user.role !== "VIEWER" && (
+        <Card className="dark:border-slate-800 dark:bg-slate-900/50">
+          <CardHeader>
+            <CardTitle className="text-base">Projects</CardTitle>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Create and manage projects (admins and editors).
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-6">
             <form onSubmit={handleCreateProject} className="grid gap-2">
               <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Create project</label>
               <div className="flex gap-2">
@@ -541,15 +621,60 @@ export default function SettingsPage() {
                   {projectSaving ? "Creating…" : "Create"}
                 </Button>
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Projects are the access boundary inside your company.
-              </p>
             </form>
 
-            <p className="border-t border-slate-200 pt-4 text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
-              Company onboarding uses the join link only (no email flow). After someone joins, add them to projects from
-              the workspace as needed.
-            </p>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300">Your projects</h4>
+                <Button type="button" variant="outline" size="sm" disabled={projectsLoading} onClick={() => loadProjects()}>
+                  Refresh
+                </Button>
+              </div>
+              {projectsLoading ? (
+                <p className="text-sm text-slate-500 dark:text-slate-400">Loading…</p>
+              ) : projectsList.length === 0 ? (
+                <p className="text-sm text-slate-500 dark:text-slate-400">No projects.</p>
+              ) : (
+                <ul className="divide-y divide-slate-200 rounded-md border border-slate-200 dark:divide-slate-700 dark:border-slate-700">
+                  {projectsList.map((p) => (
+                    <li key={p.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-slate-900 dark:text-slate-100">{p.name}</p>
+                        <p className="text-xs font-mono text-slate-500 dark:text-slate-400">{p.id}</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Input
+                          value={projectRenameDraft[p.id] ?? p.name}
+                          onChange={(e) => setProjectRenameDraft((prev) => ({ ...prev, [p.id]: e.target.value }))}
+                          className="h-9 w-64 max-w-full dark:border-slate-700 dark:bg-slate-900"
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={projectRowBusy !== null}
+                          onClick={() => void handleRenameProject(p.id)}
+                        >
+                          {projectRowBusy === p.id ? "…" : "Save"}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={projectRowBusy !== null}
+                          onClick={() => void handleDeleteProject(p.id)}
+                        >
+                          {projectRowBusy === p.id ? "…" : "Delete"}
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                Delete is only allowed for empty projects.
+              </p>
+            </div>
           </CardContent>
         </Card>
       )}

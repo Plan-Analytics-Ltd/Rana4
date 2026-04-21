@@ -1,17 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { projectsApi, getApiErrorMessage, type ProjectMemberRow } from "@/lib/api";
 import { useProject } from "@/contexts/project-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { hasPermission } from "@/lib/project-permissions";
 
 type Role = "ADMIN" | "EDITOR" | "VIEWER";
 
 export default function ProjectMembersPage() {
-  const { selectedProjectId, selectedProject, selectedProjectRole } = useProject();
+  const { selectedProjectId, selectedProject, selectedProjectRole, refreshProjects } = useProject();
+  const router = useRouter();
   const [members, setMembers] = useState<ProjectMemberRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
@@ -21,7 +24,15 @@ export default function ProjectMembersPage() {
     [members]
   );
 
-  const canManage = selectedProjectRole === "ADMIN";
+  const canReadMembers = hasPermission(selectedProjectRole, "projectMember", "read");
+  const canManage = hasPermission(selectedProjectRole, "projectMember", "update");
+
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    if (!canReadMembers) {
+      router.replace("/app");
+    }
+  }, [canReadMembers, router, selectedProjectId]);
 
   const lastAdminUserId = useMemo(() => {
     if (adminCount !== 1) return null;
@@ -58,6 +69,7 @@ export default function ProjectMembersPage() {
     try {
       await projectsApi.updateMemberRole(selectedProjectId, userId, { role });
       toast.success("Role updated");
+      await refreshProjects();
       await load();
     } catch (err) {
       toast.error(getApiErrorMessage(err));
@@ -89,11 +101,6 @@ export default function ProjectMembersPage() {
       {!selectedProjectId ? (
         <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
           Select a project to manage members.
-        </div>
-      ) : !canManage ? (
-        <div className="rounded-lg border border-slate-200 bg-white p-6 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-          <p className="font-medium text-slate-900 dark:text-white">No access</p>
-          <p className="mt-1">Only project admins can manage member roles.</p>
         </div>
       ) : loading ? (
         <div className="flex items-center justify-center py-16">

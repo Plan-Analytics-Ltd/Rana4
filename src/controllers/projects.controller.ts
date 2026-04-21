@@ -48,6 +48,9 @@ export async function createProject(req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
+    // Company-level project management: allow ADMIN/EDITOR (block VIEWER).
+    requirePermission(req.user.role as any, "project", "create");
+
     const { name } = req.body as { name?: string };
     const nameStr = name != null ? String(name).trim() : "";
     if (!nameStr) {
@@ -75,8 +78,135 @@ export async function createProject(req: AuthRequest, res: Response): Promise<vo
 
     res.status(201).json(project);
   } catch (err) {
+    const status = err && typeof err === "object" && "status" in err ? Number((err as any).status) : 500;
+    if (status === 403) {
+      res.status(403).json({ error: (err as Error).message || "Forbidden" });
+      return;
+    }
+    if (status === 409) {
+      res.status(409).json({ error: (err as Error).message || "Action not allowed in current state" });
+      return;
+    }
     console.error(err);
     res.status(500).json({ error: "Failed to create project" });
+  }
+}
+
+export async function updateProject(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const { id: projectId } = req.params as { id: string };
+    const { name } = req.body as { name?: string };
+    const nameStr = name != null ? String(name).trim() : "";
+    if (!nameStr) {
+      res.status(400).json({ error: "name is required" });
+      return;
+    }
+
+    const membership = await requireProjectAccess(projectId, req.user, { adminOverride: true });
+    requirePermission(membership.role, "project", "update");
+
+    const result = await prisma.project.updateMany({
+      where: { id: projectId, companyId: req.user.companyId },
+      data: { name: nameStr.slice(0, 255) },
+    });
+    if (result.count !== 1) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+
+    await auditLog({
+      userId: req.user.id,
+      companyId: req.user.companyId,
+      projectId,
+      action: "UPDATE_PROJECT",
+      entity: "Project",
+      entityId: projectId,
+      details: { name: nameStr.slice(0, 255) },
+    });
+
+    const updated = await prisma.project.findFirst({ where: { id: projectId, companyId: req.user.companyId } });
+    res.json(updated);
+  } catch (err) {
+    const status = err && typeof err === "object" && "status" in err ? Number((err as any).status) : 500;
+    if (status === 403) {
+      res.status(403).json({ error: (err as Error).message || "Forbidden" });
+      return;
+    }
+    if (status === 409) {
+      res.status(409).json({ error: (err as Error).message || "Action not allowed in current state" });
+      return;
+    }
+    console.error(err);
+    res.status(500).json({ error: "Failed to update project" });
+  }
+}
+
+export async function deleteProject(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const { id: projectId } = req.params as { id: string };
+
+    const membership = await requireProjectAccess(projectId, req.user, { adminOverride: true });
+    requirePermission(membership.role, "project", "delete");
+
+    const [standards, fragnets, deliverables, activities, relationships, auditLogs] = await Promise.all([
+      prisma.standard.count({ where: { projectId } }),
+      prisma.fragnet.count({ where: { projectId } }),
+      prisma.deliverable.count({ where: { projectId } }),
+      prisma.activity.count({ where: { projectId } }),
+      prisma.relationship.count({ where: { projectId } }),
+      prisma.auditLog.count({ where: { projectId } }),
+    ]);
+    const total = standards + fragnets + deliverables + activities + relationships + auditLogs;
+    if (total > 0) {
+      res.status(409).json({
+        error: "Project is not empty and cannot be deleted",
+      });
+      return;
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.projectMember.deleteMany({ where: { projectId, project: { companyId: req.user!.companyId } } });
+      await tx.project.deleteMany({ where: { id: projectId, companyId: req.user!.companyId } });
+    });
+
+    // Use any remaining project as audit scope (or skip if none).
+    const p = await prisma.project.findFirst({
+      where: { companyId: req.user.companyId },
+      orderBy: { name: "asc" },
+      select: { id: true },
+    });
+    if (p) {
+      await auditLog({
+        userId: req.user.id,
+        companyId: req.user.companyId,
+        projectId: p.id,
+        action: "DELETE_PROJECT",
+        entity: "Project",
+        entityId: projectId,
+      });
+    }
+
+    res.status(204).send();
+  } catch (err) {
+    const status = err && typeof err === "object" && "status" in err ? Number((err as any).status) : 500;
+    if (status === 403) {
+      res.status(403).json({ error: (err as Error).message || "Forbidden" });
+      return;
+    }
+    if (status === 409) {
+      res.status(409).json({ error: (err as Error).message || "Action not allowed in current state" });
+      return;
+    }
+    console.error(err);
+    res.status(500).json({ error: "Failed to delete project" });
   }
 }
 
