@@ -231,7 +231,7 @@ export default function ActivitiesPage() {
     setFormName("");
     setFormBestDuration("");
     setFormLikelyDuration("");
-    setFormDeliverableId("");
+    setFormDeliverableId(deliverables[0]?.id ?? "");
     setFormAssuranceNoteId("");
     setFormResourceDrafts([]);
     setEditId(null);
@@ -462,7 +462,10 @@ export default function ActivitiesPage() {
                 open={createOpen}
                 onOpenChange={(o) => {
                   setCreateOpen(o);
-                  if (o) setFormResourceDrafts([]);
+                  if (o) {
+                    setFormResourceDrafts([]);
+                    setFormDeliverableId((prev) => prev || deliverables[0]?.id || "");
+                  }
                   else resetActivityForm();
                 }}
               >
