@@ -29,7 +29,8 @@ import devRoutes from "./routes/dev.routes.js";
 import "./utils/prisma.js";
 
 const app = express();
-const port = Number(process.env.PORT) || 3000;
+const basePort = Number(process.env.PORT) || 3000;
+const maxPortAttempts = 10;
 
 const corsOrigins = process.env.CORS_ORIGIN?.split(",").map((s) => s.trim()).filter(Boolean);
 app.use(
@@ -63,8 +64,33 @@ app.use("/assurance-notes", assuranceNotesRoutes);
 app.use("/fragnets", fragnetsRoutes);
 app.use("/relationships", relationshipsRoutes);
 
-app.listen(port, () => {
-  if (!isProduction) {
-    console.log(`Server listening on http://localhost:${port}`);
-  }
-});
+function listenWithFallback(startPort: number) {
+  let attempt = 0;
+
+  const tryListen = (port: number) => {
+    const server = app.listen(port, () => {
+      if (!isProduction) {
+        console.log(`Server listening on http://localhost:${port}`);
+      }
+    });
+
+    server.on("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE" && attempt < maxPortAttempts - 1) {
+        attempt += 1;
+        const nextPort = startPort + attempt;
+        if (!isProduction) {
+          console.warn(`Port ${port} is in use, trying ${nextPort}...`);
+        }
+        tryListen(nextPort);
+        return;
+      }
+
+      console.error(err);
+      process.exit(1);
+    });
+  };
+
+  tryListen(startPort);
+}
+
+listenWithFallback(basePort);

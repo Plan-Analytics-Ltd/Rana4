@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { readdir } from "node:fs/promises";
 import { readFile } from "node:fs/promises";
 import type { GeneratedWbs } from "./wbsGenerate.service.js";
 import type { RateCardEntry } from "./rateCard.js";
@@ -98,19 +99,43 @@ function buildRowFromTemplate(fields: string[], templateRowLine: string | null):
   return out;
 }
 
+async function resolveXerTemplatePath(): Promise<string> {
+  const dir = path.join(process.cwd(), "templates");
+  const entries = await readdir(dir);
+  const xer = entries.filter((n) => n.toLowerCase().endsWith(".xer")).sort((a, b) => a.localeCompare(b));
+  if (xer.length === 0) {
+    throw new Error("No .xer template found in /templates");
+  }
+  if (xer.length > 1) {
+    throw new Error(`Multiple .xer templates found in /templates: ${xer.join(", ")}. Keep only one.`);
+  }
+  return path.join(dir, xer[0]!);
+}
+
 export async function generateXERWithWBS(
   wbs: GeneratedWbs,
   project_name: string,
   project_short_name: string,
   rateCardEntries: RateCardEntry[]
 ): Promise<string> {
-  const templatePath = path.join(process.cwd(), "templates", "NEWPROJ-50901.xer");
+  const templatePath = await resolveXerTemplatePath();
   const template = await readFile(templatePath, "utf8");
   const eol = detectEol(template);
   const lines = template.split(/\r?\n/);
 
-  // PROJECT: do not modify (keep template exactly as-is).
   let outLines = lines;
+
+  // PROJECT: ensure proj_short_name + name match what we export elsewhere (WBS codes depend on this consistency).
+  const projectSection = getSection(outLines, "PROJECT");
+  const projectFields = projectSection.fields;
+  const templateProjectRow = projectSection.rowLines[0] ?? null;
+  if (!templateProjectRow) throw new Error("XER template PROJECT has no %R row to clone");
+  const projectValues = buildRowFromTemplate(projectFields, templateProjectRow);
+  setField(projectValues, projectFields, "proj_short_name", String(project_short_name).trim() || String(project_name).trim());
+  setField(projectValues, projectFields, "name_sep_char", ".");
+  setField(projectValues, projectFields, "name", String(project_name).trim());
+  const newProjectLine = joinRow(["%R", ...projectValues]);
+  outLines = replaceSectionRows(outLines, "PROJECT", [newProjectLine, ...projectSection.rowLines.slice(1)]);
 
   // PROJWBS: keep template %R rows exactly; append one row per deliverable (clone first template row, only wbs_id / short / name).
   const projwbsSection = getSection(outLines, "PROJWBS");
@@ -121,6 +146,8 @@ export async function generateXERWithWBS(
   // Root WBS short name should match the project code used across the export bundle.
   // Prefer project_short_name (often code like NEWPROJ-5090) over project_name (may be descriptive / include suffixes).
   setField(rootValues, wbsFields, "wbs_short_name", String(project_short_name).trim() || String(project_name).trim());
+  // Root WBS name should be the human-readable project name (P6 shows this as the WBS name).
+  setField(rootValues, wbsFields, "wbs_name", String(project_name).trim());
   const newRootLine = joinRow(["%R", ...rootValues]);
   outLines = replaceSectionRows(outLines, "PROJWBS", [newRootLine, ...projwbsSection.rowLines.slice(1)]);
   const rootWbsId = rootValues[wbsFields.indexOf("wbs_id")] ?? "";

@@ -355,13 +355,11 @@ export function generateFragnetXlsx(
   unassignedDeliverables?: DeliverableForExport[],
   rateCardEntries: RateCardEntry[] = []
 ): Buffer {
-  // Customer-required WBS Code numbering:
-  // 1st deliverable => 17, then 2..16, then 18, 19, ...
+  // WBS Code numbering must align with XER WBS structure:
+  // root is "1", deliverables start at ".2", ".3", ...
   const wbsCodeNumberForPosition = (pos1: number): number => {
     if (!Number.isInteger(pos1) || pos1 < 1) return pos1;
-    if (pos1 === 1) return 17;
-    if (pos1 <= 16) return pos1;
-    return pos1 + 1; // skip 17 since it's used by position 1
+    return pos1 + 1;
   };
 
   const durationField = scenario === "best" ? "bestDuration" : "likelyDuration";

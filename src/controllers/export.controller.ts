@@ -156,6 +156,12 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
 
     const rateCardEntries = await getRateCardEntries(companyId);
 
+    const pid = String(projectId).trim();
+    const pname = String(projectName).trim();
+    // If the user-provided project code accidentally carries a trailing "1"
+    // (e.g. "NEWPROJ-50901" instead of "NEWPROJ-5090"), drop it when it matches the name+1 pattern.
+    const projectCode = pid !== "" && pname !== "" && pid === `${pname}1` ? pname : pid;
+
     const buffer = generateFragnetXlsx(
       generatedWbs,
       deliverablesForExport,
@@ -167,17 +173,11 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
         lag: r.lag,
       })),
       scenario as ExportScenario,
-      String(projectId).trim(),
-      String(projectName).trim(),
+      pid,
+      projectCode,
       unassignedForExport,
       rateCardEntries
     );
-
-    const pid = String(projectId).trim();
-    const pname = String(projectName).trim();
-    // If the user-provided project code accidentally carries a trailing "1"
-    // (e.g. "NEWPROJ-50901" instead of "NEWPROJ-5090"), drop it when it matches the name+1 pattern.
-    const projectCode = pid !== "" && pname !== "" && pid === `${pname}1` ? pname : pid;
     const safeName = (pname.replace(/[^a-z0-9]/gi, "_").toLowerCase().replace(/_+/g, "_").replace(/^_+|_+$/g, "") || "project");
 
     const wbsReviewRows = generateHumanReadableWBS(generatedWbs);
