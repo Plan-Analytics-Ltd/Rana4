@@ -109,37 +109,7 @@ type RulesMap = Partial<Record<ProjectEntity, Partial<Record<ProjectAction, Rule
 // Contextual business rules layered on top of role-based permissions.
 // Keep these simple and explicit; controllers should pass only the minimum context required.
 export const rules: RulesMap = {
-  activity: {
-    update: (ctx) => {
-      const c = ctx as { status?: string; operation?: "edit" | "transition" | "rollback" } | null | undefined;
-      const status = c?.status;
-      const op = c?.operation ?? "edit";
-
-      if (op === "transition") return { ok: true };
-
-      // Edits/rollbacks require DRAFT; no direct edits in approval/active phases.
-      if (status !== "DRAFT") {
-        return status === "PENDING_APPROVAL"
-          ? { ok: false, message: "This activity is pending approval and cannot be edited" }
-          : status === "ACTIVE"
-            ? { ok: false, message: "Active activities cannot be edited; make changes in DRAFT and submit for approval" }
-            : { ok: false, message: "This activity is locked and cannot be edited" };
-      }
-      return { ok: true };
-    },
-    delete: (ctx) => {
-      const c = ctx as { status?: string; hasDependencies?: boolean } | null | undefined;
-      if (c?.status !== "DRAFT") {
-        return c?.status === "PENDING_APPROVAL"
-          ? { ok: false, message: "This activity is pending approval and cannot be deleted" }
-          : c?.status === "ACTIVE"
-            ? { ok: false, message: "Active activities cannot be deleted" }
-            : { ok: false, message: "This activity is locked and cannot be deleted" };
-      }
-      const hasDependencies = Boolean(c?.hasDependencies);
-      return hasDependencies ? { ok: false, message: "This activity has dependencies and cannot be deleted" } : { ok: true };
-    },
-  },
+  // Activities: keep it simple like Deliverables (role-based only).
   projectMember: {
     delete: (ctx) => {
       const c = ctx as { isLastAdmin?: boolean } | null | undefined;

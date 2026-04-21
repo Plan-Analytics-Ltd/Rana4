@@ -48,7 +48,7 @@ import {
 } from "@/components/resource-assignments-editor";
 import { cn } from "@/lib/utils";
 import { useProject } from "@/contexts/project-context";
-import { checkPermission, hasPermission } from "@/lib/project-permissions";
+import { hasPermission } from "@/lib/project-permissions";
 
 const RELATIONSHIP_TYPES: RelationshipType[] = ["FS", "SS", "FF", "SF"];
 
@@ -333,20 +333,6 @@ export default function ActivitiesPage() {
     }
   };
 
-  const statusLabel = (s: Activity["status"]) => {
-    if (s === "DRAFT") return "DRAFT";
-    if (s === "PENDING_APPROVAL") return "PENDING_APPROVAL";
-    if (s === "ACTIVE") return "ACTIVE";
-    return "LOCKED";
-  };
-
-  const statusBadgeClass = (s: Activity["status"]) => {
-    if (s === "DRAFT") return "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200";
-    if (s === "PENDING_APPROVAL") return "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200";
-    if (s === "ACTIVE") return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200";
-    return "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200";
-  };
-
   const handleCreateRelationship = async (e: React.FormEvent) => {
     e.preventDefault();
     const lag = parseInt(relLag, 10) || 0;
@@ -573,7 +559,6 @@ export default function ActivitiesPage() {
                     <TableRow>
                       <TableHead>Code</TableHead>
                       <TableHead>Name</TableHead>
-                      <TableHead>Status</TableHead>
                       <TableHead>Best</TableHead>
                       <TableHead>Likely</TableHead>
                       <TableHead>Resources</TableHead>
@@ -582,24 +567,9 @@ export default function ActivitiesPage() {
                   </TableHeader>
                   <TableBody>
                     {activities.map((a) => (
-                      (() => {
-                        const editCheck = checkPermission(selectedProjectRole, "activity", "update", { status: a.status, operation: "edit" });
-                        const mayEditThis = editCheck.ok;
-                        const deleteCheck = checkPermission(selectedProjectRole, "activity", "delete", { status: a.status, hasDependencies: false });
-                        // We don’t compute dependency counts client-side; backend is source of truth.
-                        // If status blocks, we can still give a precise tooltip; otherwise defer to backend response.
-                        const mayDeleteThis = deleteCheck.ok;
-                        const lockReason = !editCheck.ok && editCheck.kind === "rule" ? editCheck.message : null;
-                        const deleteReason = !deleteCheck.ok && deleteCheck.kind === "rule" ? deleteCheck.message : null;
-                        return (
                       <TableRow key={a.id}>
                         <TableCell className="font-medium">{a.activityCode}</TableCell>
                         <TableCell>{a.name}</TableCell>
-                        <TableCell>
-                          <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", statusBadgeClass(a.status))}>
-                            {statusLabel(a.status)}
-                          </span>
-                        </TableCell>
                         <TableCell>{a.bestDuration}</TableCell>
                         <TableCell>{a.likelyDuration}</TableCell>
                         <TableCell className="text-sm text-slate-600 dark:text-slate-400">
@@ -607,24 +577,28 @@ export default function ActivitiesPage() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
-                            {hasPermission(selectedProjectRole, "activity", "update") ? (
-                              <Dialog open={editId === a.id} onOpenChange={(o) => { if (!o) resetActivityForm(); else openEditActivity(a); }}>
-                                <DialogTrigger asChild>
-                                  <span title={lockReason ?? undefined}>
-                                    <Button
-                                      variant="outline"
-                                      size="icon"
-                                      type="button"
-                                      onClick={() => openEditActivity(a)}
-                                      disabled={!mayEditThis}
-                                    >
-                                      <Pencil className="h-4 w-4" />
-                                    </Button>
-                                  </span>
-                                </DialogTrigger>
-                                <DialogContent>
-                                  <form onSubmit={handleUpdateActivity} className="min-w-0">
-                                    <DialogHeader><DialogTitle>Edit Activity</DialogTitle></DialogHeader>
+                            <Dialog
+                              open={editId === a.id}
+                              onOpenChange={(o) => {
+                                if (!o) resetActivityForm();
+                                else openEditActivity(a);
+                              }}
+                            >
+                              <DialogTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  type="button"
+                                  onClick={() => openEditActivity(a)}
+                                  disabled={!mayEditByRole}
+                                  title={!mayEditByRole ? "No permission" : "Edit"}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent>
+                                <form onSubmit={handleUpdateActivity} className="min-w-0">
+                                  <DialogHeader><DialogTitle>Edit Activity</DialogTitle></DialogHeader>
                                     <div className="grid min-w-0 gap-4 py-4">
                                       <div className="grid gap-2">
                                         <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Deliverable</label>
@@ -674,31 +648,26 @@ export default function ActivitiesPage() {
                                         disabled={submitting}
                                       />
                                     </div>
-                                    <DialogFooter>
-                                      <Button type="button" variant="outline" onClick={() => setEditId(null)}>Cancel</Button>
-                                      <Button type="submit" disabled={submitting}>{submitting && <Loader2 className="h-4 w-4 animate-spin" />} Save</Button>
-                                    </DialogFooter>
-                                  </form>
-                                </DialogContent>
-                              </Dialog>
-                            ) : null}
-                            {mayDeleteByRole ? (
-                              <span title={deleteReason ?? undefined}>
-                                <Button
-                                  variant="outline"
-                                  size="icon"
-                                  onClick={() => handleDeleteActivity(a.id)}
-                                  disabled={deletingId === a.id || !mayDeleteThis}
-                                >
-                                  {deletingId === a.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
-                                </Button>
-                              </span>
-                            ) : null}
+                                  <DialogFooter>
+                                    <Button type="button" variant="outline" onClick={() => setEditId(null)}>Cancel</Button>
+                                    <Button type="submit" disabled={submitting}>{submitting && <Loader2 className="h-4 w-4 animate-spin" />} Save</Button>
+                                  </DialogFooter>
+                                </form>
+                              </DialogContent>
+                            </Dialog>
+
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              onClick={() => handleDeleteActivity(a.id)}
+                              disabled={!mayDeleteByRole || deletingId === a.id}
+                              title={!mayDeleteByRole ? "No permission" : "Delete"}
+                            >
+                              {deletingId === a.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
+                            </Button>
                           </div>
                         </TableCell>
                       </TableRow>
-                        );
-                      })()
                     ))}
                   </TableBody>
                 </Table>
