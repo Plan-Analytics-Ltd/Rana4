@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronRight, Search, Moon, Sun, User, LogOut } from "lucide-react";
+import { ChevronRight, Search, Moon, Sun, User, LogOut, X } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { useAuth } from "@/contexts/auth-context";
 import { useProject } from "@/contexts/project-context";
+import { useSearch } from "@/contexts/search-context";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 function getBreadcrumbs(pathname: string): { label: string; href: string }[] {
   if (pathname === "/app") return [{ label: "Dashboard", href: "/app" }];
@@ -37,6 +39,7 @@ export function AppHeader() {
   const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
   const { projects, selectedProjectId, setSelectedProjectId, loading: projectsLoading } = useProject();
+  const { query, setQuery, clear } = useSearch();
   const breadcrumbs = pathname.startsWith("/app") ? getBreadcrumbs(pathname) : [];
   const pageTitle = pageTitles[pathname] ?? breadcrumbs[breadcrumbs.length - 1]?.label ?? "Rana4";
 
@@ -92,13 +95,26 @@ export function AppHeader() {
             ))}
           </select>
         )}
-        <div
-          className={cn(
-            "flex h-8 w-64 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-400 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400"
-          )}
-        >
-          <Search className="h-4 w-4 shrink-0" />
-          <span>Search…</span>
+        <div className="relative w-64">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by ID or name…"
+            className={cn("h-8 pl-9 pr-9")}
+            aria-label={`Search ${pageTitle}`}
+          />
+          {query.trim() ? (
+            <button
+              type="button"
+              onClick={clear}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              aria-label="Clear search"
+              title="Clear"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
         </div>
         <button
           type="button"

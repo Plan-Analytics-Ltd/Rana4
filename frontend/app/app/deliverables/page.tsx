@@ -34,6 +34,7 @@ import {
   getApiErrorMessage,
 } from "@/lib/api";
 import { useProject } from "@/contexts/project-context";
+import { useSearch } from "@/contexts/search-context";
 import {
   ResourceAssignmentsEditor,
   draftsToPayload,
@@ -46,6 +47,7 @@ type FragnetOption = { id: string; name: string; standardName?: string };
 
 export default function DeliverablesPage() {
   const { selectedProjectId, selectedProjectRole } = useProject();
+  const { query } = useSearch();
   const mayEdit = hasPermission(selectedProjectRole, "deliverable", "update");
   const mayDelete = hasPermission(selectedProjectRole, "deliverable", "delete");
   const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
@@ -216,7 +218,17 @@ export default function DeliverablesPage() {
     setFormResourceDrafts(storedToDrafts(d.assignedResources));
   };
 
-  const unassignedDeliverables = deliverables.filter((d) => d.fragnetId == null);
+  const normalizedQuery = query.trim().toLowerCase();
+  const matchesQuery = useCallback(
+    (d: Deliverable) => {
+      if (!normalizedQuery) return true;
+      return d.id.toLowerCase().includes(normalizedQuery) || d.name.toLowerCase().includes(normalizedQuery);
+    },
+    [normalizedQuery]
+  );
+
+  const filteredDeliverables = deliverables.filter(matchesQuery);
+  const unassignedDeliverables = filteredDeliverables.filter((d) => d.fragnetId == null);
   const openCreateUnassigned = () => {
     setFormFragnetId("");
     setFormResourceDrafts([]);
@@ -239,7 +251,10 @@ export default function DeliverablesPage() {
           <div>
             <CardTitle>Unassigned deliverables (no fragnet)</CardTitle>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              {unassignedDeliverables.length} deliverable{unassignedDeliverables.length !== 1 ? "s" : ""} not assigned to any fragnet. You can include these in exports from the Export page.
+              {normalizedQuery
+                ? `${unassignedDeliverables.length} shown (filtered from ${deliverables.filter((d) => d.fragnetId == null).length})`
+                : `${unassignedDeliverables.length} deliverable${unassignedDeliverables.length !== 1 ? "s" : ""} not assigned to any fragnet`}
+              . You can include these in exports from the Export page.
             </p>
           </div>
           {mayEdit ? (
@@ -296,7 +311,9 @@ export default function DeliverablesPage() {
           <div>
             <CardTitle>Deliverables</CardTitle>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              {deliverables.length} deliverable{deliverables.length !== 1 ? "s" : ""}
+              {normalizedQuery
+                ? `${filteredDeliverables.length} shown (filtered from ${deliverables.length})`
+                : `${deliverables.length} deliverable${deliverables.length !== 1 ? "s" : ""}`}
             </p>
           </div>
           <Dialog
@@ -367,6 +384,10 @@ export default function DeliverablesPage() {
             <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-slate-400" /></div>
           ) : deliverables.length === 0 ? (
             <p className="py-8 text-center text-slate-500 dark:text-slate-400">No deliverables yet. Create one (with or without a fragnet).</p>
+          ) : filteredDeliverables.length === 0 ? (
+            <p className="py-8 text-center text-slate-500 dark:text-slate-400">
+              No deliverables match &quot;{query.trim()}&quot;. Try searching by ID or name.
+            </p>
           ) : (
             <Table>
               <TableHeader>
@@ -380,7 +401,7 @@ export default function DeliverablesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {deliverables.map((d) => (
+                {filteredDeliverables.map((d) => (
                   <TableRow key={d.id}>
                     <TableCell className="font-medium">{d.name}</TableCell>
                     <TableCell>{d.bestDuration}</TableCell>

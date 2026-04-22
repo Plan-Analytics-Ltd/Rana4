@@ -1,6 +1,7 @@
 import { AppLayout } from "@/components/layout/AppLayout";
 import { RequireAuth } from "@/components/auth/RequireAuth";
 import { ProjectProvider } from "@/contexts/project-context";
+import { SearchProvider } from "@/contexts/search-context";
 
 export default function AppShellLayout({
   children,
@@ -10,7 +11,9 @@ export default function AppShellLayout({
   return (
     <RequireAuth>
       <ProjectProvider>
-        <AppLayout>{children}</AppLayout>
+        <SearchProvider>
+          <AppLayout>{children}</AppLayout>
+        </SearchProvider>
       </ProjectProvider>
     </RequireAuth>
   );

@@ -332,7 +332,9 @@ export async function remove(req: AuthRequest, res: Response): Promise<void> {
     res.status(204).send();
   } catch (err) {
     if (isPrismaForeignKeyViolation(err)) {
-      res.status(400).json({ error: "Invalid cross-company reference" });
+      // Prisma P2003 can be thrown without a reliable field name depending on provider/version.
+      // For deliverable deletion, treat any FK constraint as "record in use".
+      res.status(409).json({ error: "Cannot delete deliverable: it is referenced by other records (e.g. activities). Remove those references first." });
       return;
     }
     console.error(err);
