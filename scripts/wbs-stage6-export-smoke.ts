@@ -136,8 +136,14 @@ async function main(): Promise<void> {
 
     console.log("wbs-stage6-export-smoke: all checks passed.");
   } finally {
+    // Ensure scoped models are deleted under a valid company context.
+    await runWithAuthContextAsync({ userId: user.id, companyId: company.id }, async () => {
+      await prisma.standard.deleteMany({ where: { companyId: company.id } });
+      await prisma.project.deleteMany({ where: { companyId: company.id } });
+    });
     await prisma.user.delete({ where: { id: user.id } });
     await prisma.company.delete({ where: { id: company.id } });
+    await prisma.$disconnect();
   }
 }
 

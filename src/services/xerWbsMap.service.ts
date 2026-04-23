@@ -44,21 +44,17 @@ function assertProjwbsHierarchy(rows: XerProjwbsRow[]): void {
   if (!r0.proj_id) {
     throw new Error("mapToXER: root PROJWBS missing proj_id");
   }
+  const byId = new Map(rows.map((r) => [r.wbs_id, r]));
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i]!;
-    if (r.parent_wbs_id !== "1") {
-      throw new Error(`mapToXER: deliverable PROJWBS wbs_id ${r.wbs_id} must have parent_wbs_id "1", got ${JSON.stringify(r.parent_wbs_id)}`);
+    if (r.parent_wbs_id !== "1" && (r.parent_wbs_id == null || !byId.has(r.parent_wbs_id))) {
+      throw new Error(
+        `mapToXER: PROJWBS wbs_id ${r.wbs_id} has missing parent_wbs_id ${JSON.stringify(r.parent_wbs_id)}`
+      );
     }
-    const expectShort = String(i + 1);
-    if (r.wbs_short_name !== expectShort) {
-      throw new Error(`mapToXER: PROJWBS row ${i} wbs_short_name must be ${JSON.stringify(expectShort)}, got ${JSON.stringify(r.wbs_short_name)}`);
-    }
-    if (!r.proj_id) {
-      throw new Error(`mapToXER: PROJWBS wbs_id ${r.wbs_id} missing proj_id`);
-    }
-    if (!r.wbs_name) {
-      throw new Error(`mapToXER: PROJWBS wbs_id ${r.wbs_id} missing wbs_name`);
-    }
+    if (!r.proj_id) throw new Error(`mapToXER: PROJWBS wbs_id ${r.wbs_id} missing proj_id`);
+    if (!r.wbs_name) throw new Error(`mapToXER: PROJWBS wbs_id ${r.wbs_id} missing wbs_name`);
+    if (!r.wbs_short_name) throw new Error(`mapToXER: PROJWBS wbs_id ${r.wbs_id} missing wbs_short_name`);
   }
 }
 
@@ -98,17 +94,22 @@ export function mapToXER(wbsStructure: GeneratedWbs): XerWbsMapping {
     },
   ];
 
+  const sliceByWbsId = new Map<number, { wbs_name: string; wbs_short_name: string }>();
   for (const slice of wbsStructure.deliverable_wbs_list) {
     const mapped = map.get(slice.deliverable_id);
-    if (mapped !== slice.wbs_id) {
-      throw new Error("mapToXER: slice vs deliverableIdToWbsId mismatch");
-    }
+    if (mapped !== slice.wbs_id) throw new Error("mapToXER: slice vs deliverableIdToWbsId mismatch");
+    sliceByWbsId.set(slice.wbs_id, { wbs_name: slice.wbs_name, wbs_short_name: slice.wbs_short_name });
+  }
+
+  const orderedNodes = [...wbsStructure.wbs_nodes].sort((a, b) => a.wbs_id - b.wbs_id);
+  for (const n of orderedNodes) {
+    const slice = sliceByWbsId.get(n.wbs_id);
     projwbs.push({
-      wbs_id: String(slice.wbs_id),
+      wbs_id: String(n.wbs_id),
       proj_id,
-      parent_wbs_id: String(root.wbs_id),
-      wbs_name: slice.wbs_name,
-      wbs_short_name: slice.wbs_short_name,
+      parent_wbs_id: String(n.parent_wbs_id),
+      wbs_name: slice?.wbs_name ?? n.wbs_name,
+      wbs_short_name: slice?.wbs_short_name ?? n.wbs_short_name,
     });
   }
 

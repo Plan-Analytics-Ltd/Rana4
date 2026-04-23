@@ -41,9 +41,22 @@ export type DeliverableWbsSlice = {
   activities: Activity[];
 };
 
+export type WbsNodeKind = "FRAGNET" | "DELIVERABLE";
+
+/** Flat WBS node list (excluding root) so we can model intermediate levels like fragnets. */
+export type WbsNode = {
+  kind: WbsNodeKind;
+  wbs_id: number;
+  parent_wbs_id: number;
+  wbs_short_name: string;
+  wbs_name: string;
+};
+
 /** In-memory WBS tree + explicit deliverable → numeric WBS id map (required for XER / TASK). */
 export type GeneratedWbs = {
   project_wbs: ProjectWbsRoot;
+  /** All non-root WBS nodes in the hierarchy, including fragnets (STANDARD) and deliverables. */
+  wbs_nodes: WbsNode[];
   deliverable_wbs_list: DeliverableWbsSlice[];
   deliverableIdToWbsId: Map<string, number>;
 };
@@ -73,8 +86,8 @@ export function assertGeneratedWbsInvariants(wbs: GeneratedWbs): void {
     throw new Error(`project_wbs: root wbs_short_name must be "1", got ${JSON.stringify(wbs.project_wbs.wbs_short_name)}`);
   }
 
-  if (wbs.deliverable_wbs_list.some((s) => s.wbs_id === 1)) {
-    throw new Error("WBS: exactly one root (wbs_id 1); deliverables must not use wbs_id 1");
+  if (!Array.isArray(wbs.wbs_nodes)) {
+    throw new Error("GeneratedWbs: wbs_nodes must be an array");
   }
 
   const map = wbs.deliverableIdToWbsId;
@@ -85,14 +98,35 @@ export function assertGeneratedWbsInvariants(wbs: GeneratedWbs): void {
     throw new Error(`GeneratedWbs: map size ${map.size} !== slice count ${wbs.deliverable_wbs_list.length}`);
   }
 
+  const nodeById = new Map<number, WbsNode>();
+  for (const n of wbs.wbs_nodes) {
+    assertIntegerWbsId(`node ${n.kind}`, n.wbs_id);
+    assertIntegerWbsId(`node ${n.kind} parent`, n.parent_wbs_id);
+    assertNoUuidInWbsIdField(`node ${n.kind}`, String(n.wbs_id));
+    assertNoUuidInWbsIdField(`node ${n.kind} parent`, String(n.parent_wbs_id));
+    if (n.wbs_id === 1) throw new Error("WBS: exactly one root (wbs_id 1); wbs_nodes must not include wbs_id 1");
+    if (nodeById.has(n.wbs_id)) throw new Error(`WBS: duplicate wbs_id ${n.wbs_id} in wbs_nodes`);
+    if (n.parent_wbs_id === n.wbs_id) throw new Error(`WBS: node ${n.wbs_id} cannot parent itself`);
+    nodeById.set(n.wbs_id, n);
+  }
+
+  for (const n of wbs.wbs_nodes) {
+    if (n.parent_wbs_id !== 1 && !nodeById.has(n.parent_wbs_id)) {
+      throw new Error(`WBS: node ${n.wbs_id} parent_wbs_id ${n.parent_wbs_id} does not exist`);
+    }
+  }
+
+  const deliverableNodeIds = new Set(
+    wbs.wbs_nodes.filter((n) => n.kind === "DELIVERABLE").map((n) => n.wbs_id)
+  );
+
   for (let i = 0; i < wbs.deliverable_wbs_list.length; i++) {
     const slice = wbs.deliverable_wbs_list[i]!;
-    const expectShort = String(i + 2);
-    if (slice.wbs_short_name !== expectShort) {
-      throw new Error(`slice ${slice.deliverable_id}: wbs_short_name must be ${JSON.stringify(expectShort)}, got ${JSON.stringify(slice.wbs_short_name)}`);
-    }
     assertIntegerWbsId(`slice ${slice.deliverable_id}`, slice.wbs_id);
     assertNoUuidInWbsIdField("slice", String(slice.wbs_id));
+    if (!deliverableNodeIds.has(slice.wbs_id)) {
+      throw new Error(`slice ${slice.deliverable_id}: wbs_id ${slice.wbs_id} missing from wbs_nodes DELIVERABLE entries`);
+    }
     if (map.get(slice.deliverable_id) !== slice.wbs_id) {
       throw new Error(`deliverableIdToWbsId[${slice.deliverable_id}] !== slice.wbs_id ${slice.wbs_id}`);
     }
@@ -104,6 +138,20 @@ export function assertGeneratedWbsInvariants(wbs: GeneratedWbs): void {
       assertNoUuidInWbsIdField(`activity ${act.id} wbs`, String(wid));
       if (wid !== slice.wbs_id) {
         throw new Error(`activity ${act.id}: map wbs_id ${wid} !== slice ${slice.wbs_id}`);
+      }
+    }
+  }
+
+  // Backward-compat: for single-fragnet WBS generation (no intermediate nodes), enforce short_name sequence 2..N+1.
+  const hasFragnetNodes = wbs.wbs_nodes.some((n) => n.kind === "FRAGNET");
+  if (!hasFragnetNodes) {
+    for (let i = 0; i < wbs.deliverable_wbs_list.length; i++) {
+      const slice = wbs.deliverable_wbs_list[i]!;
+      const expectShort = String(i + 2);
+      if (slice.wbs_short_name !== expectShort) {
+        throw new Error(
+          `slice ${slice.deliverable_id}: wbs_short_name must be ${JSON.stringify(expectShort)}, got ${JSON.stringify(slice.wbs_short_name)}`
+        );
       }
     }
   }
@@ -126,7 +174,13 @@ export function withUniqueDeliverableWbsNames(wbs: GeneratedWbs): GeneratedWbs {
     used.add(candidate.toLowerCase());
     return { ...slice, wbs_name: candidate };
   });
-  return { ...wbs, deliverable_wbs_list };
+  const wbs_nodes = wbs.wbs_nodes.map((n) => {
+    if (n.kind !== "DELIVERABLE") return n;
+    const matching = deliverable_wbs_list.find((s) => s.wbs_id === n.wbs_id);
+    if (!matching) return n;
+    return { ...n, wbs_name: matching.wbs_name };
+  });
+  return { ...wbs, deliverable_wbs_list, wbs_nodes };
 }
 
 /**
@@ -178,6 +232,14 @@ export function buildWbsFromDeliverables(
     };
   });
 
+  const wbs_nodes: WbsNode[] = deliverable_wbs_list.map((s) => ({
+    kind: "DELIVERABLE",
+    wbs_id: s.wbs_id,
+    parent_wbs_id: project_wbs.wbs_id,
+    wbs_short_name: s.wbs_short_name,
+    wbs_name: s.wbs_name,
+  }));
+
   const deliverableIdToWbsId = new Map<string, number>();
   for (const s of deliverable_wbs_list) {
     deliverableIdToWbsId.set(s.deliverable_id, s.wbs_id);
@@ -185,6 +247,7 @@ export function buildWbsFromDeliverables(
 
   const merged = withUniqueDeliverableWbsNames({
     project_wbs,
+    wbs_nodes,
     deliverable_wbs_list,
     deliverableIdToWbsId,
   });

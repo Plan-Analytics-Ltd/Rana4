@@ -12,13 +12,21 @@ import {
   validateFragnetForWbsExport,
   validateGeneratedWbsStructure,
 } from "../services/wbsExportValidation.service.js";
-import { generateFragnetXlsx, type ExportScenario, type DeliverableForExport } from "../services/export.service.js";
+import { generateFragnetXlsx, generateStandardXlsx, type ExportScenario, type DeliverableForExport, type StandardFragnetForExport } from "../services/export.service.js";
 import { generateHumanReadableWBS } from "../services/wbsHumanReadable.service.js";
 import { generateXERWithWBS } from "../services/xerTemplateInject.service.js";
+import { generateWbsFromFragnets } from "../services/wbsFromFragnets.service.js";
 import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
 
 const VALID_SCENARIOS: ExportScenario[] = ["best", "likely"];
+
+function safeFileBaseName(name: string): string {
+  return (
+    name.replace(/[^a-z0-9]/gi, "_").toLowerCase().replace(/_+/g, "_").replace(/^_+|_+$/g, "") ||
+    "project"
+  );
+}
 
 export async function exportFragnet(req: AuthRequest, res: Response): Promise<void> {
   try {
@@ -178,7 +186,7 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
       unassignedForExport,
       rateCardEntries
     );
-    const safeName = (pname.replace(/[^a-z0-9]/gi, "_").toLowerCase().replace(/_+/g, "_").replace(/^_+|_+$/g, "") || "project");
+    const safeName = safeFileBaseName(pname);
 
     const wbsReviewRows = generateHumanReadableWBS(generatedWbs);
     const wbsReviewSheet = XLSX.utils.json_to_sheet(
@@ -218,5 +226,208 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to export fragnet" });
+  }
+}
+
+export async function exportStandard(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const companyId = req.user?.companyId;
+    const userId = req.user?.id;
+    if (!companyId) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+
+    const { standardId } = req.params;
+    const body = req.body as {
+      scenario?: string;
+      projectName?: string;
+      projectId?: string;
+    };
+
+    const scenario = body.scenario;
+    const projectName = body.projectName;
+    const projectId = body.projectId;
+
+    if (scenario === undefined || scenario === null || String(scenario).trim() === "") {
+      res.status(400).json({ error: "scenario is required" });
+      return;
+    }
+    if (!VALID_SCENARIOS.includes(scenario as ExportScenario)) {
+      res.status(400).json({ error: "scenario must be 'best' or 'likely'" });
+      return;
+    }
+    if (projectName === undefined || projectName === null || String(projectName).trim() === "") {
+      res.status(400).json({ error: "projectName is required" });
+      return;
+    }
+    if (projectId === undefined || projectId === null || String(projectId).trim() === "") {
+      res.status(400).json({ error: "projectId is required" });
+      return;
+    }
+
+    const standard = await prisma.standard.findFirst({
+      where: { id: standardId, companyId },
+      include: {
+        fragnets: {
+          where: { companyId },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          include: {
+            activities: { where: { companyId }, orderBy: { createdAt: "asc" } },
+            relationships: true,
+            deliverables: { where: { companyId }, orderBy: { createdAt: "asc" } },
+          },
+        },
+      },
+    });
+
+    if (!standard) {
+      res.status(404).json({ error: "Standard not found" });
+      return;
+    }
+
+    const membership = await requireProjectAccess(standard.projectId, req.user);
+    requirePermission(membership.role, "fragnet", "read");
+
+    // Validate each fragnet's activity→deliverable integrity (same checks as single fragnet export).
+    for (const fragnet of standard.fragnets) {
+      const wbsExportIssues = validateFragnetForWbsExport(fragnet);
+      if (wbsExportIssues.length > 0) {
+        res.status(400).json({
+          error: "WBS export validation failed",
+          issues: wbsExportIssues,
+          fragnetId: fragnet.id,
+        });
+        return;
+      }
+    }
+
+    // WBS: Project → Fragnet → Deliverable
+    const generatedWbs = await generateWbsFromFragnets(standard.id);
+    const structureIssues = validateGeneratedWbsStructure(generatedWbs);
+    if (structureIssues.length > 0) {
+      res.status(500).json({
+        error: "Internal WBS structure validation failed",
+        issues: structureIssues,
+      });
+      return;
+    }
+
+    const rateCardEntries = await getRateCardEntries(companyId);
+
+    const pid = String(projectId).trim();
+    const pname = String(projectName).trim();
+    const projectCode = pid !== "" && pname !== "" && pid === `${pname}1` ? pname : pid;
+
+    const fragnetsForExport: StandardFragnetForExport[] = await Promise.all(
+      standard.fragnets.map(async (f) => {
+        const deliverables = await Promise.all(
+          f.deliverables.map(async (d) => ({
+            id: d.id,
+            name: d.name,
+            bestDuration: d.bestDuration,
+            likelyDuration: d.likelyDuration,
+            createdAt: d.createdAt,
+            assignedResources: await assignmentsFromDb(companyId, d.assignedResources),
+          }))
+        );
+        const activities = await Promise.all(
+          f.activities.map(async (a) => ({
+            id: a.id,
+            deliverableId: a.deliverableId,
+            name: a.name,
+            bestDuration: a.bestDuration,
+            likelyDuration: a.likelyDuration,
+            createdAt: a.createdAt,
+            assignedResources: await assignmentsFromDb(companyId, a.assignedResources),
+          }))
+        );
+        const relationships = f.relationships.map((r: Relationship) => ({
+          predecessorActivityId: r.predecessorActivityId,
+          successorActivityId: r.successorActivityId,
+          relationshipType: r.relationshipType,
+          lag: r.lag,
+        }));
+        return { id: f.id, deliverables, activities, relationships };
+      })
+    );
+
+    const noFragnetDeliverablesRaw = await prisma.deliverable.findMany({
+      where: { companyId, projectId: standard.projectId, fragnetId: null },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    });
+    if (noFragnetDeliverablesRaw.length > 0) {
+      const deliverables = await Promise.all(
+        noFragnetDeliverablesRaw.map(async (d) => ({
+          id: d.id,
+          name: d.name,
+          bestDuration: d.bestDuration,
+          likelyDuration: d.likelyDuration,
+          createdAt: d.createdAt,
+          assignedResources: await assignmentsFromDb(companyId, d.assignedResources),
+        }))
+      );
+      fragnetsForExport.push({
+        id: "NO_FRAGNET",
+        deliverables,
+        activities: [],
+        relationships: [],
+      });
+    }
+
+    const buffer = generateStandardXlsx(
+      generatedWbs,
+      fragnetsForExport,
+      scenario as ExportScenario,
+      pid,
+      projectCode,
+      rateCardEntries
+    );
+
+    const safeName = safeFileBaseName(pname);
+
+    const wbsReviewRows = generateHumanReadableWBS(generatedWbs);
+    const wbsReviewSheet = XLSX.utils.json_to_sheet(
+      wbsReviewRows.map((r) => ({
+        "WBS ID": r.wbs_id,
+        "WBS Short Name": r.wbs_short_name,
+        "Parent WBS": r.parent_wbs ?? "",
+        "WBS (Name)": r.wbs_name,
+      }))
+    );
+    const wbsReviewWb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wbsReviewWb, wbsReviewSheet, "WBS");
+    const wbsReviewBuffer = XLSX.write(wbsReviewWb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+
+    const xerString = await generateXERWithWBS(generatedWbs, pname, projectCode, rateCardEntries);
+
+    const zip = new JSZip();
+    zip.file(`${safeName}_standard.xlsx`, buffer);
+    zip.file(`${safeName}_wbs_review.xlsx`, wbsReviewBuffer);
+    zip.file(`${projectCode || "project"}.xer`, Buffer.from(xerString, "utf-8"));
+
+    const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
+
+    if (userId) {
+      await auditLog({
+        userId,
+        companyId,
+        projectId: standard.projectId,
+        action: "EXPORT_STANDARD",
+        entity: "Standard",
+        entityId: standard.id,
+      });
+    }
+
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="${safeName}_standard_export.zip"`);
+    res.status(200).send(zipBuffer);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to export standard" });
   }
 }

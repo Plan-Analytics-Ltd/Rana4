@@ -429,4 +429,17 @@ export const exportApi = {
     api.post<Blob>(`/export/fragnet/${fragnetId}`, body, {
       responseType: "blob",
     }),
+
+  /** Downloads ZIP export for the full standard (Project → Fragnet → Deliverable WBS). */
+  standard: (
+    standardId: string,
+    body: {
+      scenario: "best" | "likely";
+      projectName: string;
+      projectId: string;
+    }
+  ) =>
+    api.post<Blob>(`/export/standard/${standardId}`, body, {
+      responseType: "blob",
+    }),
 };

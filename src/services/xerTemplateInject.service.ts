@@ -161,13 +161,22 @@ export async function generateXERWithWBS(
   }
 
   const appended: string[] = [];
-  for (let i = 0; i < wbs.deliverable_wbs_list.length; i++) {
-    const slice = wbs.deliverable_wbs_list[i]!;
+  const sliceByWbsId = new Map<number, { wbs_short_name: string; wbs_name: string }>();
+  for (const s of wbs.deliverable_wbs_list) {
+    sliceByWbsId.set(s.wbs_id, { wbs_short_name: s.wbs_short_name, wbs_name: s.wbs_name });
+  }
+
+  const orderedNodes = [...wbs.wbs_nodes].sort((a, b) => a.wbs_id - b.wbs_id);
+  for (let i = 0; i < orderedNodes.length; i++) {
+    const node = orderedNodes[i]!;
+    const slice = sliceByWbsId.get(node.wbs_id);
     const v = buildRowFromTemplate(wbsFields, templateWbsRow);
-    setField(v, wbsFields, "wbs_id", String(slice.wbs_id));
-    setField(v, wbsFields, "wbs_short_name", slice.wbs_short_name);
-    setField(v, wbsFields, "wbs_name", slice.wbs_name);
-    setField(v, wbsFields, "parent_wbs_id", String(rootWbsId));
+    setField(v, wbsFields, "wbs_id", String(node.wbs_id));
+    setField(v, wbsFields, "wbs_short_name", slice?.wbs_short_name ?? node.wbs_short_name);
+    setField(v, wbsFields, "wbs_name", slice?.wbs_name ?? node.wbs_name);
+    const parent =
+      node.parent_wbs_id === 1 ? String(rootWbsId) : String(node.parent_wbs_id);
+    setField(v, wbsFields, "parent_wbs_id", parent);
     setField(v, wbsFields, "seq_num", String(rootSeqNum + i + 1));
     setField(v, wbsFields, "proj_node_flag", "N");
     setField(v, wbsFields, "ev_compute_type", "");

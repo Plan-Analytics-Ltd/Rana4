@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { useProject } from "@/contexts/project-context";
 
 type Scenario = "best" | "likely";
+type ExportMode = "FRAGNET" | "STANDARD";
 
 export default function ExportPage() {
   const { selectedProjectId } = useProject();
@@ -26,6 +27,7 @@ export default function ExportPage() {
   const [selectedStandardId, setSelectedStandardId] = useState<string>("");
   const [fragnets, setFragnets] = useState<Fragnet[]>([]);
   const [selectedFragnetId, setSelectedFragnetId] = useState<string>("");
+  const [mode, setMode] = useState<ExportMode>("FRAGNET");
   const [scenario, setScenario] = useState<Scenario>("best");
   const [projectId, setProjectId] = useState<string>("");
   const [projectName, setProjectName] = useState<string>("");
@@ -111,8 +113,12 @@ export default function ExportPage() {
   }, [selectedProjectId]);
 
   const handleExport = async () => {
-    if (!selectedFragnetId) {
+    if (mode === "FRAGNET" && !selectedFragnetId) {
       toast.error("Select a fragnet first");
+      return;
+    }
+    if (mode === "STANDARD" && !selectedStandardId) {
+      toast.error("Select a standard first");
       return;
     }
     const pid = projectId.trim();
@@ -130,12 +136,19 @@ export default function ExportPage() {
       const unassignedIds = unassignedDeliverables
         .filter((d) => includedUnassignedIds[d.id])
         .map((d) => d.id);
-      const response = await exportApi.fragnet(selectedFragnetId, {
-        scenario,
-        projectName: pname,
-        projectId: pid,
-        ...(unassignedIds.length > 0 && { unassignedDeliverableIds: unassignedIds }),
-      });
+      const response =
+        mode === "FRAGNET"
+          ? await exportApi.fragnet(selectedFragnetId, {
+              scenario,
+              projectName: pname,
+              projectId: pid,
+              ...(unassignedIds.length > 0 && { unassignedDeliverableIds: unassignedIds }),
+            })
+          : await exportApi.standard(selectedStandardId, {
+              scenario,
+              projectName: pname,
+              projectId: pid,
+            });
       const data = response.data;
       const headersAny = response.headers as unknown as { get?: (k: string) => string | null } & Record<string, unknown>;
       const contentDisposition =
@@ -190,6 +203,26 @@ export default function ExportPage() {
           ) : (
             <>
               <div className="grid gap-2">
+                <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Export mode</label>
+                <select
+                  value={mode}
+                  onChange={(e) => setMode(e.target.value as ExportMode)}
+                  className={cn(
+                    "flex h-9 max-w-sm rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100",
+                    "focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+                  )}
+                >
+                  <option value="FRAGNET">Export Fragnet</option>
+                  <option value="STANDARD">Export Full Standard</option>
+                </select>
+                {mode === "STANDARD" && (
+                  <p className="text-sm text-amber-700 dark:text-amber-300">
+                    Full standard export may create large schedules.
+                  </p>
+                )}
+              </div>
+
+              <div className="grid gap-2">
                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Standard</label>
                 <select
                   value={selectedStandardId}
@@ -209,7 +242,7 @@ export default function ExportPage() {
                 <select
                   value={selectedFragnetId}
                   onChange={(e) => setSelectedFragnetId(e.target.value)}
-                  disabled={!selectedStandardId || loadingFragnets || fragnets.length === 0}
+                  disabled={mode === "STANDARD" || !selectedStandardId || loadingFragnets || fragnets.length === 0}
                   className={cn(
                     "flex h-9 max-w-sm rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100",
                     "focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 dark:focus:ring-offset-slate-900 disabled:opacity-50"
@@ -292,7 +325,12 @@ export default function ExportPage() {
               )}
               <Button
                 onClick={handleExport}
-                disabled={!selectedFragnetId || !projectId.trim() || !projectName.trim() || exporting || fragnets.length === 0}
+                disabled={
+                  (mode === "FRAGNET" && (!selectedFragnetId || fragnets.length === 0)) ||
+                  !projectId.trim() ||
+                  !projectName.trim() ||
+                  exporting
+                }
               >
                 {exporting ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -306,7 +344,7 @@ export default function ExportPage() {
         </CardContent>
       </Card>
 
-      {selectedFragnetId && selectedFragnet && (
+      {mode === "FRAGNET" && selectedFragnetId && selectedFragnet && (
         <Card>
           <CardHeader>
             <CardTitle>Export summary</CardTitle>
@@ -315,6 +353,17 @@ export default function ExportPage() {
               {unassignedDeliverables.filter((d) => includedUnassignedIds[d.id]).length > 0 && (
                 <> Including {unassignedDeliverables.filter((d) => includedUnassignedIds[d.id]).length} unassigned deliverable(s) in the export.</>
               )}
+            </p>
+          </CardHeader>
+        </Card>
+      )}
+
+      {mode === "STANDARD" && selectedStandard && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Export summary</CardTitle>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Full standard export for &quot;{selectedStandard.name}&quot; — scenario: {scenario}. Project ID: {projectId || "—"}, Project Name: {projectName || "—"}.
             </p>
           </CardHeader>
         </Card>

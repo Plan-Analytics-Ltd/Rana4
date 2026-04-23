@@ -17,14 +17,19 @@ export function generateHumanReadableWBS(wbs: GeneratedWbs): HumanReadableWbsRow
     },
   ];
 
-  const parentId = wbs.project_wbs.wbs_id;
+  const sliceNameByWbsId = new Map<number, { wbs_short_name: string; wbs_name: string }>();
+  for (const s of wbs.deliverable_wbs_list) {
+    sliceNameByWbsId.set(s.wbs_id, { wbs_short_name: s.wbs_short_name, wbs_name: s.wbs_name });
+  }
 
-  for (const slice of wbs.deliverable_wbs_list) {
+  const ordered = [...wbs.wbs_nodes].sort((a, b) => a.wbs_id - b.wbs_id);
+  for (const n of ordered) {
+    const fromSlice = sliceNameByWbsId.get(n.wbs_id);
     rows.push({
-      wbs_id: slice.wbs_id,
-      wbs_short_name: slice.wbs_short_name,
-      parent_wbs: parentId,
-      wbs_name: slice.wbs_name,
+      wbs_id: n.wbs_id,
+      wbs_short_name: fromSlice?.wbs_short_name ?? n.wbs_short_name,
+      parent_wbs: n.parent_wbs_id,
+      wbs_name: fromSlice?.wbs_name ?? n.wbs_name,
     });
   }
 

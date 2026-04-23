@@ -3,6 +3,7 @@ import type { Activity } from "@prisma/client";
 import { generateWBS } from "./wbsGenerate.service.js";
 import { validateGeneratedWbsStructure } from "./wbsExportValidation.service.js";
 import { mapToXER } from "./xerWbsMap.service.js";
+import { generateWbsFromFragnets } from "./wbsFromFragnets.service.js";
 
 function tabLine(parts: (string | number | null | undefined)[]): string {
   return parts
@@ -33,15 +34,32 @@ function ermhdrTimestamp(d: Date): string {
  * Build a tab-delimited Primavera-style XER fragment: ERMHDR, PROJWBS, optional TASK.
  * Calls {@link generateWBS} then {@link mapToXER}. Does not write to disk.
  */
-export async function generateXERFile(projectId: string): Promise<string> {
-  const wbs = await generateWBS(projectId);
+export type ExportMode = "FRAGNET" | "STANDARD";
+
+function fragnetCodeFromActivity(a: Activity): string {
+  const raw = String((a as any).fragnetId ?? "").trim();
+  if (!raw) return "FRAGNET";
+  return raw.replace(/[^a-z0-9]/gi, "").slice(0, 8) || "FRAGNET";
+}
+
+export async function generateXERFile(params: {
+  mode: ExportMode;
+  projectId?: string;
+  standardId?: string;
+}): Promise<string> {
+  const { mode } = params;
+  const wbs =
+    mode === "FRAGNET"
+      ? await generateWBS(String(params.projectId ?? "").trim())
+      : await generateWbsFromFragnets(String(params.standardId ?? "").trim());
   const structureIssues = validateGeneratedWbsStructure(wbs);
   if (structureIssues.length > 0) {
     throw new Error(
       `WBS structure validation failed: ${structureIssues.map((i) => i.message).join("; ")}`
     );
   }
-  const { projwbs, tasks } = mapToXER(wbs);
+  const mapped = mapToXER(wbs);
+  const { projwbs } = mapped;
 
   const activityById = new Map<string, Activity>();
   for (const slice of wbs.deliverable_wbs_list) {
@@ -49,6 +67,15 @@ export async function generateXERFile(projectId: string): Promise<string> {
       activityById.set(a.id, a);
     }
   }
+
+  const tasks = (() => {
+    if (mode !== "STANDARD") return mapped.tasks;
+    return mapped.tasks.map((t) => {
+      const a = activityById.get(t.task_id);
+      if (!a) return t;
+      return { ...t, task_id: `${fragnetCodeFromActivity(a)}-${t.task_id}` };
+    });
+  })();
 
   const projId = projwbs[0]?.proj_id ?? String(wbs.project_wbs.wbs_id);
   const lines: string[] = [];
@@ -128,7 +155,8 @@ export async function generateXERFile(projectId: string): Promise<string> {
       ])
     );
     for (const t of tasks) {
-      const a = activityById.get(t.task_id);
+      const originalId = mode === "STANDARD" ? t.task_id.split("-").slice(1).join("-") : t.task_id;
+      const a = activityById.get(originalId);
       lines.push(
         tabLine([
           "%R",

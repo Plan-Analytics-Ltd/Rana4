@@ -6,5 +6,6 @@ const router = Router();
 
 router.use(requireAuth);
 router.post("/fragnet/:fragnetId", exportController.exportFragnet);
+router.post("/standard/:standardId", exportController.exportStandard);
 
 export default router;

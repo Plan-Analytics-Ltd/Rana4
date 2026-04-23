@@ -44,6 +44,13 @@ type RelationshipForExport = {
   lag: number;
 };
 
+export type StandardFragnetForExport = {
+  id: string;
+  deliverables: DeliverableForExport[];
+  activities: ActivityForExport[];
+  relationships: RelationshipForExport[];
+};
+
 /** Deterministic sort: created_at asc, then id asc. */
 function sortByCreatedAt<T extends { createdAt: Date; id: string }>(items: T[]): T[] {
   return [...items].sort((a, b) => {
@@ -361,6 +368,11 @@ export function generateFragnetXlsx(
     if (!Number.isInteger(pos1) || pos1 < 1) return pos1;
     return pos1 + 1;
   };
+  const wbsCodeForPosition = (pos1: number): string => {
+    const n = wbsCodeNumberForPosition(pos1);
+    const prefix = String(projectNameForWbsCode ?? "").trim();
+    return prefix ? `${prefix}.${n}` : String(n);
+  };
 
   const durationField = scenario === "best" ? "bestDuration" : "likelyDuration";
   const taskDataRows: (string | number | null)[][] = [];
@@ -466,7 +478,7 @@ export function generateFragnetXlsx(
       if (!blockWbs) {
         throw new Error(`Export: deliverable ${d.id} missing from generated WBS map`);
       }
-      const wbsCode = `${projectNameForWbsCode}.${wbsCodeNumberForPosition(i + 1)}`;
+      const wbsCode = wbsCodeForPosition(i + 1);
 
       const deliverableExportId = `A${nextId++}`;
       pushActivityRow(
@@ -527,7 +539,7 @@ export function generateFragnetXlsx(
       const wbsIdNum = maxWbsId + unassignedSeq;
       const unassignedWbs = { wbs_id: String(wbsIdNum), wbs_name: d.name };
       const pos1 = (deliverables?.length ?? 0) + unassignedSeq;
-      const wbsCode = `${projectNameForWbsCode}.${wbsCodeNumberForPosition(pos1)}`;
+      const wbsCode = wbsCodeForPosition(pos1);
       const deliverableExportId = `A${nextId++}`;
       pushActivityRow(
         deliverableExportId,
@@ -604,6 +616,213 @@ export function generateFragnetXlsx(
   XLSX.utils.book_append_sheet(workbook, taskSheet, "TASK");
   XLSX.utils.book_append_sheet(workbook, taskPredSheet, "TASKPRED");
 
+  XLSX.utils.book_append_sheet(workbook, taskrsrcSheet, "TASKRSRC");
+
+  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+}
+
+/**
+ * Standard export: keep one workbook, but scope activity duplication to each fragnet.
+ *
+ * CRITICAL RULES:
+ * - Activities repeat within a fragnet
+ * - Activities MUST NOT repeat across fragnets
+ * - Never use a standard-global activity list
+ */
+export function generateStandardXlsx(
+  generatedWbs: GeneratedWbs,
+  fragnets: StandardFragnetForExport[],
+  scenario: ExportScenario,
+  projectId: string,
+  projectNameForWbsCode: string,
+  rateCardEntries: RateCardEntry[] = []
+): Buffer {
+  // WBS Code numbering must align with XER WBS structure:
+  // root is "1", deliverables start at ".2", ".3", ...
+  const wbsCodeNumberForPosition = (pos1: number): number => {
+    if (!Number.isInteger(pos1) || pos1 < 1) return pos1;
+    return pos1 + 1;
+  };
+  const wbsCodeForPosition = (pos1: number): string => {
+    const n = wbsCodeNumberForPosition(pos1);
+    const prefix = String(projectNameForWbsCode ?? "").trim();
+    return prefix ? `${prefix}.${n}` : String(n);
+  };
+
+  const durationField = scenario === "best" ? "bestDuration" : "likelyDuration";
+  const taskDataRows: (string | number | null)[][] = [];
+  const taskPredDataRows: (string | number | null)[][] = [];
+  const taskrsrcDataRows: (string | number)[][] = [];
+  let nextId = 1000;
+
+  const deliverableWbsById = deliverableWbsLookupFromGenerated(generatedWbs);
+  const p6Resources = buildP6ResourceMap(rateCardEntries);
+  const resourceKey = (type: string, name: string): string =>
+    `${String(type ?? "").trim().toLowerCase()}|${String(name ?? "").trim().toLowerCase()}`;
+
+  const droppedActivityRows: { reason: string; id: string; name: unknown; duration: unknown }[] = [];
+  const pushActivityRow = (
+    exportId: string,
+    rawName: unknown,
+    rawDurationDays: unknown,
+    assigned: AssignedResourceStored[],
+    wbsId: string,
+    wbsName: string
+  ) => {
+    const activityName = cleanActivityName(rawName);
+    if (!activityName) {
+      droppedActivityRows.push({ reason: "empty Activity Name", id: exportId, name: rawName, duration: rawDurationDays });
+      return;
+    }
+    if (!isFiniteNumber(rawDurationDays)) {
+      droppedActivityRows.push({ reason: "missing/invalid duration", id: exportId, name: rawName, duration: rawDurationDays });
+      return;
+    }
+    const durationHours = rawDurationDays;
+    if (!Number.isFinite(durationHours)) {
+      droppedActivityRows.push({ reason: "invalid converted duration", id: exportId, name: rawName, duration: rawDurationDays });
+      return;
+    }
+    taskDataRows.push([
+      exportId, // task_code
+      ACTIVITY_STATUS, // status_code
+      wbsId, // wbs_id
+      wbsName, // wbs_name
+      activityName, // task_name
+      null, // start_date
+      null, // end_date
+      durationHours, // orig_dur_hr_cnt (raw user input)
+      durationHours, // remain_drtn_hr_cnt (raw user input)
+      0, // total_float_hr_cnt
+      null, // delete_record_flag
+    ]);
+
+    const defaultUnits = defaultUnitsFromDurationDays(rawDurationDays);
+    for (const ar of assigned) {
+      const r = p6Resources.byTypeName.get(resourceKey(ar.resourceType, ar.resourceName));
+      if (!r) {
+        throw new Error(`TASKRSRC export: resource not found in rate card map: ${ar.resourceType} / ${ar.resourceName}`);
+      }
+      const units = ar.units ?? defaultUnits;
+      taskrsrcDataRows.push([
+        r.rsrc_short_name, // Resource ID / rsrc_short_name
+        exportId, // Activity ID / task_id
+        ACTIVITY_STATUS, // TASK__status_code
+        RSRC_RESOURCE_TYPE, // rsrc_type
+        units, // target_qty
+      ]);
+    }
+  };
+
+  // 1) Build fragnet-level activity pool (scoped).
+  const fragnetActivitiesMap = new Map<string, ActivityForExport[]>();
+  for (const fragnet of fragnets) {
+    const activities = fragnet.deliverables.flatMap((d) =>
+      fragnet.activities.filter((a) => a.deliverableId === d.id)
+    );
+    // NOTE: Above keeps it deliverable-bound but still strictly fragnet-scoped.
+    fragnetActivitiesMap.set(fragnet.id, activities);
+  }
+
+  let deliverablePos1 = 0;
+
+  // 2) Assign activities correctly (per deliverable, per fragnet).
+  for (const fragnet of fragnets) {
+    const sharedActivities = fragnetActivitiesMap.get(fragnet.id) || [];
+
+    for (const deliverable of sortByCreatedAt(fragnet.deliverables)) {
+      const blockWbs = deliverableWbsById.get(deliverable.id);
+      if (!blockWbs) {
+        throw new Error(`Export: deliverable ${deliverable.id} missing from generated WBS map`);
+      }
+
+      deliverablePos1 += 1;
+      const wbsCode = wbsCodeForPosition(deliverablePos1);
+
+      const deliverableExportId = `A${nextId++}`;
+      pushActivityRow(
+        deliverableExportId,
+        deliverable.name,
+        deliverable[durationField],
+        deliverable.assignedResources,
+        wbsCode,
+        blockWbs.wbs_name
+      );
+
+      const specificActivities = fragnet.activities.filter((a) => a.deliverableId === deliverable.id);
+
+      const finalActivities = [...sharedActivities, ...specificActivities];
+      const uniqueActivities = Array.from(new Map(finalActivities.map((a) => [a.id, a])).values());
+      const sortedActivities = sortByCreatedAt(uniqueActivities);
+
+      const entryActivity = findEntryActivity(sortedActivities, fragnet.relationships);
+
+      const activityMapInBlock = new Map<string, string>();
+      sortedActivities.forEach((a) => {
+        activityMapInBlock.set(a.id, `A${nextId++}`);
+      });
+      sortedActivities.forEach((a) => {
+        pushActivityRow(
+          activityMapInBlock.get(a.id)!,
+          a.name,
+          a[durationField],
+          a.assignedResources,
+          wbsCode,
+          blockWbs.wbs_name
+        );
+      });
+
+      if (entryActivity) {
+        const entryExportId = activityMapInBlock.get(entryActivity.id);
+        if (entryExportId) {
+          taskPredDataRows.push([deliverableExportId, entryExportId, "FS", projectId, projectId, 0, null]);
+        }
+      }
+
+      fragnet.relationships.forEach((r) => {
+        const predId = activityMapInBlock.get(r.predecessorActivityId);
+        const succId = activityMapInBlock.get(r.successorActivityId);
+        if (predId && succId) {
+          taskPredDataRows.push([predId, succId, r.relationshipType, projectId, projectId, r.lag, null]);
+        }
+      });
+    }
+  }
+
+  console.log("[export] TASK headers row1:", TASK_DB_HEADERS);
+  console.log("[export] TASK headers row2:", TASK_USER_HEADERS);
+  const sample = taskDataRows.filter((r) => r[0] !== "").slice(0, 5);
+  console.log("[export] TASK sample rows (first 5):", sample);
+  if (droppedActivityRows.length > 0) {
+    console.warn("[export] Dropped invalid TASK rows:", droppedActivityRows.slice(0, 20));
+    if (droppedActivityRows.length > 20) {
+      console.warn(`[export] Dropped invalid TASK rows: ${droppedActivityRows.length} total (showing first 20)`);
+    }
+  }
+
+  const taskAoa = [TASK_DB_HEADERS as unknown as string[], TASK_USER_HEADERS as unknown as string[], ...taskDataRows];
+  const taskPredAoa = [TASKPRED_DB_HEADERS, TASKPRED_USER_HEADERS, ...taskPredDataRows];
+  const taskrsrcAoa = [
+    TASKRSRC_DB_HEADERS as unknown as string[],
+    TASKRSRC_USER_HEADERS as unknown as string[],
+    ...taskrsrcDataRows,
+  ];
+
+  const workbook = XLSX.utils.book_new();
+  const taskSheet = XLSX.utils.aoa_to_sheet(taskAoa);
+  const taskPredSheet = XLSX.utils.aoa_to_sheet(taskPredAoa);
+  const taskrsrcSheet = XLSX.utils.aoa_to_sheet(taskrsrcAoa);
+
+  const taskrsrcLastRow0 = 1 + taskrsrcDataRows.length;
+  taskrsrcSheet["!autofilter"] = {
+    ref: XLSX.utils.encode_range({
+      s: { r: 0, c: 0 },
+      e: { r: taskrsrcLastRow0, c: TASKRSRC_DB_HEADERS.length - 1 },
+    }),
+  };
+
+  XLSX.utils.book_append_sheet(workbook, taskSheet, "TASK");
+  XLSX.utils.book_append_sheet(workbook, taskPredSheet, "TASKPRED");
   XLSX.utils.book_append_sheet(workbook, taskrsrcSheet, "TASKRSRC");
 
   return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;

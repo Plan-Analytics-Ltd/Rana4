@@ -10,7 +10,7 @@ import { generateXERFile } from "../src/services/xerFileGenerate.service.js";
 const TAG = `wbs-stage5-${Date.now()}`;
 
 async function main(): Promise<void> {
-  const empty = await generateXERFile("   ");
+  const empty = await generateXERFile({ mode: "FRAGNET", projectId: "   " });
   if (!empty.includes("ERMHDR") || !empty.includes("%T\tPROJWBS") || empty.includes("%T\tTASK")) {
     throw new Error("empty project XER should have ERMHDR + PROJWBS, no TASK table");
   }
@@ -28,9 +28,12 @@ async function main(): Promise<void> {
     data: { email: `wbs5_${Date.now()}@test.local`, passwordHash: "x", name: "wbs-stage5", companyId: company.id },
   });
 
+  let projectIdToDelete: string | null = null;
+
   try {
     await runWithAuthContextAsync({ userId: user.id, companyId: company.id }, async () => {
       const project = await prisma.project.create({ data: { name: `P ${TAG}`, companyId: company.id } });
+      projectIdToDelete = project.id;
       const standard = await prisma.standard.create({
         data: { name: `S5 ${TAG}`, description: "wbs-stage5-smoke", projectId: project.id },
       });
@@ -59,7 +62,7 @@ async function main(): Promise<void> {
         },
       });
 
-      const xer = await generateXERFile(TAG);
+      const xer = await generateXERFile({ mode: "FRAGNET", projectId: TAG });
       if (!xer.includes("%T\tTASK") || !xer.includes(act.id) || xer.includes("wbs-deliverable-")) {
         throw new Error("XER missing TASK/activity id or still contains UUID-style wbs-deliverable- ids");
       }
@@ -85,12 +88,19 @@ async function main(): Promise<void> {
       }
 
       await prisma.standard.delete({ where: { id: standard.id } });
+      await prisma.project.delete({ where: { id: project.id } });
     });
 
     console.log("wbs-stage5-smoke: all checks passed.");
   } finally {
     await prisma.user.delete({ where: { id: user.id } });
+    if (projectIdToDelete) {
+      await runWithAuthContextAsync({ userId: user.id, companyId: company.id }, async () => {
+        await prisma.project.deleteMany({ where: { id: projectIdToDelete } });
+      });
+    }
     await prisma.company.delete({ where: { id: company.id } });
+    await prisma.$disconnect();
   }
 }
 
