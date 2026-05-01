@@ -17,8 +17,6 @@ function key(type: string, name: string): string {
   return `${norm(type)}|${norm(name)}`;
 }
 
-const RSRC_SHORT_NAME_PREFIX = "PLARES";
-
 /**
  * Single source of truth for P6 resources derived from the rate card.
  *
@@ -55,9 +53,12 @@ export function buildP6ResourceMap(entries: RateCardEntry[]): {
       throw new Error(`rate card: invalid rate for ${rsrc_name}`);
     }
 
-    const rsrc_short_name = `${RSRC_SHORT_NAME_PREFIX}-${i + 1}`;
+    const rsrc_short_name = String(e.rsrcShortName ?? "").trim();
+    if (!rsrc_short_name) {
+      throw new Error(`rate card: missing rsrcShortName for ${String(e.resourceType)} / ${rsrc_name}`);
+    }
     if (shortNames.has(rsrc_short_name)) {
-      throw new Error(`P6 resource map: duplicate rsrc_short_name generated: ${rsrc_short_name}`);
+      throw new Error(`P6 resource map: duplicate rsrc_short_name in rate card: ${rsrc_short_name}`);
     }
     shortNames.add(rsrc_short_name);
 

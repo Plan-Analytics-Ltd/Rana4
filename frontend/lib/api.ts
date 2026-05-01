@@ -442,4 +442,9 @@ export const exportApi = {
     api.post<Blob>(`/export/standard/${standardId}`, body, {
       responseType: "blob",
     }),
+
+  validateStandardActivities: (standardId: string) =>
+    api.get<{ ok: boolean; result?: { activityCount: number; orphanActivities: any[]; unknownDeliverableActivities: any[]; crossFragnetMismatches: any[] }; error?: string }>(
+      `/export/standard/${standardId}/validate-activities`
+    ),
 };

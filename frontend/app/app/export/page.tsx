@@ -31,6 +31,8 @@ export default function ExportPage() {
   const [scenario, setScenario] = useState<Scenario>("best");
   const [projectId, setProjectId] = useState<string>("");
   const [projectName, setProjectName] = useState<string>("");
+  const [validateMapping, setValidateMapping] = useState(false);
+  const [validationSummary, setValidationSummary] = useState<string>("");
   const [unassignedDeliverables, setUnassignedDeliverables] = useState<Deliverable[]>([]);
   const [includedUnassignedIds, setIncludedUnassignedIds] = useState<Record<string, boolean>>({});
   const [loadingStandards, setLoadingStandards] = useState(true);
@@ -133,6 +135,17 @@ export default function ExportPage() {
     }
     setExporting(true);
     try {
+      if (mode === "STANDARD" && validateMapping) {
+        const v = await exportApi.validateStandardActivities(selectedStandardId);
+        if (!v.data.ok) {
+          toast.error(v.data.error || "Activity mapping validation failed");
+          return;
+        }
+        const r = v.data.result!;
+        setValidationSummary(
+          `Activities: ${r.activityCount}. Orphans: ${r.orphanActivities.length}. Unknown deliverables: ${r.unknownDeliverableActivities.length}. Cross-fragnet: ${r.crossFragnetMismatches.length}.`
+        );
+      }
       const unassignedIds = unassignedDeliverables
         .filter((d) => includedUnassignedIds[d.id])
         .map((d) => d.id);
@@ -221,6 +234,21 @@ export default function ExportPage() {
                   </p>
                 )}
               </div>
+
+              {mode === "STANDARD" && (
+                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={validateMapping}
+                    onChange={(e) => setValidateMapping(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-slate-600 focus:ring-slate-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                  />
+                  Validate activity mapping
+                </label>
+              )}
+              {mode === "STANDARD" && validationSummary && (
+                <p className="text-sm text-slate-500 dark:text-slate-400">{validationSummary}</p>
+              )}
 
               <div className="grid gap-2">
                 <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Standard</label>

@@ -7,5 +7,6 @@ const router = Router();
 router.use(requireAuth);
 router.post("/fragnet/:fragnetId", exportController.exportFragnet);
 router.post("/standard/:standardId", exportController.exportStandard);
+router.get("/standard/:standardId/validate-activities", exportController.validateStandardActivities);
 
 export default router;

@@ -245,6 +245,8 @@ function buildPrismaClient(): PrismaClient {
   const extended = client.$extends({
     query: {
       rateCardEntry: withCompanyScope("rateCardEntry"),
+      companyResourceSequence: withCompanyScope("companyResourceSequence"),
+      resourceRegistry: withCompanyScope("resourceRegistry"),
       standard: withCompanyScope("standard"),
       assuranceNote: withCompanyScope("assuranceNote"),
       fragnet: withCompanyScope("fragnet"),

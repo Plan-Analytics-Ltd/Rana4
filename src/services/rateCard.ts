@@ -1,7 +1,8 @@
 import { prisma } from "../utils/prisma.js";
-import type { RateCardEntry } from "./rateCard.parser.js";
+import type { RateCardEntry as ParsedRateCardEntry } from "./rateCard.parser.js";
+import { ensurePersistentResourceShortNamesTx, DEFAULT_RESOURCE_PREFIX } from "./resourceShortName.service.js";
 
-export type { RateCardEntry };
+export type RateCardEntry = ParsedRateCardEntry & { rsrcShortName: string };
 
 /** Stored on Activity / Deliverable after validation */
 export type AssignedResourceStored = {
@@ -37,6 +38,7 @@ export async function getRateCardEntries(companyId: string): Promise<RateCardEnt
     resourceName: r.resourceName,
     unit: r.unit,
     rate: r.rate,
+    rsrcShortName: r.rsrcShortName,
   }));
 }
 
@@ -49,14 +51,29 @@ export async function getRateCardSummary(companyId: string): Promise<{ type: str
   return [...byType.entries()].map(([type, count]) => ({ type, count }));
 }
 
-export async function replaceRateCardEntries(companyId: string, entries: RateCardEntry[]): Promise<void> {
+export async function replaceRateCardEntries(companyId: string, entries: ParsedRateCardEntry[]): Promise<void> {
   await prisma.$transaction(async (tx) => {
+    // Ensure stable, persistent P6 short names per company (same transaction as the replacement).
+    const ensured = await ensurePersistentResourceShortNamesTx(tx, {
+      companyId,
+      prefix: DEFAULT_RESOURCE_PREFIX,
+      resources: entries.map((e) => ({ resourceType: e.resourceType, resourceName: e.resourceName })),
+    });
+    const shortByKey = ensured.map;
+    const key = (type: string, name: string) =>
+      `${DEFAULT_RESOURCE_PREFIX.toLowerCase()}|${type.trim().toLowerCase()}|${name.trim().toLowerCase()}`;
+
     await tx.rateCardEntry.deleteMany({ where: { companyId } });
     if (entries.length > 0) {
       await tx.rateCardEntry.createMany({
         data: entries.map((e) => ({
           resourceType: e.resourceType.trim(),
           resourceName: e.resourceName.trim(),
+          rsrcShortName: (() => {
+            const v = shortByKey.get(key(e.resourceType, e.resourceName));
+            if (!v) throw new Error(`rate card: missing persistent rsrc_short_name for ${e.resourceType} / ${e.resourceName}`);
+            return v;
+          })(),
           unit: e.unit.trim(),
           rate: e.rate,
           companyId,

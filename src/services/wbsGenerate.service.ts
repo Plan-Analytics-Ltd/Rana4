@@ -41,7 +41,7 @@ export type DeliverableWbsSlice = {
   activities: Activity[];
 };
 
-export type WbsNodeKind = "FRAGNET" | "DELIVERABLE";
+export type WbsNodeKind = "FRAGNET" | "GROUP" | "DELIVERABLE";
 
 /** Flat WBS node list (excluding root) so we can model intermediate levels like fragnets. */
 export type WbsNode = {

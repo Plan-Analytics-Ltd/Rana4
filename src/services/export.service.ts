@@ -16,6 +16,7 @@ import * as XLSX from "xlsx";
 import type { AssignedResourceStored, RateCardEntry } from "./rateCard.js";
 import type { GeneratedWbs } from "./wbsGenerate.service.js";
 import { buildP6ResourceMap } from "./p6ResourceMap.service.js";
+import { buildXerAlignedWbsCodeMap } from "./wbsHumanReadable.service.js";
 
 export type DeliverableForExport = {
   id: string;
@@ -170,6 +171,35 @@ function normalizeResourceName(name: unknown): string {
   // Trim and collapse internal whitespace; keep original casing for display, but normalize for keying.
   const trimmed = String(name ?? "").trim();
   return trimmed.replace(/\s+/g, " ");
+}
+
+function normalizeActivityNameForType(name: unknown): string {
+  return String(name ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isGenericActivityName(name: unknown): boolean {
+  const n = normalizeActivityNameForType(name);
+  if (!n) return false;
+  const patterns = [
+    "internal check",
+    "check",
+    "review",
+    "approval",
+    "approve",
+    "sign off",
+    "handover",
+    "qa",
+    "qc",
+    "coordination",
+    "meeting",
+    "mobilization",
+    "mobilisation",
+  ];
+  return patterns.some((p) => n === p || n.includes(p));
 }
 
 function isLikelyDuplicateRsrcHeaderRow(row: (string | number)[]): boolean {
@@ -637,18 +667,6 @@ export function generateStandardXlsx(
   projectNameForWbsCode: string,
   rateCardEntries: RateCardEntry[] = []
 ): Buffer {
-  // WBS Code numbering must align with XER WBS structure:
-  // root is "1", deliverables start at ".2", ".3", ...
-  const wbsCodeNumberForPosition = (pos1: number): number => {
-    if (!Number.isInteger(pos1) || pos1 < 1) return pos1;
-    return pos1 + 1;
-  };
-  const wbsCodeForPosition = (pos1: number): string => {
-    const n = wbsCodeNumberForPosition(pos1);
-    const prefix = String(projectNameForWbsCode ?? "").trim();
-    return prefix ? `${prefix}.${n}` : String(n);
-  };
-
   const durationField = scenario === "best" ? "bestDuration" : "likelyDuration";
   const taskDataRows: (string | number | null)[][] = [];
   const taskPredDataRows: (string | number | null)[][] = [];
@@ -656,6 +674,9 @@ export function generateStandardXlsx(
   let nextId = 1000;
 
   const deliverableWbsById = deliverableWbsLookupFromGenerated(generatedWbs);
+  const wbsCodeById = buildXerAlignedWbsCodeMap(generatedWbs, projectNameForWbsCode);
+  const rootWbsCode =
+    wbsCodeById.get(generatedWbs.project_wbs.wbs_id) ?? String(projectNameForWbsCode ?? "").trim();
   const p6Resources = buildP6ResourceMap(rateCardEntries);
   const resourceKey = (type: string, name: string): string =>
     `${String(type ?? "").trim().toLowerCase()}|${String(name ?? "").trim().toLowerCase()}`;
@@ -714,30 +735,34 @@ export function generateStandardXlsx(
     }
   };
 
-  // 1) Build fragnet-level activity pool (scoped).
-  const fragnetActivitiesMap = new Map<string, ActivityForExport[]>();
+  // Assign activities correctly (per deliverable, per fragnet).
+  // CRITICAL: activities must ONLY appear under their own deliverable (no sharing across deliverables/fragnets).
   for (const fragnet of fragnets) {
-    const activities = fragnet.deliverables.flatMap((d) =>
-      fragnet.activities.filter((a) => a.deliverableId === d.id)
-    );
-    // NOTE: Above keeps it deliverable-bound but still strictly fragnet-scoped.
-    fragnetActivitiesMap.set(fragnet.id, activities);
-  }
-
-  let deliverablePos1 = 0;
-
-  // 2) Assign activities correctly (per deliverable, per fragnet).
-  for (const fragnet of fragnets) {
-    const sharedActivities = fragnetActivitiesMap.get(fragnet.id) || [];
-
+    const genericActivities = fragnet.activities.filter((a) => {
+      const t = (a as any).type;
+      if (t === "GENERIC") return true;
+      if (t === "SPECIFIC") return false;
+      return isGenericActivityName(a.name);
+    });
     for (const deliverable of sortByCreatedAt(fragnet.deliverables)) {
       const blockWbs = deliverableWbsById.get(deliverable.id);
       if (!blockWbs) {
         throw new Error(`Export: deliverable ${deliverable.id} missing from generated WBS map`);
       }
 
-      deliverablePos1 += 1;
-      const wbsCode = wbsCodeForPosition(deliverablePos1);
+      // CRITICAL: P6 spreadsheet import requires TASK.WBS Code to match a WBS Code string (hierarchical), not an internal numeric id.
+      const wbsIdNum = Number.parseInt(String(blockWbs.wbs_id), 10);
+      if (!Number.isInteger(wbsIdNum) || wbsIdNum < 1) {
+        throw new Error(
+          `Export: invalid deliverable wbs_id for deliverable ${deliverable.id}: ${JSON.stringify(blockWbs.wbs_id)}`
+        );
+      }
+      const wbsCode = wbsCodeById.get(wbsIdNum);
+      if (!wbsCode || String(wbsCode).trim() === "" || wbsCode === rootWbsCode) {
+        throw new Error(
+          `Export: invalid deliverable WBS Code for deliverable ${deliverable.id} (wbs_id=${wbsIdNum}): ${JSON.stringify(wbsCode)}`
+        );
+      }
 
       const deliverableExportId = `A${nextId++}`;
       pushActivityRow(
@@ -749,11 +774,21 @@ export function generateStandardXlsx(
         blockWbs.wbs_name
       );
 
-      const specificActivities = fragnet.activities.filter((a) => a.deliverableId === deliverable.id);
+      // Step A — attach specific activities (only those already assigned to this deliverable)
+      const specificActivities = fragnet.activities.filter(
+        (a) => a.deliverableId === deliverable.id && !genericActivities.some((g) => g.id === a.id)
+      );
+      // Step B — attach generic activities (cloned per deliverable, never reused)
+      const clonedGenericActivities = genericActivities.map((g) => ({
+        ...g,
+        id: `${deliverable.id}-${g.id}`,
+        deliverableId: deliverable.id,
+      }));
 
-      const finalActivities = [...sharedActivities, ...specificActivities];
-      const uniqueActivities = Array.from(new Map(finalActivities.map((a) => [a.id, a])).values());
-      const sortedActivities = sortByCreatedAt(uniqueActivities);
+      const deliverableActivities = [...specificActivities, ...clonedGenericActivities];
+      const sortedActivities = sortByCreatedAt(
+        Array.from(new Map(deliverableActivities.map((a) => [a.id, a])).values())
+      );
 
       const entryActivity = findEntryActivity(sortedActivities, fragnet.relationships);
 

@@ -16,6 +16,7 @@ import { generateFragnetXlsx, generateStandardXlsx, type ExportScenario, type De
 import { generateHumanReadableWBS } from "../services/wbsHumanReadable.service.js";
 import { generateXERWithWBS } from "../services/xerTemplateInject.service.js";
 import { generateWbsFromFragnets } from "../services/wbsFromFragnets.service.js";
+import { validateActivityAssignments } from "../services/activityAssignmentValidation.service.js";
 import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
 
@@ -188,7 +189,7 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
     );
     const safeName = safeFileBaseName(pname);
 
-    const wbsReviewRows = generateHumanReadableWBS(generatedWbs);
+    const wbsReviewRows = generateHumanReadableWBS(generatedWbs, projectCode);
     const wbsReviewSheet = XLSX.utils.json_to_sheet(
       wbsReviewRows.map((r) => ({
         "WBS ID": r.wbs_id,
@@ -306,6 +307,9 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
       }
     }
 
+    // Strict: fail hard if any activity isn't linked to a valid deliverable under this standard.
+    await validateActivityAssignments(standard.id);
+
     // WBS: Project → Fragnet → Deliverable
     const generatedWbs = await generateWbsFromFragnets(standard.id);
     const structureIssues = validateGeneratedWbsStructure(generatedWbs);
@@ -356,13 +360,15 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
       })
     );
 
-    const noFragnetDeliverablesRaw = await prisma.deliverable.findMany({
+    // Deliverables with fragnetId=null are exported under a deterministic synthetic fragnet bucket ("Unclassified"),
+    // so we preserve the required hierarchy without creating a "No Fragnet" WBS node.
+    const unassignedDeliverablesRaw = await prisma.deliverable.findMany({
       where: { companyId, projectId: standard.projectId, fragnetId: null },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
-    if (noFragnetDeliverablesRaw.length > 0) {
+    if (unassignedDeliverablesRaw.length > 0) {
       const deliverables = await Promise.all(
-        noFragnetDeliverablesRaw.map(async (d) => ({
+        unassignedDeliverablesRaw.map(async (d) => ({
           id: d.id,
           name: d.name,
           bestDuration: d.bestDuration,
@@ -372,7 +378,7 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
         }))
       );
       fragnetsForExport.push({
-        id: "NO_FRAGNET",
+        id: "__UNCLASSIFIED__",
         deliverables,
         activities: [],
         relationships: [],
@@ -390,7 +396,7 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
 
     const safeName = safeFileBaseName(pname);
 
-    const wbsReviewRows = generateHumanReadableWBS(generatedWbs);
+    const wbsReviewRows = generateHumanReadableWBS(generatedWbs, projectCode);
     const wbsReviewSheet = XLSX.utils.json_to_sheet(
       wbsReviewRows.map((r) => ({
         "WBS ID": r.wbs_id,
@@ -429,5 +435,29 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to export standard" });
+  }
+}
+
+export async function validateStandardActivities(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const companyId = req.user?.companyId;
+    if (!companyId || !req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+
+    const { standardId } = req.params;
+    const standard = await prisma.standard.findFirst({ where: { id: standardId, companyId } });
+    if (!standard) {
+      res.status(404).json({ error: "Standard not found" });
+      return;
+    }
+    const membership = await requireProjectAccess(standard.projectId, req.user);
+    requirePermission(membership.role, "fragnet", "read");
+
+    const result = await validateActivityAssignments(standard.id);
+    res.json({ ok: true, result });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: (err as Error).message || "Validation failed" });
   }
 }
