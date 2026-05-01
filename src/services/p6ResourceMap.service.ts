@@ -1,4 +1,5 @@
 import type { RateCardEntry } from "./rateCard.js";
+import { compareResourcesForP6Order } from "./p6ResourceSort.js";
 
 export type P6Resource = {
   rsrc_id: number;
@@ -31,11 +32,7 @@ export function buildP6ResourceMap(entries: RateCardEntry[]): {
   resources: P6Resource[];
   byTypeName: Map<string, P6Resource>;
 } {
-  const sorted = [...entries].sort((a, b) => {
-    const n = String(a.resourceName).localeCompare(String(b.resourceName));
-    if (n !== 0) return n;
-    return String(a.resourceType).localeCompare(String(b.resourceType));
-  });
+  const sorted = [...entries].sort(compareResourcesForP6Order);
 
   const resources: P6Resource[] = [];
   const byTypeName = new Map<string, P6Resource>();

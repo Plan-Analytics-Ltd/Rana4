@@ -15,6 +15,7 @@
 import * as XLSX from "xlsx";
 import type { AssignedResourceStored, RateCardEntry } from "./rateCard.js";
 import type { GeneratedWbs } from "./wbsGenerate.service.js";
+import type { P6Resource } from "./p6ResourceMap.service.js";
 import { buildP6ResourceMap } from "./p6ResourceMap.service.js";
 import { buildXerAlignedWbsCodeMap } from "./wbsHumanReadable.service.js";
 
@@ -235,6 +236,21 @@ function validateRsrcRows(rows: (string | number)[][]): void {
       throw new Error(`RSRC export: invalid cost_per_qty at row ${i + 2}`);
     }
   }
+}
+
+function buildRsrcDataRows(resources: P6Resource[]): (string | number)[][] {
+  const rows = resources.map((r) => [
+    r.rsrc_id,
+    r.rsrc_short_name,
+    r.rsrc_name,
+    RSRC_RESOURCE_TYPE,
+    RSRC_UNIT_ID,
+    "",
+    RSRC_DEFAULT_UNITS_PER_TIME,
+    r.cost_per_qty,
+  ]);
+  validateRsrcRows(rows);
+  return rows;
 }
 
 /**
@@ -646,6 +662,21 @@ export function generateFragnetXlsx(
   XLSX.utils.book_append_sheet(workbook, taskSheet, "TASK");
   XLSX.utils.book_append_sheet(workbook, taskPredSheet, "TASKPRED");
 
+  if (rateCardEntries.length > 0) {
+    const rsrcDataRows = buildRsrcDataRows(p6Resources.resources);
+    const rsrcAoa = [
+      RSRC_DB_HEADERS as unknown as string[],
+      RSRC_USER_HEADERS as unknown as string[],
+      ...rsrcDataRows,
+    ];
+    const rsrcSheet = XLSX.utils.aoa_to_sheet(rsrcAoa);
+    const rsrcLastRow0 = 1 + rsrcDataRows.length;
+    rsrcSheet["!autofilter"] = {
+      ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rsrcLastRow0, c: RSRC_DB_HEADERS.length - 1 } }),
+    };
+    XLSX.utils.book_append_sheet(workbook, rsrcSheet, "RSRC");
+  }
+
   XLSX.utils.book_append_sheet(workbook, taskrsrcSheet, "TASKRSRC");
 
   return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
@@ -858,6 +889,25 @@ export function generateStandardXlsx(
 
   XLSX.utils.book_append_sheet(workbook, taskSheet, "TASK");
   XLSX.utils.book_append_sheet(workbook, taskPredSheet, "TASKPRED");
+
+  if (rateCardEntries.length > 0) {
+    const rsrcDataRows = buildRsrcDataRows(p6Resources.resources);
+    const rsrcAoa = [
+      RSRC_DB_HEADERS as unknown as string[],
+      RSRC_USER_HEADERS as unknown as string[],
+      ...rsrcDataRows,
+    ];
+    const rsrcSheet = XLSX.utils.aoa_to_sheet(rsrcAoa);
+    const rsrcLastRow0 = 1 + rsrcDataRows.length;
+    rsrcSheet["!autofilter"] = {
+      ref: XLSX.utils.encode_range({
+        s: { r: 0, c: 0 },
+        e: { r: rsrcLastRow0, c: RSRC_DB_HEADERS.length - 1 },
+      }),
+    };
+    XLSX.utils.book_append_sheet(workbook, rsrcSheet, "RSRC");
+  }
+
   XLSX.utils.book_append_sheet(workbook, taskrsrcSheet, "TASKRSRC");
 
   return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;

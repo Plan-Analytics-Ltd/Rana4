@@ -1,5 +1,6 @@
 import { prisma } from "../utils/prisma.js";
 import type { Prisma } from "@prisma/client";
+import { compareResourcesForP6Order } from "./p6ResourceSort.js";
 
 export const DEFAULT_RESOURCE_PREFIX = "PLARES";
 
@@ -72,6 +73,10 @@ export async function ensurePersistentResourceShortNamesTx(
     if (outMap.has(k)) continue;
     missing.push(r);
   }
+
+  // New PLARES-N IDs follow P6 alphabetical order (not file upload row order) so RSRC /
+  // TASKRSRC short names match how P6 lists resources by name.
+  missing.sort(compareResourcesForP6Order);
 
   const startingFrom = seq.last_number + 1;
   const generated: { resourceType: string; resourceName: string; rsrcShortName: string }[] = [];
