@@ -526,7 +526,10 @@ export function generateFragnetXlsx(
       }
       const wbsCode = wbsCodeForPosition(i + 1);
 
-      const deliverableExportId = `A${nextId++}`;
+      // IMPORTANT: deliverable rows are exported as a TASK row for P6 linking,
+      // but must NOT consume the A#### activity ID range (otherwise activities shift and
+      // user-authored relationships appear \"missing\" after import).
+      const deliverableExportId = `D${nextId++}`;
       pushActivityRow(
         deliverableExportId,
         d.name,
@@ -586,7 +589,7 @@ export function generateFragnetXlsx(
       const unassignedWbs = { wbs_id: String(wbsIdNum), wbs_name: d.name };
       const pos1 = (deliverables?.length ?? 0) + unassignedSeq;
       const wbsCode = wbsCodeForPosition(pos1);
-      const deliverableExportId = `A${nextId++}`;
+      const deliverableExportId = `D${nextId++}`;
       pushActivityRow(
         deliverableExportId,
         d.name,
@@ -795,7 +798,7 @@ export function generateStandardXlsx(
         );
       }
 
-      const deliverableExportId = `A${nextId++}`;
+      const deliverableExportId = `D${nextId++}`;
       pushActivityRow(
         deliverableExportId,
         deliverable.name,

@@ -6,6 +6,9 @@ import { isPrismaForeignKeyViolation } from "../utils/prismaErrors.js";
 import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
 import { auditUpdateIfChanged } from "../services/auditDiff.service.js";
+import { importAssignmentsSheetForStandard } from "../services/import/assignmentsImport.service.js";
+
+type RequestWithAssignmentFile = AuthRequest & { file?: Express.Multer.File };
 
 export async function create(req: AuthRequest, res: Response): Promise<void> {
   try {
@@ -162,5 +165,73 @@ export async function remove(req: AuthRequest, res: Response): Promise<void> {
     }
     console.error(err);
     res.status(500).json({ error: "Failed to delete standard" });
+  }
+}
+
+/**
+ * POST /standards/:id/import-assignments
+ * multipart field `file` (.xlsx). Optional query dryRun=true validates only.
+ */
+export async function importAssignmentsSheet(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const { id } = req.params;
+    const dryRun =
+      req.query.dryRun === "true" ||
+      req.query.dryRun === "1" ||
+      String(req.query.dryRun ?? "").toLowerCase() === "yes";
+
+    const existing = await prisma.standard.findFirst({ where: { id, companyId: req.user.companyId } });
+    if (!existing) {
+      res.status(404).json({ error: "Standard not found" });
+      return;
+    }
+    const membership = await requireProjectAccess(existing.projectId, req.user);
+    requirePermission(membership.role, "standard", "update");
+
+    const file = (req as unknown as RequestWithAssignmentFile).file;
+    if (!file?.buffer) {
+      res.status(400).json({
+        error: 'No file uploaded. Use form field "file" with an .xlsx containing sheet "Assignments".',
+      });
+      return;
+    }
+
+    const result = await importAssignmentsSheetForStandard({
+      companyId: req.user.companyId,
+      standardId: id,
+      buffer: file.buffer,
+      dryRun,
+    });
+
+    await auditLog({
+      userId: req.user.id,
+      companyId: req.user.companyId,
+      projectId: existing.projectId,
+      action: dryRun ? "DRY_RUN_IMPORT_ASSIGNMENTS" : "IMPORT_ASSIGNMENTS_SHEET",
+      entity: "Standard",
+      entityId: id,
+      details: {
+        parsedRowCount: result.parsedRowCount,
+        applied: result.applied ?? null,
+      },
+    });
+
+    res.status(dryRun ? 200 : 201).json({
+      dryRun,
+      parsedRowCount: result.parsedRowCount,
+      groupedDeliverableEntityCount: result.groupedDeliverableEntityCount,
+      groupedActivityEntityCount: result.groupedActivityEntityCount,
+      deliverableIdsUpdated: [...result.byDeliverableId.keys()],
+      activityIdsUpdated: [...result.byActivityId.keys()],
+      applied: result.applied ?? null,
+    });
+  } catch (err) {
+    console.error(err);
+    const msg = err instanceof Error ? err.message : "Assignment import failed";
+    res.status(400).json({ error: msg });
   }
 }

@@ -210,6 +210,141 @@ export async function deleteProject(req: AuthRequest, res: Response): Promise<vo
   }
 }
 
+type FullDataActivityRel = { activityCode: string; relationshipType: "FS" | "SS" | "FF" | "SF"; lag: number };
+type FullDataActivity = {
+  id: string;
+  activityCode: string;
+  name: string;
+  bestDuration: number;
+  likelyDuration: number;
+  assignedResources: unknown;
+  relationships: { predecessors: FullDataActivityRel[]; successors: FullDataActivityRel[] };
+};
+type FullDataDeliverable = { id: string; name: string; activities: FullDataActivity[] };
+type FullDataFragnet = { id: string; name: string; deliverables: FullDataDeliverable[] };
+
+/** GET /projects/:id/full-data — nested view for read-only project viewer UI. */
+export async function getFullData(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const { id: projectId } = req.params as { id: string };
+    const membership = await requireProjectAccess(projectId, req.user, { adminOverride: true });
+    requirePermission(membership.role, "project", "read");
+
+    const fragnets = await prisma.fragnet.findMany({
+      where: { projectId, companyId: req.user.companyId },
+      orderBy: { createdAt: "asc" },
+      include: {
+        deliverables: {
+          where: { companyId: req.user.companyId },
+          orderBy: { createdAt: "asc" },
+          include: {
+            activities: {
+              where: { companyId: req.user.companyId },
+              orderBy: [{ activityCode: "asc" }, { id: "asc" }],
+              select: {
+                id: true,
+                activityCode: true,
+                name: true,
+                bestDuration: true,
+                likelyDuration: true,
+                assignedResources: true,
+                fragnetId: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const fragnetIds = fragnets.map((f) => f.id);
+    const relationships = await prisma.relationship.findMany({
+      where: { companyId: req.user.companyId, projectId, fragnetId: { in: fragnetIds } },
+      select: {
+        fragnetId: true,
+        predecessorActivityId: true,
+        successorActivityId: true,
+        relationshipType: true,
+        lag: true,
+      },
+    });
+
+    // Map activityId -> activityCode for relationship display
+    const activityIdToCode = new Map<string, string>();
+    for (const f of fragnets) {
+      for (const d of f.deliverables) {
+        for (const a of d.activities) {
+          activityIdToCode.set(a.id, a.activityCode);
+        }
+      }
+    }
+
+    const predecessorsByActivityId = new Map<string, FullDataActivityRel[]>();
+    const successorsByActivityId = new Map<string, FullDataActivityRel[]>();
+
+    for (const r of relationships) {
+      const predCode = activityIdToCode.get(r.predecessorActivityId) ?? r.predecessorActivityId;
+      const succCode = activityIdToCode.get(r.successorActivityId) ?? r.successorActivityId;
+      const rel: FullDataActivityRel = {
+        activityCode: predCode,
+        relationshipType: r.relationshipType as any,
+        lag: r.lag,
+      };
+      const rel2: FullDataActivityRel = {
+        activityCode: succCode,
+        relationshipType: r.relationshipType as any,
+        lag: r.lag,
+      };
+
+      // successor has predecessor entry
+      const pArr = predecessorsByActivityId.get(r.successorActivityId) ?? [];
+      pArr.push(rel);
+      predecessorsByActivityId.set(r.successorActivityId, pArr);
+
+      // predecessor has successor entry
+      const sArr = successorsByActivityId.get(r.predecessorActivityId) ?? [];
+      sArr.push(rel2);
+      successorsByActivityId.set(r.predecessorActivityId, sArr);
+    }
+
+    const out: { fragnets: FullDataFragnet[] } = {
+      fragnets: fragnets.map((f) => ({
+        id: f.id,
+        name: f.name,
+        deliverables: f.deliverables.map((d) => ({
+          id: d.id,
+          name: d.name,
+          activities: d.activities.map((a) => ({
+            id: a.id,
+            activityCode: a.activityCode,
+            name: a.name,
+            bestDuration: a.bestDuration,
+            likelyDuration: a.likelyDuration,
+            assignedResources: a.assignedResources,
+            relationships: {
+              predecessors: (predecessorsByActivityId.get(a.id) ?? []).sort((x, y) => x.activityCode.localeCompare(y.activityCode)),
+              successors: (successorsByActivityId.get(a.id) ?? []).sort((x, y) => x.activityCode.localeCompare(y.activityCode)),
+            },
+          })),
+        })),
+      })),
+    };
+
+    res.json(out);
+  } catch (err) {
+    const status = err && typeof err === "object" && "status" in err ? Number((err as any).status) : 500;
+    if (status === 403) {
+      res.status(403).json({ error: (err as Error).message || "Forbidden" });
+      return;
+    }
+    console.error(err);
+    res.status(500).json({ error: "Failed to load project data" });
+  }
+}
+
 export async function addMember(req: AuthRequest, res: Response): Promise<void> {
   try {
     if (!req.user) {

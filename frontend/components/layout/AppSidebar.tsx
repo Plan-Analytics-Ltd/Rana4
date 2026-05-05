@@ -12,6 +12,7 @@ import {
   Download,
   TableProperties,
   ClipboardList,
+  Upload,
   Users,
   Settings,
   HelpCircle,
@@ -24,12 +25,14 @@ import { hasPermission } from "@/lib/project-permissions";
 
 const platformNav = [
   { href: "/app", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/app/project", label: "Project Viewer", icon: Package },
   { href: "/app/standards", label: "Standards", icon: FileText },
   { href: "/app/fragnets", label: "Fragnets", icon: GitBranch },
   { href: "/app/activities", label: "Activities", icon: ListTodo },
   { href: "/app/deliverables", label: "Deliverables", icon: Package },
   { href: "/app/rate-card", label: "Rate card", icon: TableProperties },
   { href: "/app/export", label: "Export", icon: Download },
+  { href: "/app/import", label: "Import", icon: Upload },
 ];
 
 const systemNav = [
