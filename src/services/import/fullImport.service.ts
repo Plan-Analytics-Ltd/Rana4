@@ -429,7 +429,8 @@ export async function importFullTemplate(
     };
   }
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(
+    async (tx) => {
     // Create standards
     const standardByName = new Map<string, Standard>();
     for (const s of bundle.standards) {
@@ -588,7 +589,10 @@ export async function importFullTemplate(
       },
       assignmentsApplied,
     };
-  });
+    },
+    // Large imports can exceed Prisma's default interactive transaction timeout.
+    { maxWait: 30_000, timeout: 10 * 60_000 }
+  );
 
   console.log("[full-import] Created:", result.created, "assignmentsApplied:", result.assignmentsApplied);
   return result;

@@ -377,12 +377,14 @@ export async function importAssignmentsSheetForStandard(params: {
     return result;
   }
 
-  const applied = await prisma.$transaction(async (tx) =>
-    applyValidatedAssignmentMaps(tx, result, {
-      companyId: params.companyId,
-      deliverableIds: [...result.byDeliverableId.keys()],
-      activityIds: [...result.byActivityId.keys()],
-    })
+  const applied = await prisma.$transaction(
+    async (tx) =>
+      applyValidatedAssignmentMaps(tx, result, {
+        companyId: params.companyId,
+        deliverableIds: [...result.byDeliverableId.keys()],
+        activityIds: [...result.byActivityId.keys()],
+      }),
+    { maxWait: 30_000, timeout: 5 * 60_000 }
   );
 
   return { ...result, applied };

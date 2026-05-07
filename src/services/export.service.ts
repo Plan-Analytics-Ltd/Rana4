@@ -408,6 +408,18 @@ export function generateFragnetXlsx(
   unassignedDeliverables?: DeliverableForExport[],
   rateCardEntries: RateCardEntry[] = []
 ): Buffer {
+  const idFor = (n: number) => `A${n}`;
+  const suggestAvailableIds = (startN: number, used: Set<string>, count = 8): string[] => {
+    const out: string[] = [];
+    let n = startN;
+    while (out.length < count) {
+      const candidate = idFor(n);
+      if (!used.has(candidate)) out.push(candidate);
+      n += 1;
+    }
+    return out;
+  };
+
   // WBS Code numbering must align with XER WBS structure:
   // root is "1", deliverables start at ".2", ".3", ...
   const wbsCodeNumberForPosition = (pos1: number): number => {
@@ -425,6 +437,20 @@ export function generateFragnetXlsx(
   const taskPredDataRows: (string | number | null)[][] = [];
   const taskrsrcDataRows: (string | number)[][] = [];
   let nextId = 1000;
+  const usedExportIds = new Set<string>();
+  const allocateId = (kind: "deliverable" | "activity"): string => {
+    const candidate = idFor(nextId);
+    if (usedExportIds.has(candidate)) {
+      const suggestions = suggestAvailableIds(nextId, usedExportIds, 8);
+      throw new Error(
+        `Export: cannot allocate ${kind} ID ${candidate} because it is already in use by a deliverable. ` +
+          `Choose one of the following available IDs instead: ${suggestions.join(", ")}`
+      );
+    }
+    usedExportIds.add(candidate);
+    nextId += 1;
+    return candidate;
+  };
   const sortedActivities = sortByCreatedAt(activities);
   const entryActivity = findEntryActivity(activities, relationships);
   const rootWbs = generatedWbs.project_wbs;
@@ -495,7 +521,16 @@ export function generateFragnetXlsx(
     // No deliverables: export activities under the project root WBS only.
     const activityMap = new Map<string, string>();
     sortedActivities.forEach((a, idx) => {
-      activityMap.set(a.id, `A${1000 + idx}`);
+      const exportId = idFor(1000 + idx);
+      if (usedExportIds.has(exportId)) {
+        const suggestions = suggestAvailableIds(1000 + idx, usedExportIds, 8);
+        throw new Error(
+          `Export: activity ID ${exportId} is already in use by a deliverable. ` +
+            `Choose one of the following available IDs instead: ${suggestions.join(", ")}`
+        );
+      }
+      usedExportIds.add(exportId);
+      activityMap.set(a.id, exportId);
     });
     nextId = 1000 + sortedActivities.length;
     sortedActivities.forEach((a) => {
@@ -527,9 +562,9 @@ export function generateFragnetXlsx(
       const wbsCode = wbsCodeForPosition(i + 1);
 
       // IMPORTANT: deliverable rows are exported as a TASK row for P6 linking,
-      // but must NOT consume the A#### activity ID range (otherwise activities shift and
-      // user-authored relationships appear \"missing\" after import).
-      const deliverableExportId = `D${nextId++}`;
+      // and must have stable IDs so users can reference them in P6.
+      // NOTE: deliverables share the same "A####" namespace; we reserve their IDs first so activities cannot collide.
+      const deliverableExportId = allocateId("deliverable");
       pushActivityRow(
         deliverableExportId,
         d.name,
@@ -541,7 +576,7 @@ export function generateFragnetXlsx(
 
       const activityMapInBlock = new Map<string, string>();
       sortedActivities.forEach((a) => {
-        activityMapInBlock.set(a.id, `A${nextId++}`);
+        activityMapInBlock.set(a.id, allocateId("activity"));
       });
       sortedActivities.forEach((a) => {
         pushActivityRow(
@@ -554,13 +589,6 @@ export function generateFragnetXlsx(
         );
       });
 
-      if (entryActivity) {
-        const entryExportId = activityMapInBlock.get(entryActivity.id);
-        if (entryExportId) {
-          taskPredDataRows.push([deliverableExportId, entryExportId, "FS", projectId, projectId, 0, null]);
-        }
-      }
-
       relationships.forEach((r) => {
         const predId = activityMapInBlock.get(r.predecessorActivityId);
         const succId = activityMapInBlock.get(r.successorActivityId);
@@ -568,6 +596,15 @@ export function generateFragnetXlsx(
           taskPredDataRows.push([predId, succId, r.relationshipType, projectId, projectId, r.lag, null]);
         }
       });
+
+      // Link deliverable row to the first activity in the block (FS, 0).
+      // This matches the intended P6 behavior: deliverable "task" acts as a container with an entry activity.
+      if (entryActivity) {
+        const firstActivityExportId = activityMapInBlock.get(entryActivity.id);
+        if (firstActivityExportId) {
+          taskPredDataRows.push([deliverableExportId, firstActivityExportId, "FS", projectId, projectId, 0, null]);
+        }
+      }
 
       // No blank separator rows: P6 import can mis-read after empty lines
     }
@@ -589,7 +626,7 @@ export function generateFragnetXlsx(
       const unassignedWbs = { wbs_id: String(wbsIdNum), wbs_name: d.name };
       const pos1 = (deliverables?.length ?? 0) + unassignedSeq;
       const wbsCode = wbsCodeForPosition(pos1);
-      const deliverableExportId = `D${nextId++}`;
+      const deliverableExportId = allocateId("deliverable");
       pushActivityRow(
         deliverableExportId,
         d.name,
@@ -600,7 +637,7 @@ export function generateFragnetXlsx(
       );
       const activityMapInBlock = new Map<string, string>();
       sortedActivities.forEach((a) => {
-        activityMapInBlock.set(a.id, `A${nextId++}`);
+        activityMapInBlock.set(a.id, allocateId("activity"));
       });
       sortedActivities.forEach((a) => {
         pushActivityRow(
@@ -612,12 +649,6 @@ export function generateFragnetXlsx(
           unassignedWbs.wbs_name
         );
       });
-      if (entryActivity) {
-        const entryExportId = activityMapInBlock.get(entryActivity.id);
-        if (entryExportId) {
-          taskPredDataRows.push([deliverableExportId, entryExportId, "FS", projectId, projectId, 0, null]);
-        }
-      }
       relationships.forEach((r) => {
         const predId = activityMapInBlock.get(r.predecessorActivityId);
         const succId = activityMapInBlock.get(r.successorActivityId);
@@ -701,11 +732,37 @@ export function generateStandardXlsx(
   projectNameForWbsCode: string,
   rateCardEntries: RateCardEntry[] = []
 ): Buffer {
+  const idFor = (n: number) => `A${n}`;
+  const suggestAvailableIds = (startN: number, used: Set<string>, count = 8): string[] => {
+    const out: string[] = [];
+    let n = startN;
+    while (out.length < count) {
+      const candidate = idFor(n);
+      if (!used.has(candidate)) out.push(candidate);
+      n += 1;
+    }
+    return out;
+  };
+
   const durationField = scenario === "best" ? "bestDuration" : "likelyDuration";
   const taskDataRows: (string | number | null)[][] = [];
   const taskPredDataRows: (string | number | null)[][] = [];
   const taskrsrcDataRows: (string | number)[][] = [];
   let nextId = 1000;
+  const usedExportIds = new Set<string>();
+  const allocateId = (kind: "deliverable" | "activity"): string => {
+    const candidate = idFor(nextId);
+    if (usedExportIds.has(candidate)) {
+      const suggestions = suggestAvailableIds(nextId, usedExportIds, 8);
+      throw new Error(
+        `Export: cannot allocate ${kind} ID ${candidate} because it is already in use by a deliverable. ` +
+          `Choose one of the following available IDs instead: ${suggestions.join(", ")}`
+      );
+    }
+    usedExportIds.add(candidate);
+    nextId += 1;
+    return candidate;
+  };
 
   const deliverableWbsById = deliverableWbsLookupFromGenerated(generatedWbs);
   const wbsCodeById = buildXerAlignedWbsCodeMap(generatedWbs, projectNameForWbsCode);
@@ -798,7 +855,7 @@ export function generateStandardXlsx(
         );
       }
 
-      const deliverableExportId = `D${nextId++}`;
+      const deliverableExportId = allocateId("deliverable");
       pushActivityRow(
         deliverableExportId,
         deliverable.name,
@@ -828,7 +885,17 @@ export function generateStandardXlsx(
 
       const activityMapInBlock = new Map<string, string>();
       sortedActivities.forEach((a) => {
-        activityMapInBlock.set(a.id, `A${nextId++}`);
+        const exportId = allocateId("activity");
+        activityMapInBlock.set(a.id, exportId);
+
+        // Relationships are stored against ORIGINAL activity ids (those in `fragnet.relationships`).
+        // But generic activities are CLONED per deliverable with id `${deliverable.id}-${originalId}`.
+        // So we must also map originalId → exportId to keep TASKPRED populated.
+        const prefix = `${deliverable.id}-`;
+        if (String(a.id).startsWith(prefix)) {
+          const originalId = String(a.id).slice(prefix.length);
+          if (originalId) activityMapInBlock.set(originalId, exportId);
+        }
       });
       sortedActivities.forEach((a) => {
         pushActivityRow(
@@ -841,13 +908,6 @@ export function generateStandardXlsx(
         );
       });
 
-      if (entryActivity) {
-        const entryExportId = activityMapInBlock.get(entryActivity.id);
-        if (entryExportId) {
-          taskPredDataRows.push([deliverableExportId, entryExportId, "FS", projectId, projectId, 0, null]);
-        }
-      }
-
       fragnet.relationships.forEach((r) => {
         const predId = activityMapInBlock.get(r.predecessorActivityId);
         const succId = activityMapInBlock.get(r.successorActivityId);
@@ -855,6 +915,15 @@ export function generateStandardXlsx(
           taskPredDataRows.push([predId, succId, r.relationshipType, projectId, projectId, r.lag, null]);
         }
       });
+
+      // Link deliverable row to the first activity in the block (FS, 0).
+      // Use entryActivity (no predecessor within this deliverable's activity set) as "first".
+      if (entryActivity) {
+        const firstActivityExportId = activityMapInBlock.get(entryActivity.id);
+        if (firstActivityExportId) {
+          taskPredDataRows.push([deliverableExportId, firstActivityExportId, "FS", projectId, projectId, 0, null]);
+        }
+      }
     }
   }
 
