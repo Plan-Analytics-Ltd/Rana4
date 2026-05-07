@@ -26,7 +26,6 @@ function normalizeRootWbsCode(rootWbsCode: string | undefined, wbs: GeneratedWbs
  *
  * IMPORTANT:
  * - Uses the actual WBS tree via `parent_wbs_id` (same structure exported to XER PROJWBS).
- * - Includes GROUP nodes (since they exist in the XER hierarchy and therefore in the expected WBS codes).
  * - Uses `wbs_short_name` tokens from nodes (deliverables can be overridden by slice short_name if needed).
  */
 export function buildXerAlignedWbsCodeMap(wbs: GeneratedWbs, projectCode?: string): Map<number, string> {

@@ -48,57 +48,6 @@ function normalizeForMatch(s: string): string {
     .trim();
 }
 
-function parseDeliverableDescription(fragnetName: string, deliverableName: string): string {
-  const raw = String(deliverableName ?? "").trim();
-  const parts = raw.split(" - ");
-  if (parts.length < 2) return raw;
-  const prefix = String(parts[0] ?? "").trim();
-  const rest = parts.slice(1).join(" - ").trim();
-  // If prefix matches fragnet name, treat remainder as description; otherwise still prefer remainder.
-  const f = normalizeForMatch(fragnetName);
-  const p = normalizeForMatch(prefix);
-  if (f && p && f === p) return rest || raw;
-  return rest || raw;
-}
-
-function classifyGroup(description: string): string {
-  const d = normalizeForMatch(description);
-  const has = (s: string) => d.includes(normalizeForMatch(s));
-
-  if (
-    has("road") ||
-    has("drainage") ||
-    has("civils") ||
-    has("cut & fill") ||
-    has("hardstandings") ||
-    has("footways")
-  )
-    return "Civils";
-  if (has("structural") || has("foundation") || has("piling")) return "Structural";
-  if (
-    has("electrical") ||
-    has("mechanical") ||
-    has("hvac") ||
-    has("mep") ||
-    has("fire") ||
-    has("lighting") ||
-    has("cabling")
-  )
-    return "MEP";
-  if (
-    has("vrm") ||
-    has("conveyor") ||
-    has("gtu") ||
-    has("stockpile") ||
-    has("plant") ||
-    has("equipment") ||
-    has("locomotive")
-  )
-    return "Systems";
-  if (has("survey")) return "Surveys";
-  return "General";
-}
-
 function parseFragnetPrefixFromDeliverableName(name: string): string | null {
   const raw = String(name ?? "").trim();
   const parts = raw.split(" - ");
@@ -111,7 +60,7 @@ const UNCLASSIFIED_FRAGNET_NAME = "Unclassified";
 
 /**
  * Build a standard-wide WBS:
- * Project (root id=1) → Fragnet → Group → Deliverable → Activities (mapped via deliverableIdToWbsId).
+ * Project (root id=1) → Fragnet → Deliverable → Activities (mapped via deliverableIdToWbsId).
  *
  * IMPORTANT: WBS ids are generated integers (no UUIDs).
  */
@@ -201,27 +150,8 @@ export async function generateWbsFromFragnets(standardId: string): Promise<Gener
       wbs_name: sanitizeWbsName(fragnet.name) || "Fragnet",
     });
 
-    const groupKeyToWbsId = new Map<string, number>();
-
     const orderedDeliverables = sortByCreatedAtThenId(fragnet.deliverables);
     for (const d of orderedDeliverables) {
-      // NEW LAYER: Group nodes under each fragnet, based on deliverable description keywords.
-      const description = parseDeliverableDescription(fragnet.name, d.name);
-      const groupName = classifyGroup(description);
-      const groupKey = groupName.toLowerCase();
-      let groupWbsId = groupKeyToWbsId.get(groupKey);
-      if (!groupWbsId) {
-        groupWbsId = ++currentWbsId;
-        groupKeyToWbsId.set(groupKey, groupWbsId);
-        wbs_nodes.push({
-          kind: "GROUP",
-          wbs_id: groupWbsId,
-          parent_wbs_id: fragnetWbsId,
-          wbs_short_name: String(groupWbsId),
-          wbs_name: groupName,
-        });
-      }
-
       const deliverableWbsId = ++currentWbsId;
       const slice = {
         deliverable_id: d.id,
@@ -234,7 +164,7 @@ export async function generateWbsFromFragnets(standardId: string): Promise<Gener
       wbs_nodes.push({
         kind: "DELIVERABLE",
         wbs_id: deliverableWbsId,
-        parent_wbs_id: groupWbsId,
+        parent_wbs_id: fragnetWbsId,
         wbs_short_name: slice.wbs_short_name,
         wbs_name: slice.wbs_name,
       });
