@@ -9,6 +9,7 @@ import {
   authApi,
   companyApi,
   getApiErrorMessage,
+  isAxiosError,
   projectsApi,
   type Project,
   type AdminPendingRequest,
@@ -286,6 +287,36 @@ export default function SettingsPage() {
       loadProjects();
       toast.success("Project deleted");
     } catch (err) {
+      // If backend reports "not empty", ask for confirmation and retry with force.
+      if (isAxiosError(err) && err.response?.status === 409) {
+        const data = err.response?.data as any;
+        if (data && typeof data === "object" && data.needsConfirmation && data.counts) {
+          const c = data.counts as Record<string, unknown>;
+          const msgLines = [
+            "This project is not empty. Deleting it will permanently delete everything inside it.",
+            "",
+            `Standards: ${c.standards ?? 0}`,
+            `Fragnets: ${c.fragnets ?? 0}`,
+            `Deliverables: ${c.deliverables ?? 0}`,
+            `Activities: ${c.activities ?? 0}`,
+            `Relationships: ${c.relationships ?? 0}`,
+            `Assurance notes: ${c.assuranceNotes ?? 0}`,
+            `Audit logs: ${c.auditLogs ?? 0}`,
+            `Members: ${c.projectMembers ?? 0}`,
+            "",
+            "Continue?",
+          ];
+          if (confirm(msgLines.join("\n"))) {
+            await projectsApi.delete(projectId, { force: true });
+            await refreshProjects();
+            loadProjects();
+            toast.success("Project deleted");
+            return;
+          }
+          toast.message("Deletion cancelled");
+          return;
+        }
+      }
       toast.error(getApiErrorMessage(err));
     } finally {
       setProjectRowBusy(null);
