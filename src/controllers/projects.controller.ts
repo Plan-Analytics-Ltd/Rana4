@@ -152,27 +152,62 @@ export async function deleteProject(req: AuthRequest, res: Response): Promise<vo
       return;
     }
     const { id: projectId } = req.params as { id: string };
+    const forceRaw = (req.query as any)?.force;
+    const force =
+      forceRaw === true ||
+      String(forceRaw ?? "")
+        .trim()
+        .toLowerCase() === "true" ||
+      String(forceRaw ?? "")
+        .trim()
+        .toLowerCase() === "1";
 
     const membership = await requireProjectAccess(projectId, req.user, { adminOverride: true });
     requirePermission(membership.role, "project", "delete");
 
-    const [standards, fragnets, deliverables, activities, relationships, auditLogs] = await Promise.all([
+    const [standards, fragnets, deliverables, activities, relationships, assuranceNotes, auditLogs, projectMembers] =
+      await Promise.all([
       prisma.standard.count({ where: { projectId } }),
       prisma.fragnet.count({ where: { projectId } }),
       prisma.deliverable.count({ where: { projectId } }),
       prisma.activity.count({ where: { projectId } }),
       prisma.relationship.count({ where: { projectId } }),
+      prisma.assuranceNote.count({ where: { projectId } }),
       prisma.auditLog.count({ where: { projectId } }),
+      prisma.projectMember.count({ where: { projectId } }),
     ]);
-    const total = standards + fragnets + deliverables + activities + relationships + auditLogs;
-    if (total > 0) {
+    const total =
+      standards + fragnets + deliverables + activities + relationships + assuranceNotes + auditLogs + projectMembers;
+    if (total > 0 && !force) {
       res.status(409).json({
-        error: "Project is not empty and cannot be deleted",
+        error: "Project is not empty",
+        needsConfirmation: true,
+        message: "Deleting this project will permanently delete everything inside it. Re-try with ?force=true to confirm.",
+        counts: {
+          standards,
+          fragnets,
+          deliverables,
+          activities,
+          relationships,
+          assuranceNotes,
+          auditLogs,
+          projectMembers,
+          total,
+        },
       });
       return;
     }
 
     await prisma.$transaction(async (tx) => {
+      // NOTE: Project foreign keys are NoAction in schema; we must delete dependents explicitly.
+      // Order matters due to FK constraints (relationships -> activities -> deliverables/fragnets -> standards, etc).
+      await tx.relationship.deleteMany({ where: { projectId, companyId: req.user!.companyId } });
+      await tx.activity.deleteMany({ where: { projectId, companyId: req.user!.companyId } });
+      await tx.deliverable.deleteMany({ where: { projectId, companyId: req.user!.companyId } });
+      await tx.fragnet.deleteMany({ where: { projectId, companyId: req.user!.companyId } });
+      await tx.assuranceNote.deleteMany({ where: { projectId, companyId: req.user!.companyId } });
+      await tx.standard.deleteMany({ where: { projectId, companyId: req.user!.companyId } });
+      await tx.auditLog.deleteMany({ where: { projectId, companyId: req.user!.companyId } });
       await tx.projectMember.deleteMany({ where: { projectId, project: { companyId: req.user!.companyId } } });
       await tx.project.deleteMany({ where: { id: projectId, companyId: req.user!.companyId } });
     });
