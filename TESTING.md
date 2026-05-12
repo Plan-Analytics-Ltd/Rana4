@@ -10,7 +10,7 @@
 
 ## Option 1: Swagger UI (recommended)
 
-With the server running, open **Swagger UI** in your browser:
+With the server running in development, open **Swagger UI** in your browser:
 
 **http://localhost:3000/api-docs**
 
@@ -21,6 +21,8 @@ There you can:
 - Inspect request and response.
 
 Use this for manual, interactive testing. The same server handles both the API and the docs.
+
+Swagger UI is intentionally disabled when `NODE_ENV=production`. The backend keeps a strict global CSP for API routes, with a CSP exception scoped only to `/api-docs` in non-production because Swagger UI ships inline scripts/styles and static assets that otherwise cannot render.
 
 ---
 

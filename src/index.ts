@@ -47,7 +47,11 @@ app.use(requestCorrelation);
 app.use(productionSecurityMiddleware);
 app.use(express.json({ limit: "1mb" }));
 
-app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(openApiSpec));
+if (!runtimeConfig.isProduction) {
+  // Swagger UI needs inline scripts/styles from swagger-ui-express. Keep this
+  // development-only so the global production CSP remains strict everywhere.
+  app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(openApiSpec));
+}
 
 app.get("/", (_req, res) => {
   res.redirect(302, "/health");

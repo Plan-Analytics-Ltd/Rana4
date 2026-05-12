@@ -5,6 +5,10 @@ import { logAbuseSignal } from "../../services/audit/immutableAudit.service.js";
 const sensitiveRoutePattern = /^\/(rate-card|export|secure-approvals|audit-logs)/;
 const requestBuckets = new Map<string, number[]>();
 
+function isDevelopmentSwaggerRoute(req: Request, isProduction: boolean): boolean {
+  return !isProduction && (req.path === "/api-docs" || req.path.startsWith("/api-docs/"));
+}
+
 function recent(values: number[], windowMs: number): number[] {
   const cutoff = Date.now() - windowMs;
   return values.filter((value) => value >= cutoff);
@@ -45,9 +49,12 @@ export function productionSecurityMiddleware(req: Request, res: Response, next: 
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  res.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+  const isSwaggerRoute = isDevelopmentSwaggerRoute(req, config.isProduction);
+  if (!isSwaggerRoute) {
+    res.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+  }
 
-  if (sensitiveRoutePattern.test(req.path)) {
+  if (sensitiveRoutePattern.test(req.path) || isSwaggerRoute) {
     res.setHeader("Cache-Control", "no-store, max-age=0");
     res.setHeader("Pragma", "no-cache");
   }
