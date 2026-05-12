@@ -1,10 +1,11 @@
 import "dotenv/config";
+import { installConsoleRedaction } from "./services/security/logging.js";
+import { validateRuntimeSecurityConfig } from "./services/security/runtimeConfig.js";
+import { runSecuritySelfTests } from "./services/security/selfTests.js";
 
-const isProduction = process.env.NODE_ENV === "production";
-if (isProduction && (!process.env.JWT_SECRET || process.env.JWT_SECRET.trim().length < 32)) {
-  console.error("Production requires JWT_SECRET to be set and at least 32 characters.");
-  process.exit(1);
-}
+installConsoleRedaction();
+const runtimeConfig = validateRuntimeSecurityConfig();
+const isProduction = runtimeConfig.isProduction;
 
 import cors from "cors";
 import express from "express";
@@ -24,23 +25,27 @@ import standardsRoutes from "./routes/standards.routes.js";
 import invitationsRoutes from "./routes/invitations.routes.js";
 import projectsRoutes from "./routes/projects.routes.js";
 import auditLogsRoutes from "./routes/auditLogs.routes.js";
+import secureApprovalsRoutes from "./routes/secureApprovals.routes.js";
 import companyRoutes from "./routes/company.routes.js";
 import adminRoutes from "./routes/admin.routes.js";
 import devRoutes from "./routes/dev.routes.js";
+import { requestCorrelation } from "./middleware/requestCorrelation.middleware.js";
+import { productionSecurityMiddleware } from "./middleware/security/securityHeaders.middleware.js";
 import "./utils/prisma.js";
 
 const app = express();
-const basePort = Number(process.env.PORT) || 3000;
+const basePort = runtimeConfig.port;
 const maxPortAttempts = 10;
 
-const corsOrigins = process.env.CORS_ORIGIN?.split(",").map((s) => s.trim()).filter(Boolean);
 app.use(
   cors({
-    origin: corsOrigins && corsOrigins.length > 0 ? corsOrigins : true,
+    origin: runtimeConfig.corsOrigins.length > 0 ? runtimeConfig.corsOrigins : !runtimeConfig.isProduction,
     credentials: true,
   })
 );
-app.use(express.json());
+app.use(requestCorrelation);
+app.use(productionSecurityMiddleware);
+app.use(express.json({ limit: "1mb" }));
 
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(openApiSpec));
 
@@ -57,6 +62,7 @@ app.use("/dev", devRoutes);
 app.use("/invite", invitationsRoutes);
 app.use("/projects", projectsRoutes);
 app.use("/audit-logs", auditLogsRoutes);
+app.use("/secure-approvals", secureApprovalsRoutes);
 app.use("/export", exportRoutes);
 app.use("/import", importRoutes);
 app.use("/standards", standardsRoutes);
@@ -95,4 +101,9 @@ function listenWithFallback(startPort: number) {
   tryListen(startPort);
 }
 
-listenWithFallback(basePort);
+runSecuritySelfTests()
+  .then(() => listenWithFallback(basePort))
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });

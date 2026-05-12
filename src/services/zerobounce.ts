@@ -3,6 +3,8 @@
  * See: https://www.zerobounce.net/docs/email-validation-api-quickstart/v2-validate-emails
  * If ZEROBOUNCE_API_KEY is not set, validation is skipped (returns true) for local dev.
  */
+import { getRuntimeSecurityConfig } from "./security/runtimeConfig.js";
+import { getOptionalSecret } from "./security/secrets/index.js";
 
 const ZEROBOUNCE_BASE = "https://api.zerobounce.net/v2";
 
@@ -17,9 +19,9 @@ interface ZeroBounceResponse {
 }
 
 export async function validateEmailWithZeroBounce(email: string): Promise<{ valid: boolean; error?: string }> {
-  const apiKey = process.env.ZEROBOUNCE_API_KEY?.trim();
+  const apiKey = getOptionalSecret("ZEROBOUNCE_API_KEY");
   // In non-production, keep signup smooth and avoid flaky external dependency.
-  if (process.env.NODE_ENV !== "production") {
+  if (!getRuntimeSecurityConfig().isProduction) {
     return { valid: true };
   }
   if (!apiKey) {

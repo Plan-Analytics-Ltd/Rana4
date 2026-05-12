@@ -10,7 +10,6 @@ VALUES ('default-company', 'Default Company')
 ON CONFLICT ("id") DO NOTHING;
 
 UPDATE "users" SET "company_id" = 'default-company' WHERE "company_id" IS NULL;
-UPDATE "rate_card_entries" SET "company_id" = 'default-company' WHERE "company_id" IS NULL;
 UPDATE "standards" SET "company_id" = 'default-company' WHERE "company_id" IS NULL;
 UPDATE "assurance_notes" SET "company_id" = 'default-company' WHERE "company_id" IS NULL;
 UPDATE "fragnets" SET "company_id" = 'default-company' WHERE "company_id" IS NULL;

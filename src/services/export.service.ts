@@ -311,15 +311,10 @@ function makeShortNameGenerator() {
 
   const logMapping = () => {
     if (nameToShort.size === 0) return;
-    console.log("[export] RSRC short names (Resource Name → rsrc_short_name):");
-    // Stable output order: by resource name
-    const rows = [...nameToShort.entries()]
-      .map(([k, v]) => ({ name: k, short: v }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    for (const r of rows) console.log(`  ${r.name} → ${r.short}`);
-    for (const d of duplicatesResolved) {
-      console.warn(`[export] RSRC short name duplicate resolved: base ${d.base} used; "${d.name}" assigned ${d.resolved}`);
-    }
+    console.info("[export] RSRC short names generated", {
+      count: nameToShort.size,
+      duplicateCount: duplicatesResolved.length,
+    });
   };
 
   return { generate_unique_short_name, logMapping };
@@ -343,11 +338,7 @@ function makePlaResourceIdGenerator() {
 
   const logMapping = () => {
     if (nameToId.size === 0) return;
-    console.log("[export] RSRC Resource ID mapping (Resource Name → Resource ID):");
-    const rows = [...nameToId.entries()]
-      .map(([name, id]) => ({ name, id }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    for (const r of rows) console.log(`  ${r.name} → ${r.id}`);
+    console.info("[export] RSRC Resource IDs generated", { count: nameToId.size });
   };
 
   return { getId, logMapping };
@@ -371,11 +362,7 @@ function makeNumericResourceIdGenerator() {
 
   const logMapping = () => {
     if (nameToId.size === 0) return;
-    console.log("[export] RSRC rsrc_id mapping (Resource Name → rsrc_id):");
-    const rows = [...nameToId.entries()]
-      .map(([name, id]) => ({ name, id }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    for (const r of rows) console.log(`  ${r.name} → ${r.id}`);
+    console.info("[export] RSRC numeric IDs generated", { count: nameToId.size });
   };
 
   return { getId, logMapping };
@@ -504,7 +491,7 @@ export function generateFragnetXlsx(
     for (const ar of assigned) {
       const r = p6Resources.byTypeName.get(resourceKey(ar.resourceType, ar.resourceName));
       if (!r) {
-        throw new Error(`TASKRSRC export: resource not found in rate card map: ${ar.resourceType} / ${ar.resourceName}`);
+        throw new Error("TASKRSRC export: resource not found in rate card map");
       }
       const units = ar.units ?? defaultUnits;
       taskrsrcDataRows.push([
@@ -660,20 +647,14 @@ export function generateFragnetXlsx(
     }
   }
 
-  // Debug logging (requested): headers, sample conversions, dropped rows
-  console.log("[export] TASK headers row1:", TASK_DB_HEADERS);
-  console.log("[export] TASK headers row2:", TASK_USER_HEADERS);
-  const sample = taskDataRows.filter((r) => r[0] !== "").slice(0, 5);
-  console.log("[export] TASK sample rows (first 5):", sample);
   if (droppedActivityRows.length > 0) {
-    console.warn("[export] Dropped invalid TASK rows:", droppedActivityRows.slice(0, 20));
-    if (droppedActivityRows.length > 20) {
-      console.warn(`[export] Dropped invalid TASK rows: ${droppedActivityRows.length} total (showing first 20)`);
-    }
+    console.warn("[export] Dropped invalid TASK rows", { count: droppedActivityRows.length });
   }
 
-  console.log("[export] TASKRSRC sheet rows:", taskrsrcDataRows.length);
-  console.log("[export] TASKRSRC sample (first 5):", taskrsrcDataRows.slice(0, 5));
+  console.info("[export] Generated TASK/TASKRSRC rows", {
+    taskRows: taskDataRows.length,
+    taskResourceRows: taskrsrcDataRows.length,
+  });
 
   const taskAoa = [TASK_DB_HEADERS as unknown as string[], TASK_USER_HEADERS as unknown as string[], ...taskDataRows];
   const taskPredAoa = [TASKPRED_DB_HEADERS, TASKPRED_USER_HEADERS, ...taskPredDataRows];
@@ -813,7 +794,7 @@ export function generateStandardXlsx(
     for (const ar of assigned) {
       const r = p6Resources.byTypeName.get(resourceKey(ar.resourceType, ar.resourceName));
       if (!r) {
-        throw new Error(`TASKRSRC export: resource not found in rate card map: ${ar.resourceType} / ${ar.resourceName}`);
+        throw new Error("TASKRSRC export: resource not found in rate card map");
       }
       const units = ar.units ?? defaultUnits;
       taskrsrcDataRows.push([
@@ -927,16 +908,14 @@ export function generateStandardXlsx(
     }
   }
 
-  console.log("[export] TASK headers row1:", TASK_DB_HEADERS);
-  console.log("[export] TASK headers row2:", TASK_USER_HEADERS);
-  const sample = taskDataRows.filter((r) => r[0] !== "").slice(0, 5);
-  console.log("[export] TASK sample rows (first 5):", sample);
   if (droppedActivityRows.length > 0) {
-    console.warn("[export] Dropped invalid TASK rows:", droppedActivityRows.slice(0, 20));
-    if (droppedActivityRows.length > 20) {
-      console.warn(`[export] Dropped invalid TASK rows: ${droppedActivityRows.length} total (showing first 20)`);
-    }
+    console.warn("[export] Dropped invalid TASK rows", { count: droppedActivityRows.length });
   }
+
+  console.info("[export] Generated TASK/TASKRSRC rows", {
+    taskRows: taskDataRows.length,
+    taskResourceRows: taskrsrcDataRows.length,
+  });
 
   const taskAoa = [TASK_DB_HEADERS as unknown as string[], TASK_USER_HEADERS as unknown as string[], ...taskDataRows];
   const taskPredAoa = [TASKPRED_DB_HEADERS, TASKPRED_USER_HEADERS, ...taskPredDataRows];

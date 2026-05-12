@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { getOptionalSecret } from "./security/secrets/index.js";
 
 type SendEmailArgs = {
   to: string;
@@ -10,7 +11,7 @@ function getSmtpConfig() {
   const host = process.env.SMTP_HOST?.trim();
   const portStr = process.env.SMTP_PORT?.trim();
   const user = process.env.SMTP_USER?.trim();
-  const pass = process.env.SMTP_PASS?.trim();
+  const pass = getOptionalSecret("SMTP_PASS");
   const from = process.env.SMTP_FROM?.trim();
 
   if (!host || !portStr || !from) return null;
@@ -22,8 +23,7 @@ function getSmtpConfig() {
 export async function sendEmail({ to, subject, text }: SendEmailArgs): Promise<{ ok: boolean; mode: "smtp" | "log" }> {
   const cfg = getSmtpConfig();
   if (!cfg) {
-    // Dev-friendly fallback: log instead of sending.
-    console.log(`[email:log] to=${to} subject=${subject}\n${text}`);
+    console.info("[email:log] Email suppressed because SMTP is not configured", { to, subject });
     return { ok: true, mode: "log" };
   }
 

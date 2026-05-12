@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance, type AxiosError } from "axios";
 import { getStoredAuthToken } from "@/lib/auth-storage";
+import { getInMemoryApprovalToken } from "@/lib/approval-token";
 
 export function isAxiosError(err: unknown): err is AxiosError {
   return axios.isAxiosError(err);
@@ -59,6 +60,10 @@ api.interceptors.request.use((config) => {
   if (typeof FormData !== "undefined" && config.data instanceof FormData) {
     config.headers.delete("Content-Type");
   }
+  const approvalToken = getInMemoryApprovalToken();
+  if (approvalToken && config.url && /^\/(rate-card|export)\b/.test(config.url)) {
+    config.headers["X-Approval-Token"] = approvalToken;
+  }
   return config;
 });
 
@@ -114,6 +119,33 @@ export const adminApi = {
   listPending: () => api.get<{ requests: AdminPendingRequest[] }>("/admin/requests"),
   approve: (id: string) => api.post<{ ok: boolean }>(`/admin/requests/${encodeURIComponent(id)}/approve`),
   reject: (id: string) => api.post<{ ok: boolean }>(`/admin/requests/${encodeURIComponent(id)}/reject`),
+};
+
+export type SecureApprovalRequest = {
+  id: string;
+  status: "pending" | "approved" | "denied" | "expired" | "revoked";
+  createdAt: string;
+  updatedAt: string;
+  requestingUserId: string;
+  resourceCategory: string;
+  resourceId: string | null;
+  resourceType: string | null;
+  requestedAction: string;
+  expiresAt: string | null;
+};
+
+export const secureApprovalsApi = {
+  pending: (params?: { limit?: number; cursor?: string | null; resourceCategory?: string; resourceType?: string }) =>
+    api.get<{ items: SecureApprovalRequest[]; nextCursor: string | null }>("/secure-approvals/pending", { params }),
+  history: (params?: { limit?: number; cursor?: string | null; status?: string; resourceCategory?: string; resourceType?: string }) =>
+    api.get<{ items: SecureApprovalRequest[]; nextCursor: string | null }>("/secure-approvals/history", { params }),
+  approve: (id: string, body?: { reason?: string; expiresInMinutes?: number; maxDecryptCount?: number; maxBatchSize?: number }) =>
+    api.post<{ ok: boolean; approval: SecureApprovalRequest; approvalToken?: string }>(
+      `/secure-approvals/${encodeURIComponent(id)}/approve`,
+      body ?? {}
+    ),
+  deny: (id: string, reason?: string) => api.post<{ ok: boolean; approval: SecureApprovalRequest }>(`/secure-approvals/${encodeURIComponent(id)}/deny`, { reason }),
+  revoke: (id: string, reason?: string) => api.post<{ ok: boolean; approval: SecureApprovalRequest }>(`/secure-approvals/${encodeURIComponent(id)}/revoke`, { reason }),
 };
 
 export type DevAdminRequestRow = {

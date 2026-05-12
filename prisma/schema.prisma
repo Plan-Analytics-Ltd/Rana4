@@ -85,9 +85,6 @@ model Company {
   deliverables   Deliverable[]
   fragnets       Fragnet[]
   projects       Project[]
-  rateCardRows   RateCardEntry[]
-  resourceSequences CompanyResourceSequence[]
-  resourceRegistry  ResourceRegistry[]
   relationships  Relationship[]
   standards      Standard[]
   users          User[]
@@ -165,55 +162,6 @@ model AuditLog {
   @@index([projectId, createdAt])
   @@index([userId, createdAt])
   @@map("audit_logs")
-}
-
-/// Uploaded rate card rows (replaces entire set on each upload).
-model RateCardEntry {
-  id           String   @id @default(uuid())
-  resourceType String   @map("resource_type") @db.VarChar(120)
-  resourceName String   @map("resource_name") @db.VarChar(255)
-  /// Persistent P6-compatible resource short name (unique per company+prefix).
-  rsrcShortName String   @map("rsrc_short_name") @db.VarChar(64)
-  unit         String   @db.VarChar(32)
-  rate         Float
-  createdAt    DateTime @default(now()) @map("created_at")
-  companyId    String   @map("company_id")
-  company      Company  @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "rate_card_entries_company_fk")
-
-  @@index([companyId, rsrcShortName])
-  @@map("rate_card_entries")
-}
-
-model CompanyResourceSequence {
-  id         String   @id @default(cuid())
-  companyId  String   @map("company_id")
-  prefix     String   @db.VarChar(32)
-  lastNumber Int      @map("last_number")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@unique([companyId, prefix])
-  @@index([companyId])
-  @@map("company_resource_sequences")
-}
-
-model ResourceRegistry {
-  id            String   @id @default(cuid())
-  companyId     String   @map("company_id")
-  prefix        String   @db.VarChar(32)
-  rsrcShortName String   @map("rsrc_short_name") @db.VarChar(64)
-  resourceType  String   @map("resource_type") @db.VarChar(120)
-  resourceName  String   @map("resource_name") @db.VarChar(255)
-  createdAt     DateTime @default(now()) @map("created_at")
-
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@unique([companyId, rsrcShortName])
-  @@unique([companyId, prefix, resourceType, resourceName])
-  @@index([companyId])
-  @@map("resource_registry")
 }
 
 model Standard {

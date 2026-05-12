@@ -16,6 +16,7 @@
     "test:p6-resources": "tsc && node scripts/p6-resource-map-smoke.mjs",
     "test:tenant-isolation": "tsc && node --test scripts/tenant-isolation.test.mjs",
     "test:project-access": "tsc && node --test scripts/project-access.test.mjs",
+    "test:security": "npm run build && node --test \"tests/**/*.test.mjs\"",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",

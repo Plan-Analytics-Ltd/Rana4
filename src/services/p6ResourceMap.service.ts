@@ -47,15 +47,15 @@ export function buildP6ResourceMap(entries: RateCardEntry[]): {
       throw new Error("rate card: resourceName is required for P6 rsrc_name");
     }
     if (!Number.isFinite(cost_per_qty) || cost_per_qty < 0) {
-      throw new Error(`rate card: invalid rate for ${rsrc_name}`);
+      throw new Error("rate card: invalid rate");
     }
 
     const rsrc_short_name = String(e.rsrcShortName ?? "").trim();
     if (!rsrc_short_name) {
-      throw new Error(`rate card: missing rsrcShortName for ${String(e.resourceType)} / ${rsrc_name}`);
+      throw new Error("rate card: missing rsrcShortName");
     }
     if (shortNames.has(rsrc_short_name)) {
-      throw new Error(`P6 resource map: duplicate rsrc_short_name in rate card: ${rsrc_short_name}`);
+      throw new Error("P6 resource map: duplicate rsrc_short_name in rate card");
     }
     shortNames.add(rsrc_short_name);
 

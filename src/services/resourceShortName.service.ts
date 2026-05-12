@@ -1,5 +1,12 @@
 import { prisma } from "../utils/prisma.js";
-import type { Prisma } from "@prisma/client";
+import type { SecureDbClient } from "./encryption/index.js";
+import {
+  getSecureResourceRegistryForCompany,
+  secureResourceRegistryId,
+  upsertSecureResourceRegistry,
+  type SecureResourceRegistryPayload,
+} from "../repositories/secureData/resource.repository.js";
+import { lockSecureRecord } from "../repositories/secureData/secureTables.js";
 import { compareResourcesForP6Order } from "./p6ResourceSort.js";
 
 export const DEFAULT_RESOURCE_PREFIX = "PLARES";
@@ -19,8 +26,26 @@ export type EnsureShortNamesResult = {
   map: Map<string, string>; // key(prefix|type|name) -> rsrcShortName
 };
 
+function parseShortNameNumber(prefix: string, value: string): number {
+  const cleanPrefix = `${prefix}-`;
+  if (!value.startsWith(cleanPrefix)) return 0;
+  const n = Number(value.slice(cleanPrefix.length));
+  return Number.isInteger(n) && n > 0 ? n : 0;
+}
+
+function emptyRegistry(companyId: string, prefix: string): SecureResourceRegistryPayload {
+  return {
+    version: 1,
+    companyId,
+    prefix,
+    lastNumber: 0,
+    resources: [],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 export async function ensurePersistentResourceShortNamesTx(
-  tx: Prisma.TransactionClient,
+  tx: SecureDbClient,
   params: {
     companyId: string;
     prefix?: string;
@@ -38,30 +63,11 @@ export async function ensurePersistentResourceShortNamesTx(
     throw new Error("ensurePersistentResourceShortNames: resourceType and resourceName are required");
   }
 
-  // Ensure sequence row exists WITHOUT triggering a constraint violation that would abort the transaction.
-  await tx.companyResourceSequence.upsert({
-    where: { companyId_prefix: { companyId, prefix } },
-    create: { companyId, prefix, lastNumber: 0 },
-    update: {},
-  });
+  await lockSecureRecord(tx, secureResourceRegistryId(companyId, prefix));
 
-  // Lock the sequence row (prevents concurrent uploads from racing).
-  const locked = (await tx.$queryRaw<
-    { id: string; last_number: number }[]
-  >`SELECT id, last_number FROM company_resource_sequences WHERE company_id = ${companyId} AND prefix = ${prefix} FOR UPDATE`) as {
-    id: string;
-    last_number: number;
-  }[];
-  const seq = locked[0];
-  if (!seq) throw new Error("ensurePersistentResourceShortNames: sequence row missing after create");
-
-  // Fetch existing registry for this company+prefix.
-  const existing = await tx.resourceRegistry.findMany({
-    where: { companyId, prefix },
-    select: { resourceType: true, resourceName: true, rsrcShortName: true },
-  });
+  const registry = (await getSecureResourceRegistryForCompany(companyId, prefix, tx)) ?? emptyRegistry(companyId, prefix);
   const existingByKey = new Map<string, string>();
-  for (const r of existing) {
+  for (const r of registry.resources) {
     existingByKey.set(resourceKey(prefix, r.resourceType, r.resourceName), r.rsrcShortName);
   }
 
@@ -78,11 +84,15 @@ export async function ensurePersistentResourceShortNamesTx(
   // TASKRSRC short names match how P6 lists resources by name.
   missing.sort(compareResourcesForP6Order);
 
-  const startingFrom = seq.last_number + 1;
+  const maxExistingNumber = registry.resources.reduce(
+    (max, r) => Math.max(max, parseShortNameNumber(prefix, r.rsrcShortName)),
+    registry.lastNumber
+  );
+  const startingFrom = maxExistingNumber + 1;
   const generated: { resourceType: string; resourceName: string; rsrcShortName: string }[] = [];
 
   if (missing.length > 0) {
-    let next = seq.last_number;
+    let next = maxExistingNumber;
     for (const r of missing) {
       next += 1;
       const short = `${prefix}-${next}`;
@@ -90,22 +100,28 @@ export async function ensurePersistentResourceShortNamesTx(
       outMap.set(resourceKey(prefix, r.resourceType, r.resourceName), short);
     }
 
-    // Insert registry rows first; unique constraint will guard against any unexpected collision.
-    await tx.resourceRegistry.createMany({
-      data: generated.map((g) => ({
-        companyId,
-        prefix,
-        rsrcShortName: g.rsrcShortName,
-        resourceType: g.resourceType,
-        resourceName: g.resourceName,
-      })),
-    });
+    const nextRegistry: SecureResourceRegistryPayload = {
+      ...registry,
+      companyId,
+      prefix,
+      lastNumber: next,
+      resources: [...registry.resources, ...generated].sort(compareResourcesForP6Order),
+      updatedAt: new Date().toISOString(),
+    };
+    await upsertSecureResourceRegistry(nextRegistry, tx);
+  } else if (registry.updatedAt === new Date(0).toISOString()) {
+    await upsertSecureResourceRegistry({
+      ...registry,
+      updatedAt: new Date().toISOString(),
+    }, tx);
+  }
 
-    // Advance sequence to the last reserved number.
-    await tx.companyResourceSequence.update({
-      where: { companyId_prefix: { companyId, prefix } },
-      data: { lastNumber: seq.last_number + missing.length },
-    });
+  if (missing.length === 0 && registry.lastNumber < maxExistingNumber) {
+    await upsertSecureResourceRegistry({
+      ...registry,
+      lastNumber: maxExistingNumber,
+      updatedAt: new Date().toISOString(),
+    }, tx);
   }
 
   return { prefix, startingFrom, generated, map: outMap };
@@ -116,7 +132,7 @@ export async function ensurePersistentResourceShortNamesTx(
  *
  * Guarantees:
  * - Never reuses numbers (monotonic per company+prefix)
- * - Transactional + row-level locking on the sequence row
+ * - Transactional + advisory locking on the secure registry id
  * - Reuses existing registry mapping for previously seen resources (no churn across uploads)
  */
 export async function ensurePersistentResourceShortNames(params: {

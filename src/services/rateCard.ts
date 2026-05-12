@@ -1,6 +1,14 @@
 import { prisma } from "../utils/prisma.js";
 import type { RateCardEntry as ParsedRateCardEntry } from "./rateCard.parser.js";
 import { ensurePersistentResourceShortNamesTx, DEFAULT_RESOURCE_PREFIX } from "./resourceShortName.service.js";
+import {
+  deleteSecureRateCardsByCompany,
+  getSecureRateCardForCompany,
+  secureRateCardId,
+  upsertSecureRateCard,
+  type SecureRateCardPayload,
+} from "../repositories/secureData/rateCard.repository.js";
+import { lockSecureRecord } from "../repositories/secureData/secureTables.js";
 
 export type RateCardEntry = ParsedRateCardEntry & { rsrcShortName: string };
 
@@ -29,17 +37,11 @@ function buildLookup(entries: RateCardEntry[]): Map<string, RateCardEntry> {
 }
 
 export async function getRateCardEntries(companyId: string): Promise<RateCardEntry[]> {
-  const rows = await prisma.rateCardEntry.findMany({
-    where: { companyId },
-    orderBy: [{ resourceType: "asc" }, { resourceName: "asc" }],
+  const payload = await getSecureRateCardForCompany(companyId);
+  return [...(payload?.entries ?? [])].sort((a, b) => {
+    const type = a.resourceType.localeCompare(b.resourceType);
+    return type !== 0 ? type : a.resourceName.localeCompare(b.resourceName);
   });
-  return rows.map((r) => ({
-    resourceType: r.resourceType,
-    resourceName: r.resourceName,
-    unit: r.unit,
-    rate: r.rate,
-    rsrcShortName: r.rsrcShortName,
-  }));
 }
 
 export async function getRateCardSummary(companyId: string): Promise<{ type: string; count: number }[]> {
@@ -53,7 +55,7 @@ export async function getRateCardSummary(companyId: string): Promise<{ type: str
 
 export async function replaceRateCardEntries(companyId: string, entries: ParsedRateCardEntry[]): Promise<void> {
   await prisma.$transaction(async (tx) => {
-    // Ensure stable, persistent P6 short names per company (same transaction as the replacement).
+    await lockSecureRecord(tx, secureRateCardId(companyId));
     const ensured = await ensurePersistentResourceShortNamesTx(tx, {
       companyId,
       prefix: DEFAULT_RESOURCE_PREFIX,
@@ -63,22 +65,36 @@ export async function replaceRateCardEntries(companyId: string, entries: ParsedR
     const key = (type: string, name: string) =>
       `${DEFAULT_RESOURCE_PREFIX.toLowerCase()}|${type.trim().toLowerCase()}|${name.trim().toLowerCase()}`;
 
-    await tx.rateCardEntry.deleteMany({ where: { companyId } });
-    if (entries.length > 0) {
-      await tx.rateCardEntry.createMany({
-        data: entries.map((e) => ({
-          resourceType: e.resourceType.trim(),
-          resourceName: e.resourceName.trim(),
-          rsrcShortName: (() => {
-            const v = shortByKey.get(key(e.resourceType, e.resourceName));
-            if (!v) throw new Error(`rate card: missing persistent rsrc_short_name for ${e.resourceType} / ${e.resourceName}`);
-            return v;
-          })(),
-          unit: e.unit.trim(),
-          rate: e.rate,
-          companyId,
-        })),
-      });
+    const secureEntries: RateCardEntry[] = entries.map((e) => ({
+      resourceType: e.resourceType.trim(),
+      resourceName: e.resourceName.trim(),
+      rsrcShortName: (() => {
+        const v = shortByKey.get(key(e.resourceType, e.resourceName));
+        if (!v) throw new Error("rate card: missing persistent rsrc_short_name");
+        return v;
+      })(),
+      unit: e.unit.trim(),
+      rate: e.rate,
+    }));
+
+    await deleteSecureRateCardsByCompany(companyId, tx);
+    const updatedAt = new Date().toISOString();
+    const entriesByType = new Map<string, RateCardEntry[]>();
+    for (const entry of secureEntries) {
+      const group = entriesByType.get(entry.resourceType) ?? [];
+      group.push(entry);
+      entriesByType.set(entry.resourceType, group);
+    }
+
+    for (const [resourceType, groupedEntries] of entriesByType.entries()) {
+      const payload: SecureRateCardPayload = {
+        version: 1,
+        companyId,
+        resourceType,
+        entries: groupedEntries,
+        updatedAt,
+      };
+      await upsertSecureRateCard(payload, tx);
     }
   });
 }
@@ -155,7 +171,7 @@ export async function parseAndValidateAssignedResources(companyId: string, raw: 
 export async function assignmentsFromDb(companyId: string, raw: unknown): Promise<AssignedResourceStored[]> {
   const r = await parseAndValidateAssignedResources(companyId, raw === undefined || raw === null ? [] : raw);
   if (!r.ok) {
-    console.warn("[rate-card] Invalid stored assignments skipped:", r.error);
+    console.warn("[rate-card] Invalid stored assignments skipped");
     return [];
   }
   return r.assignments;

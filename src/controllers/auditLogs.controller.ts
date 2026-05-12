@@ -4,11 +4,60 @@ import type { AuthRequest } from "../middleware/auth.middleware.js";
 import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
 import { isDevPanelEmail } from "../utils/devPanelAccess.js";
+import { searchImmutableAuditLogs, type ImmutableAuditSearchFilters } from "../services/audit/immutableAudit.service.js";
 
 function parseLimit(limitRaw: unknown): number {
   const n = typeof limitRaw === "string" ? Number(limitRaw) : Number.NaN;
   if (!Number.isFinite(n) || n <= 0) return 50;
   return Math.min(Math.floor(n), 200);
+}
+
+function queryString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function parseBoolean(value: unknown): boolean | undefined {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return undefined;
+}
+
+function requireSecureAuditAdmin(req: AuthRequest, res: Response): boolean {
+  if (!req.user) {
+    res.status(401).json({ error: "Authentication required" });
+    return false;
+  }
+  if (!isDevPanelEmail(req.user.email) && req.user.role !== "ADMIN") {
+    res.status(403).json({ error: "Forbidden" });
+    return false;
+  }
+  return true;
+}
+
+async function searchSecureAudit(req: AuthRequest, res: Response, defaults: Partial<ImmutableAuditSearchFilters> = {}): Promise<void> {
+  try {
+    if (!requireSecureAuditAdmin(req, res)) return;
+    const user = req.user;
+    if (!user) return;
+    const filters: ImmutableAuditSearchFilters = {
+      companyId: user.companyId,
+      ...defaults,
+      ...(queryString(req.query.userId) ? { userId: queryString(req.query.userId) } : {}),
+      ...(queryString(req.query.requestId) ? { requestId: queryString(req.query.requestId) } : {}),
+      ...(queryString(req.query.action) ? { action: queryString(req.query.action) } : {}),
+      ...(queryString(req.query.resourceCategory) ? { resourceCategory: queryString(req.query.resourceCategory) } : {}),
+      ...(queryString(req.query.resourceType) ? { resourceType: queryString(req.query.resourceType) } : {}),
+      ...(parseBoolean(req.query.accessGranted) !== undefined ? { accessGranted: parseBoolean(req.query.accessGranted) } : {}),
+      ...(queryString(req.query.cursor) ? { cursor: queryString(req.query.cursor) } : {}),
+      limit: parseLimit(req.query.limit),
+    };
+
+    const result = await searchImmutableAuditLogs(filters);
+    res.json(result);
+  } catch {
+    console.error("[audit] Failed to load immutable audit logs");
+    res.status(500).json({ error: "Failed to load immutable audit logs" });
+  }
 }
 
 export async function list(req: AuthRequest, res: Response): Promise<void> {
@@ -68,5 +117,21 @@ export async function list(req: AuthRequest, res: Response): Promise<void> {
     console.error(err);
     res.status(500).json({ error: "Failed to load audit logs" });
   }
+}
+
+export async function secureSearch(req: AuthRequest, res: Response): Promise<void> {
+  await searchSecureAudit(req, res);
+}
+
+export async function accessHistory(req: AuthRequest, res: Response): Promise<void> {
+  await searchSecureAudit(req, res, { action: "SENSITIVE_ACCESS" });
+}
+
+export async function decryptActivity(req: AuthRequest, res: Response): Promise<void> {
+  await searchSecureAudit(req, res, { action: "DECRYPT_OPERATION" });
+}
+
+export async function deniedAccess(req: AuthRequest, res: Response): Promise<void> {
+  await searchSecureAudit(req, res, { accessGranted: false });
 }
 

@@ -158,10 +158,7 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
       });
       return;
     }
-    console.log(
-      "[export] Resource assignments per activity:",
-      activitiesForExport.map((a) => ({ id: a.id, name: a.name, count: a.assignedResources.length }))
-    );
+    console.info("[export] Resource assignment counts prepared", { activityCount: activitiesForExport.length });
 
     const rateCardEntries = await getRateCardEntries(companyId);
 

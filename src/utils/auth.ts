@@ -1,11 +1,7 @@
 import type { Request } from "express";
 import jwt from "jsonwebtoken";
 import type { JwtPayload } from "jsonwebtoken";
-
-const secret =
-  process.env.NODE_ENV === "production"
-    ? (process.env.JWT_SECRET ?? "")
-    : (process.env.JWT_SECRET ?? "dev-secret-change-in-production");
+import { getJwtSecret } from "../services/security/secrets/index.js";
 
 export interface AuthPayload {
   userId: string;
@@ -13,12 +9,12 @@ export interface AuthPayload {
 }
 
 export function signToken(payload: AuthPayload): string {
-  return jwt.sign(payload, secret, { expiresIn: "7d" });
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: "7d" });
 }
 
 export function verifyToken(token: string): AuthPayload | null {
   try {
-    const decoded = jwt.verify(token, secret) as JwtPayload & AuthPayload;
+    const decoded = jwt.verify(token, getJwtSecret()) as JwtPayload & AuthPayload;
     if (decoded.userId && decoded.email) return { userId: decoded.userId, email: decoded.email };
     return null;
   } catch {
