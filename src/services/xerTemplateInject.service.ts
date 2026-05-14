@@ -2,8 +2,17 @@ import * as path from "node:path";
 import { readdir } from "node:fs/promises";
 import { readFile } from "node:fs/promises";
 import type { GeneratedWbs } from "./wbsGenerate.service.js";
+import type { ActivityCodeCatalogForExport } from "./activityCodeCatalog.service.js";
 import type { RateCardEntry } from "./rateCard.js";
 import { buildP6ResourceMap } from "./p6ResourceMap.service.js";
+import { buildXerAlignedWbsCodeMap } from "./wbsHumanReadable.service.js";
+import { mergeInheritedAndOwnActivityAssignments } from "./activityCodeAssignmentsMerge.service.js";
+import {
+  p6DeterministicActvCodeId,
+  p6DeterministicActvTypeId,
+  p6DeterministicTaskId,
+} from "./p6DeterministicId.service.js";
+import type { P6PendingSemanticTaskRow } from "./export.service.js";
 
 type XerSection = {
   tIndex: number;
@@ -99,6 +108,438 @@ function buildRowFromTemplate(fields: string[], templateRowLine: string | null):
   return out;
 }
 
+export type GenerateXerWithWbsOptions = {
+  /** Activity code types/values to emit as ACTVTYPE/ACTVCODE (deterministic ids). */
+  activityCatalog?: ActivityCodeCatalogForExport | null;
+  /** Same TASK rows as the spreadsheet export; drives XER `TASK` + `TASKACTV`. */
+  pendingSemanticTaskRows?: P6PendingSemanticTaskRow[] | null;
+  /** Namespace for deterministic TASK ids (e.g. companyId:projectId:projectCode). */
+  xerDeterministicScope?: string | null;
+};
+
+function projIdFromProjectSection(lines: string[]): string {
+  const sec = getSection(lines, "PROJECT");
+  const row = sec.rowLines[0];
+  if (!row) throw new Error("XER template PROJECT has no %R row");
+  const vals = splitRow(row).slice(1);
+  const idx = sec.fields.indexOf("proj_id");
+  if (idx < 0) throw new Error("XER template PROJECT fields missing proj_id");
+  const v = vals[idx];
+  if (v === undefined || String(v).trim() === "") throw new Error("XER template PROJECT proj_id is empty");
+  return String(v).trim();
+}
+
+const ACTVTYPE_XER_FIELDS = [
+  "actv_code_type_id",
+  "proj_id",
+  "seq_num",
+  "actv_short_len",
+  "actv_code_type",
+  "export_flag",
+  "super_flag",
+  "actv_code_type_scope",
+] as const;
+
+const ACTVCODE_XER_FIELDS = [
+  "actv_code_id",
+  "parent_actv_code_id",
+  "actv_code_type_id",
+  "actv_code_name",
+  "short_name",
+  "seq_num",
+  "export_flag",
+  "proj_id",
+] as const;
+
+/** Matches xer-parser TASK schema column order. */
+const TASK_XER_FIELDS = [
+  "task_id",
+  "proj_id",
+  "wbs_id",
+  "clndr_id",
+  "phys_complete_pct",
+  "rev_fdbk_flag",
+  "est_wt",
+  "lock_plan_flag",
+  "auto_compute_act_flag",
+  "complete_pct_type",
+  "task_type",
+  "duration_type",
+  "status_code",
+  "task_code",
+  "task_name",
+  "rsrc_id",
+  "total_float_hr_cnt",
+  "free_float_hr_cnt",
+  "remain_drtn_hr_cnt",
+  "act_work_qty",
+  "remain_work_qty",
+  "target_work_qty",
+  "target_drtn_hr_cnt",
+  "target_equip_qty",
+  "act_equip_qty",
+  "remain_equip_qty",
+  "cstr_date",
+  "act_start_date",
+  "act_end_date",
+  "late_start_date",
+  "late_end_date",
+  "expect_end_date",
+  "early_start_date",
+  "early_end_date",
+  "restart_date",
+  "reend_date",
+  "target_start_date",
+  "target_end_date",
+  "rem_late_start_date",
+  "rem_late_end_date",
+  "cstr_type",
+  "priority_type",
+  "suspend_date",
+  "resume_date",
+  "float_path",
+  "float_path_order",
+  "guid",
+  "tmpl_guid",
+  "cstr_date2",
+  "cstr_type2",
+  "driving_path_flag",
+  "act_this_per_work_qty",
+  "act_this_per_equip_qty",
+  "external_early_start_date",
+  "external_late_end_date",
+  "create_date",
+  "update_date",
+  "create_user",
+  "update_user",
+  "location_id",
+  "crt_path_num",
+] as const;
+
+const TASKACTV_XER_FIELDS = ["task_id", "proj_id", "actv_code_type_id", "actv_code_id"] as const;
+
+function activityTypeSlugUpper(t: ActivityCodeCatalogForExport["types"][number]): string {
+  const s = String(t.slug ?? "").trim();
+  if (!s) {
+    throw new Error(`XER ACTVTYPE: activity code type ${t.id} is missing slug`);
+  }
+  return s.toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+}
+
+function stableActivityCodeHashKey(
+  typeSlugUpper: string,
+  code: ActivityCodeCatalogForExport["codes"][number],
+  disambiguator: number
+): string {
+  const base = String(code.shortName?.trim() || code.name).trim();
+  const norm = base
+    .replace(/\s+/g, "_")
+    .toUpperCase()
+    .replace(/[^A-Z0-9_]/g, "_")
+    .slice(0, 80);
+  const tail = disambiguator > 0 ? `#${disambiguator}` : "";
+  if (!norm) return `${typeSlugUpper}:ID_${code.id}${tail}`;
+  return `${typeSlugUpper}:${norm}${tail}`;
+}
+
+function wbsNumericIdFromSpreadsheetPath(
+  wbsPath: string,
+  generatedWbs: GeneratedWbs,
+  projectCodeForWbs: string
+): number {
+  const m = buildXerAlignedWbsCodeMap(generatedWbs, projectCodeForWbs);
+  const p = String(wbsPath).trim();
+  for (const [wid, code] of m) {
+    if (String(code).trim() === p) return wid;
+  }
+  throw new Error(`XER TASK: WBS path not found in generated WBS map: ${JSON.stringify(p)}`);
+}
+
+function taskXerRowFromSemantic(input: {
+  taskId: number;
+  projId: string;
+  wbsId: number;
+  taskCode: string;
+  taskName: string;
+  durationHours: number;
+}): string {
+  const v: Record<string, string | number> = {};
+  v.task_id = input.taskId;
+  v.proj_id = input.projId;
+  v.wbs_id = input.wbsId;
+  v.clndr_id = 107653;
+  v.phys_complete_pct = 0;
+  v.rev_fdbk_flag = "N";
+  v.est_wt = 1;
+  v.lock_plan_flag = "N";
+  v.auto_compute_act_flag = "Y";
+  v.complete_pct_type = "CP_Drtn";
+  v.task_type = "TT_Task";
+  v.duration_type = "DT_FixedDUR2";
+  v.status_code = "TK_NotStart";
+  v.task_code = input.taskCode;
+  v.task_name = input.taskName;
+  v.total_float_hr_cnt = 0;
+  v.free_float_hr_cnt = 0;
+  v.remain_drtn_hr_cnt = input.durationHours;
+  v.target_drtn_hr_cnt = input.durationHours;
+  v.act_work_qty = 0;
+  v.remain_work_qty = 0;
+  v.target_work_qty = 0;
+  v.target_equip_qty = 0;
+  v.act_equip_qty = 0;
+  v.remain_equip_qty = 0;
+  v.driving_path_flag = "N";
+  v.act_this_per_work_qty = 0;
+  v.act_this_per_equip_qty = 0;
+
+  const vals = TASK_XER_FIELDS.map((name) => cleanCell(v[name] ?? ""));
+  return joinRow(["%R", ...vals]);
+}
+
+function taskactvXerRow(input: {
+  task_id: number;
+  proj_id: string;
+  actv_code_type_id: number;
+  actv_code_id: number;
+}): string {
+  const vals = new Array(TASKACTV_XER_FIELDS.length).fill("");
+  const set = (name: string, value: string | number) => {
+    const i = (TASKACTV_XER_FIELDS as readonly string[]).indexOf(name);
+    if (i >= 0) vals[i] = cleanCell(value);
+  };
+  set("task_id", input.task_id);
+  set("proj_id", input.proj_id);
+  set("actv_code_type_id", input.actv_code_type_id);
+  set("actv_code_id", input.actv_code_id);
+  return joinRow(["%R", ...vals]);
+}
+
+function appendP6ActivityTaskTables(params: {
+  lines: string[];
+  wbs: GeneratedWbs;
+  projectShortNameForWbsPaths: string;
+  catalog: ActivityCodeCatalogForExport | null | undefined;
+  pendingSemanticTaskRows: P6PendingSemanticTaskRow[] | null | undefined;
+  xerDeterministicScope: string;
+}): string[] {
+  const blocks: string[] = [];
+  const projId = projIdFromProjectSection(params.lines);
+  const cat = params.catalog;
+  const pending = params.pendingSemanticTaskRows ?? [];
+  const scope = params.xerDeterministicScope;
+
+  let ranaCodeToNumeric = new Map<string, number>();
+
+  if (cat && cat.types.length > 0) {
+    const typeSlugUpperById = new Map<string, string>();
+    const typeNumById = new Map<string, number>();
+    for (const t of cat.types) {
+      const slugU = activityTypeSlugUpper(t);
+      typeSlugUpperById.set(t.id, slugU);
+      typeNumById.set(t.id, p6DeterministicActvTypeId(slugU));
+    }
+
+    blocks.push(joinRow(["%T", "ACTVTYPE"]));
+    blocks.push(joinRow(["%F", ...ACTVTYPE_XER_FIELDS]));
+    const typesOrdered = [...cat.types].sort((a, b) => {
+      if (a.seqNum !== b.seqNum) return a.seqNum - b.seqNum;
+      return a.name.localeCompare(b.name);
+    });
+    for (let i = 0; i < typesOrdered.length; i++) {
+      const t = typesOrdered[i]!;
+      const slugU = typeSlugUpperById.get(t.id)!;
+      blocks.push(
+        actvtypeXerRow({
+          actv_code_type_id: typeNumById.get(t.id)!,
+          proj_id: projId,
+          seq_num: Number.isFinite(t.seqNum) ? t.seqNum : i + 1,
+          actv_short_len: 40,
+          actv_code_type: slugU,
+        })
+      );
+    }
+
+    if (cat.codes.length > 0) {
+      ranaCodeToNumeric = new Map();
+      blocks.push(joinRow(["%T", "ACTVCODE"]));
+      blocks.push(joinRow(["%F", ...ACTVCODE_XER_FIELDS]));
+      const orderedCodes = sortActivityCodesParentsBeforeChildren(cat.codes);
+      const usedHashKeys = new Set<string>();
+      for (const c of orderedCodes) {
+        const typeSlugU = typeSlugUpperById.get(c.typeId);
+        if (!typeSlugU) {
+          throw new Error(`XER ACTVCODE: code ${c.id} references unknown type ${c.typeId}`);
+        }
+        const typeNum = typeNumById.get(c.typeId)!;
+        let dis = 0;
+        let hashKey = stableActivityCodeHashKey(typeSlugU, c, dis);
+        while (usedHashKeys.has(hashKey)) {
+          dis += 1;
+          hashKey = stableActivityCodeHashKey(typeSlugU, c, dis);
+        }
+        usedHashKeys.add(hashKey);
+        const codeNum = p6DeterministicActvCodeId(hashKey);
+        ranaCodeToNumeric.set(c.id, codeNum);
+        const parentNum = c.parentId ? ranaCodeToNumeric.get(c.parentId) ?? null : null;
+        const shortName = String(c.shortName?.trim() || c.name).trim();
+        blocks.push(
+          actvcodeXerRow({
+            actv_code_id: codeNum,
+            parent_actv_code_id: parentNum,
+            actv_code_type_id: typeNum,
+            actv_code_name: c.name,
+            short_name: shortName,
+            seq_num: c.seqNum,
+            proj_id: projId,
+          })
+        );
+      }
+    }
+  }
+
+  const typeNumByIdForTask = new Map<string, number>();
+  if (cat && cat.types.length > 0) {
+    for (const t of cat.types) {
+      typeNumByIdForTask.set(t.id, p6DeterministicActvTypeId(activityTypeSlugUpper(t)));
+    }
+  }
+  const typeById = cat ? new Map(cat.types.map((t) => [t.id, t])) : new Map<string, ActivityCodeCatalogForExport["types"][number]>();
+  const codeById = cat ? new Map(cat.codes.map((c) => [c.id, c])) : new Map<string, ActivityCodeCatalogForExport["codes"][number]>();
+  const hasActv = Boolean(cat && cat.types.length > 0 && cat.codes.length > 0);
+
+  const taskActvRowStrings: string[] = [];
+  const taskDataRowStrings: string[] = [];
+  if (pending.length > 0) {
+    for (const row of pending) {
+      const taskCode = String(row.baseCells[0] ?? "").trim();
+      const wbsPath = String(row.baseCells[2] ?? "").trim();
+      const taskName = String(row.baseCells[4] ?? "").trim();
+      const dur = Number(row.baseCells[9]);
+      if (!taskCode || !wbsPath || !taskName || !Number.isFinite(dur)) continue;
+      const wbsIdNum = wbsNumericIdFromSpreadsheetPath(wbsPath, params.wbs, params.projectShortNameForWbsPaths);
+      const taskNum = p6DeterministicTaskId(scope, taskCode);
+      taskDataRowStrings.push(
+        taskXerRowFromSemantic({
+          taskId: taskNum,
+          projId,
+          wbsId: wbsIdNum,
+          taskCode,
+          taskName,
+          durationHours: dur,
+        })
+      );
+
+      if (!hasActv) continue;
+      const merged = mergeInheritedAndOwnActivityAssignments(cat!, row.ownAssignmentKey, row.inheritDeliverableId);
+      for (const as of merged) {
+        const typ = typeById.get(as.typeId);
+        if (!typ || !codeById.has(as.codeId)) {
+          throw new Error(`XER TASKACTV: missing catalog entry for type=${as.typeId} code=${as.codeId}`);
+        }
+        const actvCodeNum = ranaCodeToNumeric.get(as.codeId);
+        if (actvCodeNum === undefined) {
+          throw new Error(`XER TASKACTV: missing deterministic ACTVCODE id for code ${as.codeId}`);
+        }
+        const typeNum = typeNumByIdForTask.get(typ.id);
+        if (typeNum === undefined) {
+          throw new Error(`XER TASKACTV: missing deterministic ACTVTYPE id for type ${typ.id}`);
+        }
+        taskActvRowStrings.push(
+          taskactvXerRow({
+            task_id: taskNum,
+            proj_id: projId,
+            actv_code_type_id: typeNum,
+            actv_code_id: actvCodeNum,
+          })
+        );
+      }
+    }
+    if (taskDataRowStrings.length > 0) {
+      blocks.push(joinRow(["%T", "TASK"]));
+      blocks.push(joinRow(["%F", ...TASK_XER_FIELDS]));
+      blocks.push(...taskDataRowStrings);
+    }
+    if (taskActvRowStrings.length > 0) {
+      blocks.push(joinRow(["%T", "TASKACTV"]));
+      blocks.push(joinRow(["%F", ...TASKACTV_XER_FIELDS]));
+      blocks.push(...taskActvRowStrings);
+    }
+  }
+
+  if (blocks.length === 0) return params.lines;
+  return appendBeforeEof(params.lines, blocks);
+}
+
+function sortActivityCodesParentsBeforeChildren(codes: ActivityCodeCatalogForExport["codes"]): ActivityCodeCatalogForExport["codes"] {
+  const byId = new Map(codes.map((c) => [c.id, c]));
+  const remaining = new Set(codes.map((c) => c.id));
+  const out: ActivityCodeCatalogForExport["codes"] = [];
+  while (remaining.size > 0) {
+    let progressed = false;
+    for (const id of [...remaining]) {
+      const c = byId.get(id)!;
+      if (!c.parentId || !remaining.has(c.parentId)) {
+        out.push(c);
+        remaining.delete(id);
+        progressed = true;
+      }
+    }
+    if (!progressed) {
+      throw new Error("XER ACTVCODE export: activity code hierarchy contains a cycle or missing parent");
+    }
+  }
+  return out;
+}
+
+function actvtypeXerRow(input: {
+  actv_code_type_id: number;
+  proj_id: string;
+  seq_num: number;
+  actv_short_len: number;
+  actv_code_type: string;
+}): string {
+  const vals = new Array(ACTVTYPE_XER_FIELDS.length).fill("");
+  const set = (name: string, value: string | number) => {
+    const i = (ACTVTYPE_XER_FIELDS as readonly string[]).indexOf(name);
+    if (i >= 0) vals[i] = cleanCell(value);
+  };
+  set("actv_code_type_id", input.actv_code_type_id);
+  set("proj_id", input.proj_id);
+  set("seq_num", input.seq_num);
+  set("actv_short_len", input.actv_short_len);
+  set("actv_code_type", input.actv_code_type);
+  set("export_flag", "Y");
+  set("super_flag", "N");
+  set("actv_code_type_scope", "AS_Project");
+  return joinRow(["%R", ...vals]);
+}
+
+function actvcodeXerRow(input: {
+  actv_code_id: number;
+  parent_actv_code_id: number | null;
+  actv_code_type_id: number;
+  actv_code_name: string;
+  short_name: string;
+  seq_num: number;
+  proj_id: string;
+}): string {
+  const vals = new Array(ACTVCODE_XER_FIELDS.length).fill("");
+  const set = (name: string, value: string | number) => {
+    const i = (ACTVCODE_XER_FIELDS as readonly string[]).indexOf(name);
+    if (i >= 0) vals[i] = cleanCell(value);
+  };
+  set("actv_code_id", input.actv_code_id);
+  set("parent_actv_code_id", input.parent_actv_code_id === null ? "" : input.parent_actv_code_id);
+  set("actv_code_type_id", input.actv_code_type_id);
+  set("actv_code_name", input.actv_code_name);
+  set("short_name", input.short_name);
+  set("seq_num", input.seq_num);
+  set("export_flag", "Y");
+  set("proj_id", input.proj_id);
+  return joinRow(["%R", ...vals]);
+}
+
 async function resolveXerTemplatePath(): Promise<string> {
   const dir = path.join(process.cwd(), "templates");
   const entries = await readdir(dir);
@@ -116,7 +557,8 @@ export async function generateXERWithWBS(
   wbs: GeneratedWbs,
   project_name: string,
   project_short_name: string,
-  rateCardEntries: RateCardEntry[]
+  rateCardEntries: RateCardEntry[],
+  opts?: GenerateXerWithWbsOptions | null
 ): Promise<string> {
   const templatePath = await resolveXerTemplatePath();
   const template = await readFile(templatePath, "utf8");
@@ -289,6 +731,20 @@ export async function generateXERWithWBS(
   resourceSections.push(...rsrcRateRows);
 
   outLines = appendBeforeEof(outLines, resourceSections);
+
+  const cat = opts?.activityCatalog;
+  const pending = opts?.pendingSemanticTaskRows ?? [];
+  const scope =
+    String(opts?.xerDeterministicScope ?? "").trim() ||
+    `${String(project_name).trim()}:${String(project_short_name).trim()}`;
+  outLines = appendP6ActivityTaskTables({
+    lines: outLines,
+    wbs,
+    projectShortNameForWbsPaths: String(project_short_name).trim() || String(project_name).trim(),
+    catalog: cat ?? null,
+    pendingSemanticTaskRows: pending,
+    xerDeterministicScope: scope,
+  });
 
   return outLines.join(eol);
 }

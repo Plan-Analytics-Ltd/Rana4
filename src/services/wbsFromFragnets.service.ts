@@ -3,6 +3,7 @@ import { prisma } from "../utils/prisma.js";
 import type { DeliverableWithActivities } from "./deliverableActivityLink.service.js";
 import {
   assertGeneratedWbsInvariants,
+  buildDeterministicWbsLookups,
   sanitizeWbsName,
   withUniqueDeliverableWbsNames,
   type GeneratedWbs,
@@ -40,29 +41,12 @@ function sortByCreatedAtThenId<T extends { createdAt: Date; id: string }>(items:
   });
 }
 
-function normalizeForMatch(s: string): string {
-  return String(s ?? "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function parseFragnetPrefixFromDeliverableName(name: string): string | null {
-  const raw = String(name ?? "").trim();
-  const parts = raw.split(" - ");
-  if (parts.length < 2) return null;
-  const prefix = String(parts[0] ?? "").trim();
-  return prefix ? prefix : null;
-}
-
-const UNCLASSIFIED_FRAGNET_NAME = "Unclassified";
-
 /**
  * Build a standard-wide WBS:
- * Project (root id=1) → Fragnet → Deliverable → Activities (mapped via deliverableIdToWbsId).
+ * Project (root id=1) → Stage / Fragnet → Deliverable → Activities (mapped via deliverableIdToWbsId).
  *
  * IMPORTANT: WBS ids are generated integers (no UUIDs).
+ * Every project deliverable must have `fragnetId` set — no name-based inference or synthetic buckets.
  */
 export async function generateWbsFromFragnets(standardId: string): Promise<GeneratedWbs> {
   const sid = String(standardId ?? "").trim();
@@ -85,49 +69,22 @@ export async function generateWbsFromFragnets(standardId: string): Promise<Gener
 
   if (!standard) throw new Error("generateWbsFromFragnets: Standard not found");
 
+  const orphan = await prisma.deliverable.findFirst({
+    where: { projectId: standard.projectId, companyId: standard.companyId, fragnetId: null },
+    select: { id: true, name: true },
+  });
+  if (orphan) {
+    throw new Error(
+      `WBS generation blocked: deliverable "${orphan.name}" (${orphan.id}) has no stage (fragnet). Assign every deliverable to a stage before export.`
+    );
+  }
+
   const fragnets: FragnetWithDeliverables[] = standard.fragnets.map((f) => ({
     id: f.id,
     name: f.name,
     createdAt: f.createdAt,
     deliverables: f.deliverables,
   }));
-
-  // STRICT: "No Fragnet" WBS must not exist.
-  // However, projects may still contain deliverables with fragnetId=null. We deterministically infer the fragnet
-  // from deliverable name prefix "[Fragnet] - ..." and attach under that fragnet at export-time.
-  const unassigned = await prisma.deliverable.findMany({
-    where: { projectId: standard.projectId, fragnetId: null },
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    include: { activities: { orderBy: [{ activityCode: "asc" }, { id: "asc" }] } },
-  });
-  if (unassigned.length > 0) {
-    const fragnetByName = new Map<string, FragnetWithDeliverables>();
-    for (const f of fragnets) fragnetByName.set(normalizeForMatch(f.name), f);
-
-    // Deterministic fallback bucket: keep hierarchy valid without introducing a "No Fragnet" WBS node.
-    let unclassified = fragnetByName.get(normalizeForMatch(UNCLASSIFIED_FRAGNET_NAME));
-    if (!unclassified) {
-      unclassified = {
-        id: "__UNCLASSIFIED__",
-        name: UNCLASSIFIED_FRAGNET_NAME,
-        createdAt: new Date(0),
-        deliverables: [],
-      };
-      fragnets.push(unclassified);
-      fragnetByName.set(normalizeForMatch(unclassified.name), unclassified);
-    }
-
-    for (const d of unassigned) {
-      const prefix = parseFragnetPrefixFromDeliverableName(d.name);
-      const key = normalizeForMatch(prefix ?? "");
-      const target = key ? fragnetByName.get(key) : undefined;
-      const resolved = target ?? unclassified;
-      // Ensure we don't double-attach if DB data changes between queries.
-      if (!resolved.deliverables.some((x) => x.id === d.id)) {
-        resolved.deliverables.push(d as any);
-      }
-    }
-  }
 
   let currentWbsId = 1;
   const project_wbs = {
@@ -142,23 +99,29 @@ export async function generateWbsFromFragnets(standardId: string): Promise<Gener
 
   for (const fragnet of sortByCreatedAtThenId(fragnets)) {
     const fragnetWbsId = ++currentWbsId;
+    const stageDisplay = sanitizeWbsName(fragnet.name) || fragnet.name;
     wbs_nodes.push({
       kind: "FRAGNET",
       wbs_id: fragnetWbsId,
       parent_wbs_id: 1,
       wbs_short_name: String(fragnetWbsId),
-      wbs_name: sanitizeWbsName(fragnet.name) || "Fragnet",
+      wbs_name: stageDisplay,
+      fragnetId: fragnet.id,
     });
 
     const orderedDeliverables = sortByCreatedAtThenId(fragnet.deliverables);
     for (const d of orderedDeliverables) {
       const deliverableWbsId = ++currentWbsId;
+      const src = sanitizeWbsName(d.name) || d.name;
       const slice = {
         deliverable_id: d.id,
         wbs_id: deliverableWbsId,
         wbs_short_name: String(deliverableWbsId),
-        wbs_name: sanitizeWbsName(d.name) || "Deliverable",
+        wbs_name: src,
         activities: d.activities,
+        stageFragnetId: fragnet.id,
+        stageDisplayName: stageDisplay,
+        deliverableSourceName: src,
       };
       deliverable_wbs_list.push(slice);
       wbs_nodes.push({
@@ -179,6 +142,6 @@ export async function generateWbsFromFragnets(standardId: string): Promise<Gener
     deliverableIdToWbsId,
   });
   assertGeneratedWbsInvariants(merged);
+  buildDeterministicWbsLookups(merged);
   return merged;
 }
-

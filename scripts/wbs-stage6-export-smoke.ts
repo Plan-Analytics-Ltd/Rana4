@@ -8,7 +8,8 @@ import { prisma } from "../src/utils/prisma.js";
 import { runWithAuthContextAsync } from "../src/utils/requestContext.js";
 import { assignmentsFromDb } from "../src/services/rateCard.js";
 import type { DeliverableWithActivities } from "../src/services/deliverableActivityLink.service.js";
-import { buildWbsFromDeliverables } from "../src/services/wbsGenerate.service.js";
+import { buildWbsForFragnetExport } from "../src/services/wbsGenerate.service.js";
+import { buildXerAlignedWbsCodeMap } from "../src/services/wbsHumanReadable.service.js";
 import { generateFragnetXlsx } from "../src/services/export.service.js";
 
 const TAG = `wbs-stage6-${Date.now()}`;
@@ -95,10 +96,15 @@ async function main(): Promise<void> {
         return a.id.localeCompare(b.id);
       }),
   }));
-  const generatedWbs = buildWbsFromDeliverables("Stage6 Project", deliverablesWithActivities);
-  const expectedWbsId = "2";
+  const generatedWbs = buildWbsForFragnetExport("Stage6 Project", { id: f.id, name: f.name }, deliverablesWithActivities);
+  const wbsCodeById = buildXerAlignedWbsCodeMap(generatedWbs, "PROJ-6");
+  const leafId = generatedWbs.deliverable_wbs_list[0]?.wbs_id;
+  const expectedWbsCode = leafId !== undefined ? wbsCodeById.get(leafId) : undefined;
+  if (!expectedWbsCode) {
+    throw new Error("missing hierarchical WBS code for deliverable leaf");
+  }
 
-  const buf = generateFragnetXlsx(
+  const { buffer: buf } = await generateFragnetXlsx(
     generatedWbs,
     deliverablesForExport,
     activitiesForExport,
@@ -110,8 +116,9 @@ async function main(): Promise<void> {
     })),
     "best",
     "PROJ-6",
+    "PROJ-6",
     [],
-    []
+    undefined
   );
 
   const wb = XLSX.read(buf, { type: "buffer" });
@@ -123,8 +130,8 @@ async function main(): Promise<void> {
   if (wbsIds.some((id) => id === "RANA4-WBS")) {
     throw new Error("flat RANA4-WBS must not appear after WBS integration");
   }
-  if (!wbsIds.every((id) => id === expectedWbsId)) {
-    throw new Error(`expected all wbs_id ${expectedWbsId}, got ${JSON.stringify(wbsIds)}`);
+  if (!wbsIds.every((id) => id === expectedWbsCode)) {
+    throw new Error(`expected all wbs_id ${expectedWbsCode}, got ${JSON.stringify(wbsIds)}`);
   }
   const wbsNames = rows.slice(2).map((r) => String(r[3] ?? ""));
   if (!wbsNames.every((n) => n === "ExportPkg")) {

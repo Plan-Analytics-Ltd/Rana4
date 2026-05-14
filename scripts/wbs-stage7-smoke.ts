@@ -6,7 +6,7 @@ import type { Activity } from "@prisma/client";
 import "dotenv/config";
 import { prisma } from "../src/utils/prisma.js";
 import { runWithAuthContextAsync } from "../src/utils/requestContext.js";
-import { buildWbsFromDeliverables, withUniqueDeliverableWbsNames } from "../src/services/wbsGenerate.service.js";
+import { buildWbsForFragnetExport, withUniqueDeliverableWbsNames } from "../src/services/wbsGenerate.service.js";
 import {
   validateFragnetForWbsExport,
   validateGeneratedWbsStructure,
@@ -40,9 +40,13 @@ function mainUnit(): void {
         wbs_short_name: "2",
         wbs_name: "Slice",
         activities: [{ id: "a1", deliverableId: "d2" } as Activity],
+        stageFragnetId: null,
+        stageDisplayName: "P",
+        deliverableSourceName: "Slice",
       },
     ],
     deliverableIdToWbsId: new Map([["d1", 2]]),
+    wbs_nodes: [{ kind: "DELIVERABLE", wbs_id: 2, parent_wbs_id: 1, wbs_short_name: "2", wbs_name: "Slice" }],
   });
   const mismatch = validateGeneratedWbsStructure(wbsBad);
   if (mismatch.length !== 1 || mismatch[0]!.code !== "ACTIVITY_DELIVERABLE_MISMATCH") {
@@ -52,15 +56,47 @@ function mainUnit(): void {
   const wbsDup = withUniqueDeliverableWbsNames({
     project_wbs: { wbs_id: 1, wbs_short_name: "1", wbs_name: "X" },
     deliverable_wbs_list: [
-      { deliverable_id: "1", wbs_id: 2, wbs_short_name: "2", wbs_name: "Same", activities: [] },
-      { deliverable_id: "2", wbs_id: 3, wbs_short_name: "3", wbs_name: "Same", activities: [] },
-      { deliverable_id: "3", wbs_id: 4, wbs_short_name: "4", wbs_name: "same", activities: [] },
+      {
+        deliverable_id: "1",
+        wbs_id: 2,
+        wbs_short_name: "2",
+        wbs_name: "Same",
+        activities: [],
+        stageFragnetId: null,
+        stageDisplayName: "X",
+        deliverableSourceName: "Same",
+      },
+      {
+        deliverable_id: "2",
+        wbs_id: 3,
+        wbs_short_name: "3",
+        wbs_name: "Same",
+        activities: [],
+        stageFragnetId: null,
+        stageDisplayName: "X",
+        deliverableSourceName: "Same",
+      },
+      {
+        deliverable_id: "3",
+        wbs_id: 4,
+        wbs_short_name: "4",
+        wbs_name: "same",
+        activities: [],
+        stageFragnetId: null,
+        stageDisplayName: "X",
+        deliverableSourceName: "same",
+      },
     ],
     deliverableIdToWbsId: new Map([
       ["1", 2],
       ["2", 3],
       ["3", 4],
     ]),
+    wbs_nodes: [
+      { kind: "DELIVERABLE", wbs_id: 2, parent_wbs_id: 1, wbs_short_name: "2", wbs_name: "Same" },
+      { kind: "DELIVERABLE", wbs_id: 3, parent_wbs_id: 1, wbs_short_name: "3", wbs_name: "Same" },
+      { kind: "DELIVERABLE", wbs_id: 4, parent_wbs_id: 1, wbs_short_name: "4", wbs_name: "same" },
+    ],
   });
   const names = wbsDup.deliverable_wbs_list.map((s) => s.wbs_name);
   if (names[0] !== "Same" || names[1] !== "Same (2)" || names[2] !== "same (3)") {
@@ -127,7 +163,7 @@ async function mainDb(): Promise<void> {
         include: { activities: { orderBy: [{ activityCode: "asc" }, { id: "asc" }] } },
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       });
-      const wbs = buildWbsFromDeliverables("P7", loaded);
+      const wbs = buildWbsForFragnetExport("P7", { id: fragnet.id, name: fragnet.name }, loaded);
       const n0 = wbs.deliverable_wbs_list[0]?.wbs_name;
       const n1 = wbs.deliverable_wbs_list[1]?.wbs_name;
       if (n0 !== "Twin" || n1 !== "Twin (2)") {

@@ -26,11 +26,13 @@ import {
   standardsApi,
   fragnetsApi,
   deliverablesApi,
+  activityCodeTypesApi,
   rateCardApi,
   type Deliverable,
   type Standard,
   type Fragnet,
   type RateCardEntry,
+  type ActivityCodeType,
   getApiErrorMessage,
 } from "@/lib/api";
 import { useProject } from "@/contexts/project-context";
@@ -42,6 +44,7 @@ import {
   type ResourceAssignmentDraft,
 } from "@/components/resource-assignments-editor";
 import { hasPermission } from "@/lib/project-permissions";
+import { cn } from "@/lib/utils";
 
 type FragnetOption = { id: string; name: string; standardName?: string };
 
@@ -50,6 +53,7 @@ export default function DeliverablesPage() {
   const { query } = useSearch();
   const mayEdit = hasPermission(selectedProjectRole, "deliverable", "update");
   const mayDelete = hasPermission(selectedProjectRole, "deliverable", "delete");
+  const mayEditP6Codes = hasPermission(selectedProjectRole, "activityCode", "update");
   const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
   const [allFragnets, setAllFragnets] = useState<FragnetOption[]>([]);
   const [fragnetNameById, setFragnetNameById] = useState<Record<string, string>>({});
@@ -64,6 +68,21 @@ export default function DeliverablesPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [rateCardEntries, setRateCardEntries] = useState<RateCardEntry[] | null>(null);
   const [formResourceDrafts, setFormResourceDrafts] = useState<ResourceAssignmentDraft[]>([]);
+  const [codeTypes, setCodeTypes] = useState<ActivityCodeType[]>([]);
+  const [formP6Codes, setFormP6Codes] = useState<Record<string, string>>({});
+
+  const fetchCodeTypes = async () => {
+    if (!selectedProjectId) {
+      setCodeTypes([]);
+      return;
+    }
+    try {
+      const { data } = await activityCodeTypesApi.list(selectedProjectId);
+      setCodeTypes(data);
+    } catch {
+      setCodeTypes([]);
+    }
+  };
 
   const loadInitialData = useCallback(async () => {
     setLoading(true);
@@ -113,12 +132,16 @@ export default function DeliverablesPage() {
   }, [loadInitialData, selectedProjectId]);
 
   useEffect(() => {
+    fetchCodeTypes();
+  }, [selectedProjectId]);
+
+  useEffect(() => {
     (async () => {
       try {
         const { data } = await rateCardApi.get();
-        setRateCardEntries(data.entries);
+        setRateCardEntries(data.entries ?? []);
       } catch {
-        setRateCardEntries([]);
+        setRateCardEntries(null);
       }
     })();
   }, []);
@@ -131,8 +154,33 @@ export default function DeliverablesPage() {
     setFormBestDuration("");
     setFormLikelyDuration("");
     setFormResourceDrafts([]);
+    setFormP6Codes({});
     setEditId(null);
     setCreateOpen(false);
+  };
+
+  const buildDeliverableCodePayloadForCreate = (): Record<string, string | null> | undefined => {
+    if (!mayEditP6Codes || codeTypes.length === 0) return undefined;
+    const out: Record<string, string | null> = {};
+    let any = false;
+    for (const t of codeTypes) {
+      const v = formP6Codes[t.id];
+      if (v && v !== "__NONE__") {
+        out[t.id] = v;
+        any = true;
+      }
+    }
+    return any ? out : undefined;
+  };
+
+  const buildDeliverableCodePayloadForUpdate = (): Record<string, string | null> | undefined => {
+    if (!mayEditP6Codes || codeTypes.length === 0) return undefined;
+    const out: Record<string, string | null> = {};
+    for (const t of codeTypes) {
+      const v = formP6Codes[t.id];
+      out[t.id] = !v || v === "__NONE__" ? null : v;
+    }
+    return out;
   };
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -152,6 +200,7 @@ export default function DeliverablesPage() {
         bestDuration: best,
         likelyDuration: likely,
         assignedResources: draftsToPayload(formResourceDrafts),
+        activityCodeByTypeId: buildDeliverableCodePayloadForCreate(),
       });
       toast.success("Deliverable created");
       resetForm();
@@ -184,6 +233,7 @@ export default function DeliverablesPage() {
         bestDuration: best,
         likelyDuration: likely,
         assignedResources: draftsToPayload(formResourceDrafts),
+        activityCodeByTypeId: buildDeliverableCodePayloadForUpdate(),
       });
       toast.success("Deliverable updated");
       resetForm();
@@ -216,13 +266,30 @@ export default function DeliverablesPage() {
     setFormBestDuration(String(d.bestDuration));
     setFormLikelyDuration(String(d.likelyDuration));
     setFormResourceDrafts(storedToDrafts(d.assignedResources));
+    const next: Record<string, string> = {};
+    for (const t of codeTypes) next[t.id] = "__NONE__";
+    for (const row of d.activityCodeAssignments ?? []) {
+      next[row.typeId] = row.codeId;
+    }
+    setFormP6Codes(next);
+  };
+
+  const p6Snippet = (d: Deliverable) => {
+    const rows = d.activityCodeAssignments ?? [];
+    if (rows.length === 0) return "—";
+    return rows.map((r) => `${r.type.name}: ${r.code.name}`).join("; ");
   };
 
   const normalizedQuery = query.trim().toLowerCase();
   const matchesQuery = useCallback(
     (d: Deliverable) => {
       if (!normalizedQuery) return true;
-      return d.id.toLowerCase().includes(normalizedQuery) || d.name.toLowerCase().includes(normalizedQuery);
+      const snip = p6Snippet(d).toLowerCase();
+      return (
+        d.id.toLowerCase().includes(normalizedQuery) ||
+        d.name.toLowerCase().includes(normalizedQuery) ||
+        snip.includes(normalizedQuery)
+      );
     },
     [normalizedQuery]
   );
@@ -232,6 +299,7 @@ export default function DeliverablesPage() {
   const openCreateUnassigned = () => {
     setFormFragnetId("");
     setFormResourceDrafts([]);
+    setFormP6Codes({});
     setCreateOpen(true);
   };
 
@@ -275,6 +343,7 @@ export default function DeliverablesPage() {
                   <TableHead>Name</TableHead>
                   <TableHead>Best</TableHead>
                   <TableHead>Likely</TableHead>
+                  <TableHead>P6 codes</TableHead>
                   <TableHead>Res.</TableHead>
                   <TableHead className="w-[120px] text-right">Actions</TableHead>
                 </TableRow>
@@ -285,6 +354,9 @@ export default function DeliverablesPage() {
                     <TableCell className="font-medium">{d.name}</TableCell>
                     <TableCell>{d.bestDuration}</TableCell>
                     <TableCell>{d.likelyDuration}</TableCell>
+                    <TableCell className="max-w-[200px] truncate text-xs text-slate-600 dark:text-slate-400" title={p6Snippet(d)}>
+                      {p6Snippet(d)}
+                    </TableCell>
                     <TableCell className="text-sm text-slate-600 dark:text-slate-400">{d.assignedResources?.length ?? 0}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
@@ -320,8 +392,10 @@ export default function DeliverablesPage() {
             open={createOpen}
             onOpenChange={(o) => {
               setCreateOpen(o);
-              if (o) setFormResourceDrafts([]);
-              else resetForm();
+              if (o) {
+                setFormResourceDrafts([]);
+                setFormP6Codes({});
+              } else resetForm();
             }}
           >
             {mayEdit ? (
@@ -354,16 +428,44 @@ export default function DeliverablesPage() {
                     <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Name</label>
                     <Input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Deliverable name" required />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="grid gap-2">
+                  <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="grid min-w-0 gap-2">
                       <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Best duration</label>
-                      <Input type="number" min={1} value={formBestDuration} onChange={(e) => setFormBestDuration(e.target.value)} required />
+                      <Input className="min-w-0" type="number" min={1} value={formBestDuration} onChange={(e) => setFormBestDuration(e.target.value)} required />
                     </div>
-                    <div className="grid gap-2">
+                    <div className="grid min-w-0 gap-2">
                       <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Likely duration</label>
-                      <Input type="number" min={1} value={formLikelyDuration} onChange={(e) => setFormLikelyDuration(e.target.value)} required />
+                      <Input className="min-w-0" type="number" min={1} value={formLikelyDuration} onChange={(e) => setFormLikelyDuration(e.target.value)} required />
                     </div>
                   </div>
+                  {mayEditP6Codes && codeTypes.length > 0 ? (
+                    <div className="space-y-3 rounded-md border border-slate-200 p-3 dark:border-slate-700">
+                      <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Primavera activity codes</div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Optional: one value per type. Export uses these on the deliverable TASK row; activities in the same block inherit unless they set their own value for that type.
+                      </p>
+                      {codeTypes.map((t) => (
+                        <div key={t.id} className="grid gap-1">
+                          <label className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t.name}</label>
+                          <select
+                            value={formP6Codes[t.id] ?? "__NONE__"}
+                            onChange={(e) => setFormP6Codes((prev) => ({ ...prev, [t.id]: e.target.value }))}
+                            className={cn(
+                              "flex h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100",
+                              "focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+                            )}
+                          >
+                            <option value="__NONE__">— None —</option>
+                            {(t.codes ?? []).map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.shortName || c.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                   <ResourceAssignmentsEditor
                     entries={rateCardEntries}
                     value={formResourceDrafts}
@@ -386,7 +488,7 @@ export default function DeliverablesPage() {
             <p className="py-8 text-center text-slate-500 dark:text-slate-400">No deliverables yet. Create one (with or without a fragnet).</p>
           ) : filteredDeliverables.length === 0 ? (
             <p className="py-8 text-center text-slate-500 dark:text-slate-400">
-              No deliverables match &quot;{query.trim()}&quot;. Try searching by ID or name.
+              No deliverables match &quot;{query.trim()}&quot;. Try searching by ID, name, or P6 codes.
             </p>
           ) : (
             <Table>
@@ -395,6 +497,7 @@ export default function DeliverablesPage() {
                   <TableHead>Name</TableHead>
                   <TableHead>Best</TableHead>
                   <TableHead>Likely</TableHead>
+                  <TableHead>P6 codes</TableHead>
                   <TableHead>Fragnet</TableHead>
                   <TableHead>Res.</TableHead>
                   <TableHead className="w-[120px] text-right">Actions</TableHead>
@@ -406,6 +509,9 @@ export default function DeliverablesPage() {
                     <TableCell className="font-medium">{d.name}</TableCell>
                     <TableCell>{d.bestDuration}</TableCell>
                     <TableCell>{d.likelyDuration}</TableCell>
+                    <TableCell className="max-w-[200px] truncate text-xs text-slate-600 dark:text-slate-400" title={p6Snippet(d)}>
+                      {p6Snippet(d)}
+                    </TableCell>
                     <TableCell className="text-slate-600 dark:text-slate-400">{d.fragnetId ? (fragnetNameById[d.fragnetId] ?? d.fragnetId) : "—"}</TableCell>
                     <TableCell className="text-sm text-slate-600 dark:text-slate-400">{d.assignedResources?.length ?? 0}</TableCell>
                     <TableCell className="text-right">
@@ -438,16 +544,44 @@ export default function DeliverablesPage() {
                                     <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Name</label>
                                     <Input value={formName} onChange={(e) => setFormName(e.target.value)} required />
                                   </div>
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div className="grid gap-2">
+                                  <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+                                    <div className="grid min-w-0 gap-2">
                                       <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Best duration</label>
-                                      <Input type="number" min={1} value={formBestDuration} onChange={(e) => setFormBestDuration(e.target.value)} />
+                                      <Input className="min-w-0" type="number" min={1} value={formBestDuration} onChange={(e) => setFormBestDuration(e.target.value)} />
                                     </div>
-                                    <div className="grid gap-2">
+                                    <div className="grid min-w-0 gap-2">
                                       <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Likely duration</label>
-                                      <Input type="number" min={1} value={formLikelyDuration} onChange={(e) => setFormLikelyDuration(e.target.value)} />
+                                      <Input className="min-w-0" type="number" min={1} value={formLikelyDuration} onChange={(e) => setFormLikelyDuration(e.target.value)} />
                                     </div>
                                   </div>
+                                  {mayEditP6Codes && codeTypes.length > 0 ? (
+                                    <div className="space-y-3 rounded-md border border-slate-200 p-3 dark:border-slate-700">
+                                      <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Primavera activity codes</div>
+                                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                                        Optional: one value per type. Export uses these on the deliverable TASK row; activities in the same block inherit unless they set their own value for that type.
+                                      </p>
+                                      {codeTypes.map((t) => (
+                                        <div key={t.id} className="grid gap-1">
+                                          <label className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t.name}</label>
+                                          <select
+                                            value={formP6Codes[t.id] ?? "__NONE__"}
+                                            onChange={(e) => setFormP6Codes((prev) => ({ ...prev, [t.id]: e.target.value }))}
+                                            className={cn(
+                                              "flex h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100",
+                                              "focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+                                            )}
+                                          >
+                                            <option value="__NONE__">— None —</option>
+                                            {(t.codes ?? []).map((c) => (
+                                              <option key={c.id} value={c.id}>
+                                                {c.shortName || c.name}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : null}
                                   <ResourceAssignmentsEditor
                                     entries={rateCardEntries}
                                     value={formResourceDrafts}

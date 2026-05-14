@@ -32,6 +32,9 @@ function main(): void {
         wbs_short_name: "2",
         wbs_name: "Package A",
         activities: [stubActivity("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", dA)],
+        stageFragnetId: null,
+        stageDisplayName: "P6-100",
+        deliverableSourceName: "Package A",
       },
       {
         deliverable_id: dB,
@@ -42,12 +45,19 @@ function main(): void {
           stubActivity("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", dB),
           stubActivity("cccccccc-cccc-4ccc-8ccc-cccccccccccc", dB),
         ],
+        stageFragnetId: null,
+        stageDisplayName: "P6-100",
+        deliverableSourceName: "Package B",
       },
     ],
     deliverableIdToWbsId: new Map([
       [dA, 2],
       [dB, 3],
     ]),
+    wbs_nodes: [
+      { kind: "DELIVERABLE", wbs_id: 2, parent_wbs_id: 1, wbs_short_name: "2", wbs_name: "Package A" },
+      { kind: "DELIVERABLE", wbs_id: 3, parent_wbs_id: 1, wbs_short_name: "3", wbs_name: "Package B" },
+    ],
   };
 
   const x = mapToXER(wbs);
@@ -90,6 +100,7 @@ function main(): void {
     project_wbs: { wbs_id: 1, wbs_short_name: "1", wbs_name: "Project" },
     deliverable_wbs_list: [],
     deliverableIdToWbsId: new Map(),
+    wbs_nodes: [],
   };
   const x0 = mapToXER(empty);
   const r0 = x0.projwbs[0];

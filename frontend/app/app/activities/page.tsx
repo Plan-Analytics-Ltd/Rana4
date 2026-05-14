@@ -27,12 +27,14 @@ import {
   fragnetsApi,
   deliverablesApi,
   activitiesApi,
+  activityCodeTypesApi,
   relationshipsApi,
   assuranceNotesApi,
   rateCardApi,
   type Standard,
   type Fragnet,
   type Activity,
+  type ActivityCodeType,
   type Relationship,
   type AssuranceNote,
   type RelationshipType,
@@ -52,11 +54,27 @@ import { hasPermission } from "@/lib/project-permissions";
 
 const RELATIONSHIP_TYPES: RelationshipType[] = ["FS", "SS", "FF", "SF"];
 
+/** P6 form map: deliverable defaults, then activity overrides (per type). */
+function buildActivityP6FormMap(a: Activity, types: ActivityCodeType[], dels: Deliverable[]): Record<string, string> {
+  const next: Record<string, string> = {};
+  for (const t of types) next[t.id] = "__NONE__";
+  const deliverableId = a.deliverableId;
+  const d = deliverableId ? dels.find((x) => x.id === deliverableId) : undefined;
+  for (const row of d?.activityCodeAssignments ?? []) {
+    next[row.typeId] = row.codeId;
+  }
+  for (const row of a.activityCodeAssignments ?? []) {
+    next[row.typeId] = row.codeId;
+  }
+  return next;
+}
+
 export default function ActivitiesPage() {
   const { selectedProjectId, selectedProjectRole } = useProject();
   const mayCreate = hasPermission(selectedProjectRole, "activity", "create");
   const mayEditByRole = hasPermission(selectedProjectRole, "activity", "update");
   const mayDeleteByRole = hasPermission(selectedProjectRole, "activity", "delete");
+  const mayEditP6Codes = hasPermission(selectedProjectRole, "activityCode", "update");
   const mayDeleteRelationshipByRole = hasPermission(selectedProjectRole, "relationship", "delete");
   const [standards, setStandards] = useState<Standard[]>([]);
   const [selectedStandardId, setSelectedStandardId] = useState<string>("");
@@ -89,6 +107,23 @@ export default function ActivitiesPage() {
   const [deletingRelId, setDeletingRelId] = useState<string | null>(null);
   const [rateCardEntries, setRateCardEntries] = useState<RateCardEntry[] | null>(null);
   const [formResourceDrafts, setFormResourceDrafts] = useState<ResourceAssignmentDraft[]>([]);
+  const [codeTypes, setCodeTypes] = useState<ActivityCodeType[]>([]);
+  const [formP6Codes, setFormP6Codes] = useState<Record<string, string>>({});
+  /** Bumps when opening the edit dialog so P6 fields re-merge after code types / deliverables load. */
+  const [p6EditEpoch, setP6EditEpoch] = useState(0);
+
+  const fetchCodeTypes = async () => {
+    if (!selectedProjectId) {
+      setCodeTypes([]);
+      return;
+    }
+    try {
+      const { data } = await activityCodeTypesApi.list(selectedProjectId);
+      setCodeTypes(data);
+    } catch {
+      setCodeTypes([]);
+    }
+  };
 
   const fetchStandards = async () => {
     setLoadingStandards(true);
@@ -201,6 +236,10 @@ export default function ActivitiesPage() {
   };
 
   useEffect(() => {
+    fetchCodeTypes();
+  }, [selectedProjectId]);
+
+  useEffect(() => {
     fetchStandards();
   }, [selectedProjectId]);
 
@@ -208,9 +247,9 @@ export default function ActivitiesPage() {
     (async () => {
       try {
         const { data } = await rateCardApi.get();
-        setRateCardEntries(data.entries);
+        setRateCardEntries(data.entries ?? []);
       } catch {
-        setRateCardEntries([]);
+        setRateCardEntries(null);
       }
     })();
   }, []);
@@ -226,6 +265,15 @@ export default function ActivitiesPage() {
     fetchDeliverables();
   }, [selectedFragnetId, selectedStandardId]);
 
+  /** Keep P6 selects aligned when code types or deliverables finish loading after open; merge deliverable-level codes. */
+  useEffect(() => {
+    if (!editId || codeTypes.length === 0) return;
+    const a = activities.find((x) => x.id === editId);
+    if (!a) return;
+    if (a.deliverableId && !deliverables.some((d) => d.id === a.deliverableId)) return;
+    setFormP6Codes(buildActivityP6FormMap(a, codeTypes, deliverables));
+  }, [editId, codeTypes, deliverables, p6EditEpoch]);
+
   const resetActivityForm = () => {
     setFormActivityCode("");
     setFormName("");
@@ -234,6 +282,7 @@ export default function ActivitiesPage() {
     setFormDeliverableId(deliverables[0]?.id ?? "");
     setFormAssuranceNoteId("");
     setFormResourceDrafts([]);
+    setFormP6Codes({});
     setEditId(null);
     setCreateOpen(false);
   };
@@ -244,6 +293,30 @@ export default function ActivitiesPage() {
     setRelType("FS");
     setRelLag("0");
     setRelCreateOpen(false);
+  };
+
+  const buildActivityCodePayloadForCreate = (): Record<string, string | null> | undefined => {
+    if (!mayEditP6Codes || codeTypes.length === 0) return undefined;
+    const out: Record<string, string | null> = {};
+    let any = false;
+    for (const t of codeTypes) {
+      const v = formP6Codes[t.id];
+      if (v && v !== "__NONE__") {
+        out[t.id] = v;
+        any = true;
+      }
+    }
+    return any ? out : undefined;
+  };
+
+  const buildActivityCodePayloadForUpdate = (): Record<string, string | null> | undefined => {
+    if (!mayEditP6Codes || codeTypes.length === 0) return undefined;
+    const out: Record<string, string | null> = {};
+    for (const t of codeTypes) {
+      const v = formP6Codes[t.id];
+      out[t.id] = !v || v === "__NONE__" ? null : v;
+    }
+    return out;
   };
 
   const handleCreateActivity = async (e: React.FormEvent) => {
@@ -274,6 +347,7 @@ export default function ActivitiesPage() {
         likelyDuration: likely,
         assuranceNoteId: formAssuranceNoteId || undefined,
         assignedResources: draftsToPayload(formResourceDrafts),
+        activityCodeByTypeId: buildActivityCodePayloadForCreate(),
       });
       toast.success("Activity created");
       resetActivityForm();
@@ -307,6 +381,7 @@ export default function ActivitiesPage() {
         likelyDuration: likely,
         assuranceNoteId: formAssuranceNoteId || null,
         assignedResources: draftsToPayload(formResourceDrafts),
+        activityCodeByTypeId: buildActivityCodePayloadForUpdate(),
       });
       toast.success("Activity updated");
       resetActivityForm();
@@ -382,15 +457,30 @@ export default function ActivitiesPage() {
     setFormName(a.name);
     setFormBestDuration(String(a.bestDuration));
     setFormLikelyDuration(String(a.likelyDuration));
-    setFormDeliverableId((a as any).deliverableId ?? "");
+    setFormDeliverableId(a.deliverableId ?? "");
     setFormAssuranceNoteId(a.assuranceNoteId ?? "");
     setFormResourceDrafts(storedToDrafts(a.assignedResources));
+    setFormP6Codes({});
+    setP6EditEpoch((e) => e + 1);
   };
 
   const selectedStandard = standards.find((s) => s.id === selectedStandardId);
   const selectedFragnet = fragnets.find((f) => f.id === selectedFragnetId);
 
   const activityById = (id: string) => activities.find((a) => a.id === id);
+
+  const p6Snippet = (a: Activity) => {
+    const d = a.deliverableId ? deliverables.find((x) => x.id === a.deliverableId) : undefined;
+    const byType = new Map<string, { type: { name: string }; code: { name: string } }>();
+    for (const row of d?.activityCodeAssignments ?? []) {
+      byType.set(row.typeId, { type: row.type, code: row.code });
+    }
+    for (const row of a.activityCodeAssignments ?? []) {
+      byType.set(row.typeId, { type: row.type, code: row.code });
+    }
+    if (byType.size === 0) return "—";
+    return [...byType.values()].map((r) => `${r.type.name}: ${r.code.name}`).join("; ");
+  };
 
   return (
     <div className="space-y-6">
@@ -511,14 +601,14 @@ export default function ActivitiesPage() {
                         <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Name</label>
                         <Input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Activity name" required />
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="grid gap-2">
+                      <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div className="grid min-w-0 gap-2">
                           <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Best duration</label>
-                          <Input type="number" min={1} value={formBestDuration} onChange={(e) => setFormBestDuration(e.target.value)} required />
+                          <Input className="min-w-0" type="number" min={1} value={formBestDuration} onChange={(e) => setFormBestDuration(e.target.value)} required />
                         </div>
-                        <div className="grid gap-2">
+                        <div className="grid min-w-0 gap-2">
                           <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Likely duration</label>
-                          <Input type="number" min={1} value={formLikelyDuration} onChange={(e) => setFormLikelyDuration(e.target.value)} required />
+                          <Input className="min-w-0" type="number" min={1} value={formLikelyDuration} onChange={(e) => setFormLikelyDuration(e.target.value)} required />
                         </div>
                       </div>
                       {assuranceNotes.length > 0 && (
@@ -536,6 +626,34 @@ export default function ActivitiesPage() {
                           </select>
                         </div>
                       )}
+                      {mayEditP6Codes && codeTypes.length > 0 ? (
+                        <div className="space-y-3 rounded-md border border-slate-200 p-3 dark:border-slate-700">
+                          <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Primavera activity codes</div>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            Optional: one value per type. Manage the catalog under Activity codes.
+                          </p>
+                          {codeTypes.map((t) => (
+                            <div key={t.id} className="grid gap-1">
+                              <label className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t.name}</label>
+                              <select
+                                value={formP6Codes[t.id] ?? "__NONE__"}
+                                onChange={(e) => setFormP6Codes((prev) => ({ ...prev, [t.id]: e.target.value }))}
+                                className={cn(
+                                  "flex h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100",
+                                  "focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+                                )}
+                              >
+                                <option value="__NONE__">— None —</option>
+                                {(t.codes ?? []).map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.shortName || c.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                       <ResourceAssignmentsEditor
                         entries={rateCardEntries}
                         value={formResourceDrafts}
@@ -562,6 +680,7 @@ export default function ActivitiesPage() {
                     <TableRow>
                       <TableHead>Code</TableHead>
                       <TableHead>Name</TableHead>
+                      <TableHead>P6 codes</TableHead>
                       <TableHead>Best</TableHead>
                       <TableHead>Likely</TableHead>
                       <TableHead>Resources</TableHead>
@@ -573,6 +692,9 @@ export default function ActivitiesPage() {
                       <TableRow key={a.id}>
                         <TableCell className="font-medium">{a.activityCode}</TableCell>
                         <TableCell>{a.name}</TableCell>
+                        <TableCell className="max-w-[220px] truncate text-xs text-slate-600 dark:text-slate-400" title={p6Snippet(a)}>
+                          {p6Snippet(a)}
+                        </TableCell>
                         <TableCell>{a.bestDuration}</TableCell>
                         <TableCell>{a.likelyDuration}</TableCell>
                         <TableCell className="text-sm text-slate-600 dark:text-slate-400">
@@ -584,7 +706,6 @@ export default function ActivitiesPage() {
                               open={editId === a.id}
                               onOpenChange={(o) => {
                                 if (!o) resetActivityForm();
-                                else openEditActivity(a);
                               }}
                             >
                               <DialogTrigger asChild>
@@ -623,14 +744,14 @@ export default function ActivitiesPage() {
                                         <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Name</label>
                                         <Input value={formName} onChange={(e) => setFormName(e.target.value)} required />
                                       </div>
-                                      <div className="grid grid-cols-2 gap-4">
-                                        <div className="grid gap-2">
+                                      <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+                                        <div className="grid min-w-0 gap-2">
                                           <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Best duration</label>
-                                          <Input type="number" min={1} value={formBestDuration} onChange={(e) => setFormBestDuration(e.target.value)} />
+                                          <Input className="min-w-0" type="number" min={1} value={formBestDuration} onChange={(e) => setFormBestDuration(e.target.value)} />
                                         </div>
-                                        <div className="grid gap-2">
+                                        <div className="grid min-w-0 gap-2">
                                           <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Likely duration</label>
-                                          <Input type="number" min={1} value={formLikelyDuration} onChange={(e) => setFormLikelyDuration(e.target.value)} />
+                                          <Input className="min-w-0" type="number" min={1} value={formLikelyDuration} onChange={(e) => setFormLikelyDuration(e.target.value)} />
                                         </div>
                                       </div>
                                       {assuranceNotes.length > 0 && (
@@ -644,6 +765,31 @@ export default function ActivitiesPage() {
                                           </select>
                                         </div>
                                       )}
+                                      {mayEditP6Codes && codeTypes.length > 0 ? (
+                                        <div className="space-y-3 rounded-md border border-slate-200 p-3 dark:border-slate-700">
+                                          <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Primavera activity codes</div>
+                                          {codeTypes.map((t) => (
+                                            <div key={t.id} className="grid gap-1">
+                                              <label className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t.name}</label>
+                                              <select
+                                                value={formP6Codes[t.id] ?? "__NONE__"}
+                                                onChange={(e) => setFormP6Codes((prev) => ({ ...prev, [t.id]: e.target.value }))}
+                                                className={cn(
+                                                  "flex h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100",
+                                                  "focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+                                                )}
+                                              >
+                                                <option value="__NONE__">— None —</option>
+                                                {(t.codes ?? []).map((c) => (
+                                                  <option key={c.id} value={c.id}>
+                                                    {c.shortName || c.name}
+                                                  </option>
+                                                ))}
+                                              </select>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : null}
                                       <ResourceAssignmentsEditor
                                         entries={rateCardEntries}
                                         value={formResourceDrafts}

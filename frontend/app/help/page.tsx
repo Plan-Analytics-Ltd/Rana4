@@ -18,7 +18,7 @@ const helpItems = [
     title: "What is a Fragnet?",
     content: (
       <p>
-        A fragnet (fragment network) is a set of activities and relationships that belong to a single standard. You create fragnets per standard, add activities with codes and durations, and link them with predecessor-successor relationships (FS, SS, FF, SF). Fragnets are the unit of export: you choose a fragnet and a duration scenario to generate an Excel file with TASK, TASKPRED, and TASKRSRC sheets. If you have uploaded a rate card, the workbook also includes an <strong>RSRC</strong> sheet (resource definitions in Primavera layout).
+        A fragnet (fragment network) is a set of activities and relationships that belong to a single standard. You create fragnets per standard, add activities with codes and durations, and link them with predecessor-successor relationships (FS, SS, FF, SF). Fragnets are the unit of export: you choose a fragnet and a duration scenario to download a ZIP with an Excel workbook (TASK, TASKPRED, optional RSRC) and an XER containing the project shell, WBS, resources, and activity code definitions. TASK rows use stable WBS path strings, a comma-separated <strong>resource_list</strong> aligned with the rate card / XER resources, and optional <strong>actv_code_…_id</strong> columns for semantic activity code values. If you have uploaded a rate card, the workbook also includes an <strong>RSRC</strong> sheet (resource definitions in Primavera layout).
       </p>
     ),
   },
@@ -36,7 +36,7 @@ const helpItems = [
     title: "Export Process Overview",
     content: (
       <p>
-        Go to <strong>Export</strong> in the app, select a standard and then a fragnet, and choose the scenario (best or likely). Click &quot;Download Excel&quot; to get a single .xlsx file with <strong>TASK</strong> (activities), <strong>TASKPRED</strong> (relationships), <strong>TASKRSRC</strong> (resource assignments), and—when a rate card is present—<strong>RSRC</strong> (resource ID, name, type, unit, default units/time, rate). Activity IDs in the export are deterministically mapped (e.g. A1000, A1001) so the same fragnet always produces the same IDs.
+        Go to <strong>Export</strong> in the app, select a standard and then a fragnet, and choose the scenario (best or likely). Click download to get a ZIP with Excel (TASK, TASKPRED, RSRC when a rate card is present) plus XER for structure and activity code metadata. Activity IDs in the export are deterministically mapped (e.g. A1000, A1001) so the same fragnet always produces the same IDs.
       </p>
     ),
   },

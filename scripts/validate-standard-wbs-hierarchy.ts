@@ -89,7 +89,7 @@ async function main(): Promise<void> {
       })),
     }));
 
-    const xlsxBuf = generateStandardXlsx(wbs, fragnetsForExport, "best", "PID", projectCode, []);
+    const { buffer: xlsxBuf } = await generateStandardXlsx(wbs, fragnetsForExport, "best", "PID", projectCode, []);
     const wb = XLSX.read(xlsxBuf, { type: "buffer" });
     const taskSheet = wb.Sheets["TASK"];
     if (!taskSheet) throw new Error("missing TASK sheet");

@@ -5,20 +5,27 @@ import * as XLSX from "xlsx";
 import { prisma } from "../utils/prisma.js";
 import { assignmentsFromDb, getRateCardEntries } from "../services/rateCard.js";
 import type { DeliverableWithActivities } from "../services/deliverableActivityLink.service.js";
-import { buildWbsFromDeliverables } from "../services/wbsGenerate.service.js";
+import { buildWbsForFragnetExport } from "../services/wbsGenerate.service.js";
 import { auditLog } from "../services/audit.service.js";
 import type { AuthRequest } from "../middleware/auth.middleware.js";
 import {
   validateFragnetForWbsExport,
+  validateGeneratedWbsForP6Export,
   validateGeneratedWbsStructure,
 } from "../services/wbsExportValidation.service.js";
 import { generateFragnetXlsx, generateStandardXlsx, type ExportScenario, type DeliverableForExport, type StandardFragnetForExport } from "../services/export.service.js";
+import { loadActivityCodeCatalogForExport } from "../services/activityCodeCatalog.service.js";
 import { generateHumanReadableWBS } from "../services/wbsHumanReadable.service.js";
 import { generateXERWithWBS } from "../services/xerTemplateInject.service.js";
 import { generateWbsFromFragnets } from "../services/wbsFromFragnets.service.js";
 import { validateActivityAssignments } from "../services/activityAssignmentValidation.service.js";
 import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
+import {
+  assertActivityCodeCatalogConsistency,
+  assertAssignedResourcesExistOnRateCard,
+  assertUniqueWbsPathsForSpreadsheet,
+} from "../services/p6SpreadsheetExportValidation.service.js";
 
 const VALID_SCENARIOS: ExportScenario[] = ["best", "likely"];
 
@@ -42,16 +49,11 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
       scenario?: string;
       projectName?: string;
       projectId?: string;
-      unassignedDeliverableIds?: string[];
     };
 
     const scenario = body.scenario;
     const projectName = body.projectName;
     const projectId = body.projectId;
-    const unassignedDeliverableIds = Array.isArray(body.unassignedDeliverableIds)
-      ? body.unassignedDeliverableIds.filter((id) => typeof id === "string" && id.trim() !== "")
-      : [];
-
     if (scenario === undefined || scenario === null || String(scenario).trim() === "") {
       res.status(400).json({ error: "scenario is required" });
       return;
@@ -109,24 +111,6 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
       }))
     );
 
-    let unassignedForExport: DeliverableForExport[] = [];
-    if (unassignedDeliverableIds.length > 0) {
-      const unassigned = await prisma.deliverable.findMany({
-        where: { companyId, fragnetId: null, id: { in: unassignedDeliverableIds } },
-        orderBy: { createdAt: "asc" },
-      });
-      unassignedForExport = await Promise.all(
-        unassigned.map(async (d) => ({
-          id: d.id,
-          name: d.name,
-          bestDuration: d.bestDuration,
-          likelyDuration: d.likelyDuration,
-          createdAt: d.createdAt,
-          assignedResources: await assignmentsFromDb(companyId, d.assignedResources),
-        }))
-      );
-    }
-
     const activitiesForExport = await Promise.all(
       fragnet.activities.map(async (a) => ({
         id: a.id,
@@ -149,12 +133,24 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
           return a.id.localeCompare(b.id);
         }),
     }));
-    const generatedWbs = buildWbsFromDeliverables(String(projectName).trim(), deliverablesWithActivities);
+    const generatedWbs = buildWbsForFragnetExport(
+      String(projectName).trim(),
+      { id: fragnet.id, name: fragnet.name },
+      deliverablesWithActivities
+    );
     const structureIssues = validateGeneratedWbsStructure(generatedWbs);
     if (structureIssues.length > 0) {
       res.status(500).json({
         error: "Internal WBS structure validation failed",
         issues: structureIssues,
+      });
+      return;
+    }
+    const p6StructureIssues = validateGeneratedWbsForP6Export(generatedWbs);
+    if (p6StructureIssues.length > 0) {
+      res.status(400).json({
+        error: "WBS structure invalid for P6 export",
+        issues: p6StructureIssues,
       });
       return;
     }
@@ -168,7 +164,27 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
     // (e.g. "NEWPROJ-50901" instead of "NEWPROJ-5090"), drop it when it matches the name+1 pattern.
     const projectCode = pid !== "" && pname !== "" && pid === `${pname}1` ? pname : pid;
 
-    const buffer = generateFragnetXlsx(
+    const activityIdsForCatalog = fragnet.activities.map((a) => a.id);
+    const deliverableIdsForCatalog = fragnet.deliverables.map((d) => d.id);
+    const activityCatalog = await loadActivityCodeCatalogForExport(companyId, {
+      activityIds: activityIdsForCatalog,
+      deliverableIds: deliverableIdsForCatalog,
+    });
+    const p6ProjCell = Number.isFinite(Number(pid)) ? Number(pid) : pid;
+
+    try {
+      assertUniqueWbsPathsForSpreadsheet(generatedWbs, projectCode);
+      assertActivityCodeCatalogConsistency(activityCatalog);
+      assertAssignedResourcesExistOnRateCard(rateCardEntries, [...deliverablesForExport, ...activitiesForExport]);
+    } catch (e) {
+      res.status(400).json({
+        error: "P6 export validation failed",
+        detail: e instanceof Error ? e.message : String(e),
+      });
+      return;
+    }
+
+    const { buffer, pendingSemanticRows } = await generateFragnetXlsx(
       generatedWbs,
       deliverablesForExport,
       activitiesForExport,
@@ -181,8 +197,16 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
       scenario as ExportScenario,
       pid,
       projectCode,
-      unassignedForExport,
-      rateCardEntries
+      rateCardEntries,
+      {
+        exportContext: {
+          companyId,
+          ranaProjectId: fragnet.projectId,
+          p6ProjIdCell: p6ProjCell,
+          fragnetId: fragnet.id,
+        },
+        activityCatalog,
+      }
     );
     const safeName = safeFileBaseName(pname);
 
@@ -199,7 +223,11 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
     XLSX.utils.book_append_sheet(wbsReviewWb, wbsReviewSheet, "WBS");
     const wbsReviewBuffer = XLSX.write(wbsReviewWb, { type: "buffer", bookType: "xlsx" }) as Buffer;
 
-    const xerString = await generateXERWithWBS(generatedWbs, pname, projectCode, rateCardEntries);
+    const xerString = await generateXERWithWBS(generatedWbs, pname, projectCode, rateCardEntries, {
+      activityCatalog,
+      pendingSemanticTaskRows: pendingSemanticRows,
+      xerDeterministicScope: `${companyId}:${fragnet.projectId}:${projectCode}`,
+    });
     const zip = new JSZip();
     zip.file(`${safeName}_fragnet.xlsx`, buffer);
     zip.file(`${safeName}_wbs_review.xlsx`, wbsReviewBuffer);
@@ -317,6 +345,14 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
       });
       return;
     }
+    const p6StructureIssues = validateGeneratedWbsForP6Export(generatedWbs);
+    if (p6StructureIssues.length > 0) {
+      res.status(400).json({
+        error: "WBS structure invalid for P6 export",
+        issues: p6StructureIssues,
+      });
+      return;
+    }
 
     const rateCardEntries = await getRateCardEntries(companyId);
 
@@ -357,38 +393,42 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
       })
     );
 
-    // Deliverables with fragnetId=null are exported under a deterministic synthetic fragnet bucket ("Unclassified"),
-    // so we preserve the required hierarchy without creating a "No Fragnet" WBS node.
-    const unassignedDeliverablesRaw = await prisma.deliverable.findMany({
-      where: { companyId, projectId: standard.projectId, fragnetId: null },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    const allActivityIds = standard.fragnets.flatMap((f) => f.activities.map((a) => a.id));
+    const allDeliverableIds = standard.fragnets.flatMap((f) => f.deliverables.map((d) => d.id));
+    const activityCatalog = await loadActivityCodeCatalogForExport(companyId, {
+      activityIds: allActivityIds,
+      deliverableIds: allDeliverableIds,
     });
-    if (unassignedDeliverablesRaw.length > 0) {
-      const deliverables = await Promise.all(
-        unassignedDeliverablesRaw.map(async (d) => ({
-          id: d.id,
-          name: d.name,
-          bestDuration: d.bestDuration,
-          likelyDuration: d.likelyDuration,
-          createdAt: d.createdAt,
-          assignedResources: await assignmentsFromDb(companyId, d.assignedResources),
-        }))
-      );
-      fragnetsForExport.push({
-        id: "__UNCLASSIFIED__",
-        deliverables,
-        activities: [],
-        relationships: [],
+    const p6ProjCell = Number.isFinite(Number(pid)) ? Number(pid) : pid;
+
+    try {
+      assertUniqueWbsPathsForSpreadsheet(generatedWbs, projectCode);
+      assertActivityCodeCatalogConsistency(activityCatalog);
+      const resourceCheckRows = fragnetsForExport.flatMap((f) => [...f.deliverables, ...f.activities]);
+      assertAssignedResourcesExistOnRateCard(rateCardEntries, resourceCheckRows);
+    } catch (e) {
+      res.status(400).json({
+        error: "P6 export validation failed",
+        detail: e instanceof Error ? e.message : String(e),
       });
+      return;
     }
 
-    const buffer = generateStandardXlsx(
+    const { buffer, pendingSemanticRows } = await generateStandardXlsx(
       generatedWbs,
       fragnetsForExport,
       scenario as ExportScenario,
       pid,
       projectCode,
-      rateCardEntries
+      rateCardEntries,
+      {
+        exportContext: {
+          companyId,
+          ranaProjectId: standard.projectId,
+          p6ProjIdCell: p6ProjCell,
+        },
+        activityCatalog,
+      }
     );
 
     const safeName = safeFileBaseName(pname);
@@ -406,7 +446,11 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
     XLSX.utils.book_append_sheet(wbsReviewWb, wbsReviewSheet, "WBS");
     const wbsReviewBuffer = XLSX.write(wbsReviewWb, { type: "buffer", bookType: "xlsx" }) as Buffer;
 
-    const xerString = await generateXERWithWBS(generatedWbs, pname, projectCode, rateCardEntries);
+    const xerString = await generateXERWithWBS(generatedWbs, pname, projectCode, rateCardEntries, {
+      activityCatalog,
+      pendingSemanticTaskRows: pendingSemanticRows,
+      xerDeterministicScope: `${companyId}:${standard.projectId}:${projectCode}`,
+    });
 
     const zip = new JSZip();
     zip.file(`${safeName}_standard.xlsx`, buffer);

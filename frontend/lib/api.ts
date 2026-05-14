@@ -1,4 +1,4 @@
-import axios, { type AxiosInstance, type AxiosError } from "axios";
+import axios, { type AxiosInstance, type AxiosError, type AxiosResponse } from "axios";
 import { getStoredAuthToken } from "@/lib/auth-storage";
 import { getInMemoryApprovalToken } from "@/lib/approval-token";
 
@@ -7,7 +7,9 @@ export function isAxiosError(err: unknown): err is AxiosError {
 }
 
 export function getApiErrorMessage(err: unknown): string {
-  if (!isAxiosError(err)) return "Something went wrong";
+  if (!isAxiosError(err)) {
+    return err instanceof Error && err.message ? err.message : "Something went wrong";
+  }
   const data = err.response?.data;
   const status = err.response?.status;
   if (data && typeof data === "object") {
@@ -22,6 +24,39 @@ export function getApiErrorMessage(err: unknown): string {
   if (status === 404) return "Not found.";
   if (status && status >= 500) return "Server error. Try again later.";
   return "Something went wrong.";
+}
+
+/**
+ * When `responseType: "blob"`, success and error bodies are both Blobs. If the server sent JSON
+ * (4xx/5xx/202 approval), parse it and throw so callers do not save error JSON as a .zip file.
+ */
+export async function assertBlobIsZipDownload(response: AxiosResponse<Blob>): Promise<Blob> {
+  const raw =
+    response.headers["content-type"] ??
+    (response.headers as Record<string, string | undefined>)["Content-Type"] ??
+    "";
+  const contentType = String(raw).split(";")[0].trim().toLowerCase();
+  if (contentType.includes("application/json") || contentType.includes("text/json")) {
+    const text = await response.data.text();
+    let message = "Request failed";
+    let code: string | undefined;
+    try {
+      const j = JSON.parse(text) as { error?: string; message?: string; code?: string };
+      message = (typeof j.error === "string" && j.error) || (typeof j.message === "string" && j.message) || message;
+      code = typeof j.code === "string" ? j.code : undefined;
+    } catch {
+      if (text.trim()) message = text.trim().slice(0, 300);
+    }
+    const err = new Error(message) as Error & { code?: string; status?: number };
+    err.code = code;
+    err.status = response.status;
+    throw err;
+  }
+  const blob = response.data;
+  if (!(blob instanceof Blob) || blob.size === 0) {
+    throw new Error("Empty export file — the server returned no data.");
+  }
+  return blob;
 }
 
 const baseURL =
@@ -281,9 +316,41 @@ export const fragnetsApi = {
   delete: (id: string) => api.delete(`/fragnets/${id}`),
 };
 
+export type ActivityCodeValue = {
+  id: string;
+  typeId: string;
+  parentId: string | null;
+  name: string;
+  shortName: string | null;
+  seqNum: number;
+  color: string | null;
+  createdAt?: string;
+};
+
+export type ActivityCodeType = {
+  id: string;
+  slug: string;
+  name: string;
+  shortName: string | null;
+  seqNum: number;
+  createdAt: string;
+  codes?: ActivityCodeValue[];
+};
+
+export type ActivityCodeAssignmentRow = {
+  id: string;
+  activityId?: string | null;
+  deliverableId?: string | null;
+  typeId: string;
+  codeId: string;
+  type: { id: string; name: string; slug: string };
+  code: { id: string; name: string; typeId: string };
+};
+
 export type Activity = {
   id: string;
   fragnetId: string;
+  deliverableId?: string;
   activityCode: string;
   name: string;
   status: "DRAFT" | "PENDING_APPROVAL" | "ACTIVE" | "LOCKED";
@@ -291,6 +358,7 @@ export type Activity = {
   likelyDuration: number;
   assuranceNoteId: string | null;
   assignedResources?: AssignedResource[];
+  activityCodeAssignments?: ActivityCodeAssignmentRow[];
   createdAt: string;
 };
 
@@ -307,6 +375,7 @@ export const activitiesApi = {
     likelyDuration: number;
     assuranceNoteId?: string | null;
     assignedResources?: { resourceType: string; resourceName: string; units?: number }[];
+    activityCodeByTypeId?: Record<string, string | null>;
   }) => api.post<Activity>("/activities", data),
   update: (id: string, data: {
     activityCode?: string;
@@ -316,6 +385,7 @@ export const activitiesApi = {
     likelyDuration?: number;
     assuranceNoteId?: string | null;
     assignedResources?: { resourceType: string; resourceName: string; units?: number }[];
+    activityCodeByTypeId?: Record<string, string | null>;
   }) => api.put<Activity>(`/activities/${id}`, data),
   updateStatus: (id: string, status: Activity["status"]) =>
     api.patch<Activity>(`/activities/${id}/status`, { status }),
@@ -332,6 +402,48 @@ export const activitiesApi = {
   rollback: (id: string, targetVersion: number) =>
     api.post<{ updated: Activity; fromVersion: number; toVersion: number }>(`/activities/${id}/rollback`, { targetVersion }),
   delete: (id: string) => api.delete(`/activities/${id}`),
+};
+
+export const activityCodeTypesApi = {
+  list: (projectId?: string) =>
+    api.get<ActivityCodeType[]>("/activity-code-types", { params: { projectId: requireProjectId(projectId) } }),
+  create: (data: { projectId?: string; name: string; slug?: string; shortName?: string | null; seqNum?: number }) =>
+    api.post<ActivityCodeType>("/activity-code-types", { ...data, projectId: requireProjectId(data.projectId) }),
+  update: (
+    id: string,
+    data: { projectId?: string; name?: string; slug?: string; shortName?: string | null; seqNum?: number }
+  ) => api.put<ActivityCodeType>(`/activity-code-types/${encodeURIComponent(id)}`, { ...data, projectId: requireProjectId(data.projectId) }),
+  delete: (id: string, projectId?: string) =>
+    api.delete(`/activity-code-types/${encodeURIComponent(id)}`, { params: { projectId: requireProjectId(projectId) } }),
+};
+
+export const activityCodesApi = {
+  listByType: (typeId: string, projectId?: string) =>
+    api.get<ActivityCodeValue[]>("/activity-codes", {
+      params: { typeId, projectId: requireProjectId(projectId) },
+    }),
+  create: (data: {
+    projectId?: string;
+    typeId: string;
+    name: string;
+    shortName?: string | null;
+    parentId?: string | null;
+    seqNum?: number;
+    color?: string | null;
+  }) => api.post<ActivityCodeValue>("/activity-codes", { ...data, projectId: requireProjectId(data.projectId) }),
+  update: (
+    id: string,
+    data: {
+      projectId?: string;
+      name?: string;
+      shortName?: string | null;
+      parentId?: string | null;
+      seqNum?: number;
+      color?: string | null;
+    }
+  ) => api.put<ActivityCodeValue>(`/activity-codes/${encodeURIComponent(id)}`, { ...data, projectId: requireProjectId(data.projectId) }),
+  delete: (id: string, projectId?: string) =>
+    api.delete(`/activity-codes/${encodeURIComponent(id)}`, { params: { projectId: requireProjectId(projectId) } }),
 };
 
 export type RelationshipType = "FS" | "SS" | "FF" | "SF";
@@ -365,6 +477,7 @@ export type Deliverable = {
   bestDuration: number;
   likelyDuration: number;
   assignedResources?: AssignedResource[];
+  activityCodeAssignments?: ActivityCodeAssignmentRow[];
   createdAt: string;
 };
 
@@ -386,6 +499,7 @@ export const deliverablesApi = {
     likelyDuration: number;
     assignedResources?: { resourceType: string; resourceName: string; units?: number }[];
     externalProjectId?: string | null;
+    activityCodeByTypeId?: Record<string, string | null>;
   }) => api.post<Deliverable>("/deliverables", { ...data, projectId: requireProjectId(data.projectId) }),
   update: (id: string, data: {
     fragnetId?: string | null;
@@ -394,6 +508,7 @@ export const deliverablesApi = {
     likelyDuration?: number;
     assignedResources?: { resourceType: string; resourceName: string; units?: number }[];
     externalProjectId?: string | null;
+    activityCodeByTypeId?: Record<string, string | null>;
   }) => api.put<Deliverable>(`/deliverables/${id}`, data),
   delete: (id: string) => api.delete(`/deliverables/${id}`),
 };
@@ -449,15 +564,13 @@ export const assuranceNotesApi = {
 };
 
 export const exportApi = {
-  /** Downloads Excel (.xlsx) with TASK, TASKPRED, TASKRSRC; adds RSRC when a rate card is uploaded. POST: scenario, projectName, projectId, optional unassignedDeliverableIds. */
+  /** Downloads ZIP (Excel + WBS review + XER). POST: scenario, projectName, projectId. Deliverables must belong to a stage (fragnet). */
   fragnet: (
     fragnetId: string,
     body: {
       scenario: "best" | "likely";
       projectName: string;
       projectId: string;
-      /** IDs of unassigned (no fragnet) deliverables to include in export, one by one. */
-      unassignedDeliverableIds?: string[];
     }
   ) =>
     api.post<Blob>(`/export/fragnet/${fragnetId}`, body, {

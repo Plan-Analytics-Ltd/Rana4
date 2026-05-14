@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "postinstall": "prisma generate",
     "build": "prisma generate && tsc",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
@@ -19,8 +20,16 @@
     "test:security": "npm run build && node --test \"tests/**/*.test.mjs\"",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
-    "db:migrate": "prisma migrate dev",
-    "db:deploy": "prisma migrate deploy",
+    "db:migrate": "prisma migrate dev --schema prisma/schema.prisma",
+    "db:deploy": "prisma migrate deploy --schema prisma/schema.prisma",
+    "db:repair-checksums": "tsx scripts/repair-prisma-migration-checksums.ts",
+    "db:reconcile-drift-sql": "tsx scripts/generate-reconcile-to-migrations-sql.ts",
+    "db:reconcile-no-drops": "tsx scripts/prepare-reconcile-without-drops.ts",
+    "db:apply-reconcile": "node node_modules/prisma/build/index.js db execute --schema prisma/schema.prisma --file scripts/reconcile-to-migrations.generated.sql",
+    "db:apply-reconcile-no-drops": "node node_modules/prisma/build/index.js db execute --schema prisma/schema.prisma --file scripts/reconcile-to-migrations.no-drops.sql",
+    "db:resolve-activity-codes-migration": "node node_modules/prisma/build/index.js migrate resolve --schema prisma/schema.prisma --applied 20260514120000_activity_codes_p6_ids",
+    "db:migrate-status": "node node_modules/prisma/build/index.js migrate status --schema prisma/schema.prisma",
+    "db:emit-access-requests-baseline": "tsx scripts/emit-access-requests-baseline-migration.ts",
     "plan-analytics:join-code": "tsx scripts/set-plan-analytics-join-code.ts"
   },
   "dependencies": {

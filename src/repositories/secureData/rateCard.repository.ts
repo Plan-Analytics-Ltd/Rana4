@@ -48,21 +48,71 @@ export function secureRateCardTypeId(companyId: string, resourceType: string): s
   return `company:${company}:rate-card:${Buffer.from(type, "utf8").toString("base64url")}`;
 }
 
-function parseSecureRateCardPayload(value: unknown): SecureRateCardPayload {
-  const payload = value as Partial<SecureRateCardPayload> | null;
-  if (!payload || payload.version !== 1 || typeof payload.companyId !== "string" || !Array.isArray(payload.entries)) {
+/** `company:{id}:rate-card` or `company:{id}:rate-card:{typeKey}` */
+export function inferCompanyIdFromRateCardRowId(id: string): string | null {
+  const m = /^company:([^:]+):rate-card(?:$|:)/.exec(String(id ?? "").trim());
+  return m?.[1] ?? null;
+}
+
+type ParseRateCardDefaults = {
+  companyId: string;
+  resourceType?: string | null;
+};
+
+function parseEntryRate(raw: unknown): number {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "string" && raw.trim() !== "") {
+    const n = Number(raw.trim().replace(/,/g, ""));
+    if (Number.isFinite(n)) return n;
+  }
+  return NaN;
+}
+
+function parseSecureRateCardPayload(value: unknown, defaults: ParseRateCardDefaults): SecureRateCardPayload {
+  let record: Record<string, unknown>;
+  let entriesRaw: unknown[];
+
+  if (Array.isArray(value)) {
+    record = {};
+    entriesRaw = value;
+  } else if (value && typeof value === "object" && !Array.isArray(value)) {
+    record = value as Record<string, unknown>;
+    const ent = record.entries;
+    if (Array.isArray(ent)) entriesRaw = ent;
+    else if (ent === null || ent === undefined) entriesRaw = [];
+    else throw new Error("Secure rate card payload is invalid");
+  } else {
     throw new Error("Secure rate card payload is invalid");
   }
 
-  const entries = payload.entries.map((entry) => {
+  const rawVersion = record.version;
+  const versionRecognized =
+    rawVersion === 1 ||
+    rawVersion === "1" ||
+    rawVersion === undefined ||
+    rawVersion === null;
+  if (!versionRecognized) {
+    throw new Error("Secure rate card payload is invalid");
+  }
+
+  const companyIdFromPayload = typeof record.companyId === "string" ? record.companyId.trim() : "";
+  const companyId = companyIdFromPayload || String(defaults.companyId ?? "").trim();
+  if (!companyId) {
+    throw new Error("Secure rate card payload is invalid");
+  }
+
+  const resourceTypeFromPayload = typeof record.resourceType === "string" ? record.resourceType.trim() : "";
+  const resourceTypeFromMeta = defaults.resourceType != null ? String(defaults.resourceType).trim() : "";
+
+  const entries = entriesRaw.map((entry) => {
     const e = entry as Partial<SecureRateCardEntry>;
+    const rate = parseEntryRate(e.rate);
     if (
       typeof e.resourceType !== "string" ||
       typeof e.resourceName !== "string" ||
       typeof e.unit !== "string" ||
       typeof e.rsrcShortName !== "string" ||
-      typeof e.rate !== "number" ||
-      !Number.isFinite(e.rate)
+      !Number.isFinite(rate)
     ) {
       throw new Error("Secure rate card entry is invalid");
     }
@@ -70,17 +120,23 @@ function parseSecureRateCardPayload(value: unknown): SecureRateCardPayload {
       resourceType: e.resourceType,
       resourceName: e.resourceName,
       unit: e.unit,
-      rate: e.rate,
+      rate,
       rsrcShortName: e.rsrcShortName,
     };
   });
 
+  const resourceType =
+    resourceTypeFromPayload ||
+    resourceTypeFromMeta ||
+    entries[0]?.resourceType ||
+    "rateCard";
+
   return {
     version: 1,
-    companyId: payload.companyId,
-    resourceType: typeof payload.resourceType === "string" ? payload.resourceType : entries[0]?.resourceType ?? "rateCard",
+    companyId,
+    resourceType,
     entries,
-    updatedAt: typeof payload.updatedAt === "string" ? payload.updatedAt : new Date(0).toISOString(),
+    updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : new Date(0).toISOString(),
   };
 }
 
@@ -95,7 +151,9 @@ function metadataFromSecureRow(metadata: SecureRowMetadata): SecureRateCardMetad
 
 export async function getSecureRateCardById(id: string, client?: SecureDbClient): Promise<SecureRateCardPayload | null> {
   const payload = await readSecurePayload<unknown>("rateCard", id, "read", client);
-  return payload ? parseSecureRateCardPayload(payload) : null;
+  if (!payload) return null;
+  const inferred = inferCompanyIdFromRateCardRowId(id);
+  return parseSecureRateCardPayload(payload, { companyId: inferred ?? "" });
 }
 
 export async function getSecureRateCardForCompany(
@@ -131,7 +189,10 @@ export async function listSecureRateCardsByCompany(
     ...result,
     items: result.items.map((item) => ({
       metadata: metadataFromSecureRow(item.metadata),
-      payload: parseSecureRateCardPayload(item.payload),
+      payload: parseSecureRateCardPayload(item.payload, {
+        companyId: String(item.metadata.companyId ?? companyId).trim() || companyId,
+        resourceType: item.metadata.resourceType,
+      }),
     })),
   };
 }
@@ -147,7 +208,10 @@ export async function listSecureRateCardsByType(
     ...result,
     items: result.items.map((item) => ({
       metadata: metadataFromSecureRow(item.metadata),
-      payload: parseSecureRateCardPayload(item.payload),
+      payload: parseSecureRateCardPayload(item.payload, {
+        companyId: String(item.metadata.companyId ?? companyId).trim() || companyId,
+        resourceType: item.metadata.resourceType ?? resourceType,
+      }),
     })),
   };
 }

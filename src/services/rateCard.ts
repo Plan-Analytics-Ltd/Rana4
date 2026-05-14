@@ -117,6 +117,11 @@ export async function parseAndValidateAssignedResources(companyId: string, raw: 
     return { ok: false, error: "Too many resource assignments (max 30)" };
   }
 
+  /** No decrypt / rate-card read when there is nothing to validate (avoids approval gate on activity edits). */
+  if (raw.length === 0) {
+    return { ok: true, assignments: [] };
+  }
+
   const cardEntries = await getRateCardEntries(companyId);
   if (cardEntries.length === 0 && raw.length > 0) {
     return { ok: false, error: "No rate card loaded. Upload a rate card first (App → Rate card)." };

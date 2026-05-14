@@ -24,7 +24,7 @@ const features = [
   },
   {
     title: "Structured Export",
-    description: "Deterministic Excel export with TASK, TASKPRED, TASKRSRC, and RSRC from your rate card, P6-ready.",
+    description: "ZIP export: P6-ready Excel (TASK, TASKPRED, RSRC) plus XER shell with WBS and activity code definitions.",
     icon: FileSpreadsheet,
     accent: "amber",
   },

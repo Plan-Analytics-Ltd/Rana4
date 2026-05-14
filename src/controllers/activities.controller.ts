@@ -13,6 +13,7 @@ import { auditUpdateIfChanged } from "../services/auditDiff.service.js";
 import { getActivityVersions } from "../services/activityVersions.service.js";
 import { rollbackActivityToVersion } from "../services/activityRollback.service.js";
 import { changeApprovalState } from "../services/activityApproval.service.js";
+import { replaceActivityCodeAssignmentsForActivity } from "../services/activityCodeAssignments.service.js";
 
 function isPrismaUniqueViolation(err: unknown): boolean {
   return (
@@ -45,6 +46,7 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
       likelyDuration: likelyDurationRaw,
       assuranceNoteId,
       assignedResources: assignedResourcesRaw,
+      activityCodeByTypeId,
     } = req.body as {
       fragnetId?: string;
       deliverableId?: string;
@@ -54,6 +56,7 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
       likelyDuration?: number;
       assuranceNoteId?: string | null;
       assignedResources?: unknown;
+      activityCodeByTypeId?: Record<string, string | null>;
     };
 
     if (!fragnetId || String(fragnetId).trim() === "") {
@@ -153,6 +156,25 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
       companyId: req.user.companyId,
     };
     const activity = await prisma.activity.create({ data: createData });
+    try {
+      await replaceActivityCodeAssignmentsForActivity({
+        companyId: req.user.companyId,
+        activityId: activity.id,
+        byTypeId: activityCodeByTypeId,
+      });
+    } catch (e) {
+      const st = e && typeof e === "object" && "status" in e ? Number((e as any).status) : undefined;
+      if (st === 400) {
+        await prisma.activity.delete({ where: { id: activity.id } });
+        res.status(400).json({ error: (e as Error).message || "Invalid activity codes" });
+        return;
+      }
+      throw e;
+    }
+    const activityWithCodes = await prisma.activity.findFirstOrThrow({
+      where: { id: activity.id, companyId: req.user.companyId },
+      include: { activityCodeAssignments: { include: { type: true, code: true } } },
+    });
     await auditLog({
       userId: req.user.id,
       companyId: req.user.companyId,
@@ -161,7 +183,7 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
       entity: "Activity",
       entityId: activity.id,
     });
-    res.status(201).json(activity);
+    res.status(201).json(activityWithCodes);
   } catch (err) {
     if (isPrismaUniqueViolation(err)) {
       res.status(400).json({ error: "activityCode already exists for this fragnet" });
@@ -185,7 +207,7 @@ export async function getByFragnetId(req: AuthRequest, res: Response): Promise<v
     const { fragnetId } = req.params;
     const fragnet = (await prisma.fragnet.findFirst({
       where: { id: fragnetId, companyId: req.user.companyId },
-      include: { activities: { where: { companyId: req.user.companyId }, orderBy: { activityCode: "asc" } } },
+      include: { activities: { where: { companyId: req.user.companyId }, orderBy: { activityCode: "asc" }, include: { activityCodeAssignments: { include: { type: true, code: true } } } } },
     })) as ({ projectId: string; activities: unknown[] } & Record<string, unknown>) | null;
     if (!fragnet) {
       res.status(404).json({ error: "Fragnet not found" });
@@ -208,6 +230,7 @@ export async function getById(req: AuthRequest, res: Response): Promise<void> {
     const { id } = req.params;
     const activity = (await prisma.activity.findFirst({
       where: { id, companyId: req.user.companyId },
+      include: { activityCodeAssignments: { include: { type: true, code: true } } },
     })) as { projectId: string } | null;
     if (!activity) {
       res.status(404).json({ error: "Activity not found" });
@@ -235,6 +258,7 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
       likelyDuration: likelyDurationRaw,
       assuranceNoteId,
       assignedResources: assignedResourcesRaw,
+      activityCodeByTypeId,
     } = req.body as {
       name?: string;
       deliverableId?: string;
@@ -242,6 +266,7 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
       likelyDuration?: number;
       assuranceNoteId?: string | null;
       assignedResources?: unknown;
+      activityCodeByTypeId?: Record<string, string | null>;
     };
 
     const existing = (await prisma.activity.findFirst({
@@ -329,9 +354,36 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
       ...(assuranceNoteId !== undefined && { assuranceNoteId: assuranceNoteIdTrimmed ?? null }),
       ...(assignedUpdate !== undefined && { assignedResources: assignedUpdate }),
     };
-    const activity = await prisma.activity.update({
-      where: { id },
-      data: updateData,
+    // Axios omits undefined JSON keys; the client may send only activityCodeByTypeId. Prisma rejects update({ data: {} }).
+    const activity =
+      Object.keys(updateData).length > 0
+        ? await prisma.activity.update({
+            where: { id },
+            data: updateData,
+          })
+        : await prisma.activity.findFirstOrThrow({
+            where: { id, companyId: req.user.companyId },
+          });
+    if (activityCodeByTypeId !== undefined) {
+      try {
+        await replaceActivityCodeAssignmentsForActivity({
+          companyId: req.user.companyId,
+          activityId: id,
+          byTypeId: activityCodeByTypeId,
+        });
+      } catch (e) {
+        const st = e && typeof e === "object" && "status" in e ? Number((e as any).status) : undefined;
+        if (st === 400) {
+          res.status(400).json({ error: (e as Error).message || "Invalid activity codes" });
+          return;
+        }
+        throw e;
+      }
+    }
+
+    const activityOut = await prisma.activity.findFirstOrThrow({
+      where: { id: activity.id, companyId: req.user.companyId },
+      include: { activityCodeAssignments: { include: { type: true, code: true } } },
     });
     await auditUpdateIfChanged({
       userId: req.user.id,
@@ -344,7 +396,7 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
       after: activity as any,
       fields: ["name", "deliverableId", "bestDuration", "likelyDuration", "assuranceNoteId", "assignedResources"],
     });
-    res.json(activity);
+    res.json(activityOut);
   } catch (err) {
     if (isPrismaForeignKeyViolation(err)) {
       res.status(400).json({ error: "Invalid cross-company reference" });

@@ -114,18 +114,7 @@ export function mapToXER(wbsStructure: GeneratedWbs): XerWbsMapping {
   }
 
   const tasks: XerTaskRow[] = [];
-  for (const slice of wbsStructure.deliverable_wbs_list) {
-    for (const activity of slice.activities) {
-      const wbsIdNum = map.get(activity.deliverableId);
-      if (wbsIdNum === undefined || !Number.isInteger(wbsIdNum)) {
-        throw new Error(`mapToXER: activity ${activity.id} missing integer wbs for deliverable_id ${activity.deliverableId}`);
-      }
-      tasks.push({
-        task_id: activity.id,
-        wbs_id: String(wbsIdNum),
-      });
-    }
-  }
+  // TASK rows are produced in spreadsheet export only (semantic WBS + resource_list + actv_code_* columns).
 
   assertProjwbsHierarchy(projwbs);
 

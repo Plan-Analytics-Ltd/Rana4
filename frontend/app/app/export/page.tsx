@@ -8,12 +8,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   standardsApi,
   fragnetsApi,
-  deliverablesApi,
   exportApi,
   type Standard,
   type Fragnet,
-  type Deliverable,
   getApiErrorMessage,
+  assertBlobIsZipDownload,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useProject } from "@/contexts/project-context";
@@ -33,8 +32,6 @@ export default function ExportPage() {
   const [projectName, setProjectName] = useState<string>("");
   const [validateMapping, setValidateMapping] = useState(false);
   const [validationSummary, setValidationSummary] = useState<string>("");
-  const [unassignedDeliverables, setUnassignedDeliverables] = useState<Deliverable[]>([]);
-  const [includedUnassignedIds, setIncludedUnassignedIds] = useState<Record<string, boolean>>({});
   const [loadingStandards, setLoadingStandards] = useState(true);
   const [loadingFragnets, setLoadingFragnets] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -77,31 +74,6 @@ export default function ExportPage() {
     }
   };
 
-  const fetchUnassignedDeliverables = async () => {
-    try {
-      if (!selectedProjectId) {
-        setUnassignedDeliverables([]);
-        return;
-      }
-      const { data } = await deliverablesApi.list(selectedProjectId);
-      const unassigned = data.filter((d) => d.fragnetId == null);
-      setUnassignedDeliverables(unassigned);
-      setIncludedUnassignedIds((prev) => {
-        const next = { ...prev };
-        unassigned.forEach((d) => {
-          if (next[d.id] === undefined) next[d.id] = false;
-        });
-        return next;
-      });
-    } catch {
-      setUnassignedDeliverables([]);
-    }
-  };
-
-  const toggleUnassigned = (id: string, checked: boolean) => {
-    setIncludedUnassignedIds((prev) => ({ ...prev, [id]: checked }));
-  };
-
   useEffect(() => {
     fetchStandards();
   }, [selectedProjectId]);
@@ -109,10 +81,6 @@ export default function ExportPage() {
   useEffect(() => {
     fetchFragnets();
   }, [selectedStandardId]);
-
-  useEffect(() => {
-    fetchUnassignedDeliverables();
-  }, [selectedProjectId]);
 
   const handleExport = async () => {
     if (mode === "FRAGNET" && !selectedFragnetId) {
@@ -146,23 +114,19 @@ export default function ExportPage() {
           `Activities: ${r.activityCount}. Orphans: ${r.orphanActivities.length}. Unknown deliverables: ${r.unknownDeliverableActivities.length}. Cross-fragnet: ${r.crossFragnetMismatches.length}.`
         );
       }
-      const unassignedIds = unassignedDeliverables
-        .filter((d) => includedUnassignedIds[d.id])
-        .map((d) => d.id);
       const response =
         mode === "FRAGNET"
           ? await exportApi.fragnet(selectedFragnetId, {
               scenario,
               projectName: pname,
               projectId: pid,
-              ...(unassignedIds.length > 0 && { unassignedDeliverableIds: unassignedIds }),
             })
           : await exportApi.standard(selectedStandardId, {
               scenario,
               projectName: pname,
               projectId: pid,
             });
-      const data = response.data;
+      const data = await assertBlobIsZipDownload(response);
       const headersAny = response.headers as unknown as { get?: (k: string) => string | null } & Record<string, unknown>;
       const contentDisposition =
         (typeof headersAny?.get === "function" ? headersAny.get("content-disposition") : null) ??
@@ -179,7 +143,7 @@ export default function ExportPage() {
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success("Export downloaded (TASK, TASKPRED, TASKRSRC; RSRC sheet if rate card is uploaded)");
+      toast.success("Export downloaded (ZIP: TASK, TASKPRED, RSRC if rate card; XER with WBS and activity code definitions)");
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err) || "Failed to export");
     } finally {
@@ -195,7 +159,7 @@ export default function ExportPage() {
       <div>
         <h2 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">Export</h2>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Export fragnets as a single Excel file (TASK, TASKPRED, TASKRSRC; RSRC resource definitions when a rate card exists).
+          Export downloads a ZIP: Excel workbook (TASK with WBS paths and resource_list, TASKPRED, optional RSRC) plus XER (project shell, WBS, resources, ACTVTYPE/ACTVCODE definitions). Resource assignments use TASK.resource_list; activity codes use semantic columns, not TASKACTV.
         </p>
       </div>
 
@@ -322,35 +286,6 @@ export default function ExportPage() {
                   )}
                 />
               </div>
-              {unassignedDeliverables.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                    Include unassigned deliverables (no fragnet) — choose one by one:
-                  </p>
-                  <ul className="space-y-1.5 rounded-md border border-slate-200 bg-slate-50/50 py-2 pl-4 pr-3 dark:border-slate-700 dark:bg-slate-900/30">
-                    {unassignedDeliverables.map((d) => (
-                      <li key={d.id} className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          id={`unassigned-${d.id}`}
-                          checked={includedUnassignedIds[d.id] ?? false}
-                          onChange={(e) => toggleUnassigned(d.id, e.target.checked)}
-                          className="h-4 w-4 rounded border-slate-300 text-slate-600 focus:ring-slate-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-400"
-                        />
-                        <label
-                          htmlFor={`unassigned-${d.id}`}
-                          className="cursor-pointer text-sm text-slate-700 dark:text-slate-300"
-                        >
-                          {d.name}
-                          <span className="ml-1.5 text-slate-500 dark:text-slate-400">
-                            (Best: {d.bestDuration}, Likely: {d.likelyDuration})
-                          </span>
-                        </label>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
               <Button
                 onClick={handleExport}
                 disabled={
@@ -377,10 +312,7 @@ export default function ExportPage() {
           <CardHeader>
             <CardTitle>Export summary</CardTitle>
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Fragnet &quot;{selectedFragnet.name}&quot; under {selectedStandard?.name} — scenario: {scenario}. Project ID: {projectId || "—"}, Project Name: {projectName || "—"}. File: fragnet-{projectId || "…"}-{scenario}.xlsx: TASK, TASKPRED, RSRC (from rate card if uploaded), TASKRSRC (assignments).
-              {unassignedDeliverables.filter((d) => includedUnassignedIds[d.id]).length > 0 && (
-                <> Including {unassignedDeliverables.filter((d) => includedUnassignedIds[d.id]).length} unassigned deliverable(s) in the export.</>
-              )}
+              Fragnet &quot;{selectedFragnet.name}&quot; under {selectedStandard?.name} — scenario: {scenario}. Project ID: {projectId || "—"}, Project Name: {projectName || "—"}. ZIP includes Excel (TASK with WBS paths and resource_list, TASKPRED, RSRC if rate card) and XER (WBS, resources, activity code definitions).
             </p>
           </CardHeader>
         </Card>

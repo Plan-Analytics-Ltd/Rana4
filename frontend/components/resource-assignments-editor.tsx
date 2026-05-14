@@ -16,6 +16,7 @@ export type ResourceAssignmentDraft = {
 };
 
 type Props = {
+  /** `null` = failed to load; `[]` = loaded but no entries yet */
   entries: RateCardEntry[] | null;
   value: ResourceAssignmentDraft[];
   onChange: (next: ResourceAssignmentDraft[]) => void;
@@ -61,10 +62,22 @@ export function ResourceAssignmentsEditor({ entries, value, onChange, disabled }
     onChange(value.filter((_, j) => j !== i));
   };
 
-  if (!entries || entries.length === 0) {
+  if (entries === null) {
     return (
       <p className="text-sm text-slate-500 dark:text-slate-400">
-        Rate card not loaded. Check API connection.
+        Rate card could not be loaded. Check that the API is running and you are signed in, then refresh the page.
+      </p>
+    );
+  }
+
+  if (entries.length === 0) {
+    return (
+      <p className="text-sm text-slate-500 dark:text-slate-400">
+        No rate card entries yet. Open{" "}
+        <Link href="/app/rate-card" className="font-medium text-cyan-600 underline-offset-2 hover:underline dark:text-cyan-400">
+          Rate card
+        </Link>{" "}
+        and upload a CSV or Excel file to assign resources here. Saving the activity without resources is still allowed.
       </p>
     );
   }

@@ -8,6 +8,15 @@ import { auditLog } from "../services/audit.service.js";
 import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
 import { auditUpdateIfChanged } from "../services/auditDiff.service.js";
+import { replaceActivityCodeAssignmentsForDeliverable } from "../services/activityCodeAssignments.service.js";
+
+/**
+ * Prisma `DeliverableInclude` must list `activityCodeAssignments` (schema + `npx prisma generate`).
+ * `as unknown as` avoids false positives when the editor resolves an older generated client than `tsc`.
+ */
+const includeDeliverableActivityCodes = {
+  activityCodeAssignments: { include: { type: true as const, code: true as const } },
+} as unknown as Prisma.DeliverableInclude;
 
 function parseDuration(value: unknown): number | null {
   if (value === undefined || value === null) return null;
@@ -30,6 +39,7 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
       bestDuration: bestDurationRaw,
       likelyDuration: likelyDurationRaw,
       assignedResources: assignedResourcesRaw,
+      activityCodeByTypeId,
     } = req.body as {
       fragnetId?: string;
       projectId?: string;
@@ -38,6 +48,7 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
       bestDuration?: number;
       likelyDuration?: number;
       assignedResources?: unknown;
+      activityCodeByTypeId?: Record<string, string | null>;
     };
 
     const fragnetIdTrimmed =
@@ -103,6 +114,25 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
       companyId: req.user.companyId,
     };
     const deliverable = await prisma.deliverable.create({ data: createData });
+    try {
+      await replaceActivityCodeAssignmentsForDeliverable({
+        companyId: req.user.companyId,
+        deliverableId: deliverable.id,
+        byTypeId: activityCodeByTypeId,
+      });
+    } catch (e) {
+      const st = e && typeof e === "object" && "status" in e ? Number((e as any).status) : undefined;
+      if (st === 400) {
+        await prisma.deliverable.delete({ where: { id: deliverable.id } });
+        res.status(400).json({ error: (e as Error).message || "Invalid activity codes" });
+        return;
+      }
+      throw e;
+    }
+    const deliverableOut = await prisma.deliverable.findFirstOrThrow({
+      where: { id: deliverable.id, companyId: req.user.companyId },
+      include: includeDeliverableActivityCodes,
+    });
     await auditLog({
       userId: req.user.id,
       companyId: req.user.companyId,
@@ -111,7 +141,7 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
       entity: "Deliverable",
       entityId: deliverable.id,
     });
-    res.status(201).json(deliverable);
+    res.status(201).json(deliverableOut);
   } catch (err) {
     if (isPrismaForeignKeyViolation(err)) {
       res.status(400).json({ error: "Invalid cross-company reference" });
@@ -138,6 +168,7 @@ export async function getAll(req: AuthRequest, res: Response): Promise<void> {
     const deliverables = await prisma.deliverable.findMany({
       where: fragnetId ? { companyId: req.user.companyId, projectId, fragnetId } : { companyId: req.user.companyId, projectId },
       orderBy: { createdAt: "desc" },
+      include: includeDeliverableActivityCodes,
     });
     res.json(deliverables);
   } catch (err) {
@@ -163,6 +194,7 @@ export async function getByFragnetId(req: AuthRequest, res: Response): Promise<v
     const deliverables = await prisma.deliverable.findMany({
       where: { companyId: req.user.companyId, projectId: fragnet.projectId, fragnetId },
       orderBy: { createdAt: "asc" },
+      include: includeDeliverableActivityCodes,
     });
     res.json(deliverables);
   } catch (err) {
@@ -178,7 +210,10 @@ export async function getById(req: AuthRequest, res: Response): Promise<void> {
       return;
     }
     const { id } = req.params;
-    const deliverable = await prisma.deliverable.findFirst({ where: { id, companyId: req.user.companyId } });
+    const deliverable = await prisma.deliverable.findFirst({
+      where: { id, companyId: req.user.companyId },
+      include: includeDeliverableActivityCodes,
+    });
     if (!deliverable) {
       res.status(404).json({ error: "Deliverable not found" });
       return;
@@ -205,6 +240,7 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
       bestDuration: bestDurationRaw,
       likelyDuration: likelyDurationRaw,
       assignedResources: assignedResourcesRaw,
+      activityCodeByTypeId,
     } = req.body as {
       fragnetId?: string;
       externalProjectId?: string | null;
@@ -212,6 +248,7 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
       bestDuration?: number;
       likelyDuration?: number;
       assignedResources?: unknown;
+      activityCodeByTypeId?: Record<string, string | null>;
     };
 
     const existing = await prisma.deliverable.findFirst({ where: { id, companyId: req.user.companyId } });
@@ -280,9 +317,32 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
       ...(likelyDurationRaw !== undefined && { likelyDuration: parseDuration(likelyDurationRaw)! }),
       ...(assignedUpdate !== undefined && { assignedResources: assignedUpdate }),
     };
-    const deliverable = await prisma.deliverable.update({
-      where: { id },
-      data: updateData,
+    const deliverable =
+      Object.keys(updateData).length > 0
+        ? await prisma.deliverable.update({
+            where: { id },
+            data: updateData,
+          })
+        : await prisma.deliverable.findFirstOrThrow({ where: { id, companyId: req.user.companyId } });
+    if (activityCodeByTypeId !== undefined) {
+      try {
+        await replaceActivityCodeAssignmentsForDeliverable({
+          companyId: req.user.companyId,
+          deliverableId: id,
+          byTypeId: activityCodeByTypeId,
+        });
+      } catch (e) {
+        const st = e && typeof e === "object" && "status" in e ? Number((e as any).status) : undefined;
+        if (st === 400) {
+          res.status(400).json({ error: (e as Error).message || "Invalid activity codes" });
+          return;
+        }
+        throw e;
+      }
+    }
+    const deliverableOut = await prisma.deliverable.findFirstOrThrow({
+      where: { id: deliverable.id, companyId: req.user.companyId },
+      include: includeDeliverableActivityCodes,
     });
     await auditUpdateIfChanged({
       userId: req.user.id,
@@ -292,10 +352,10 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
       entity: "Deliverable",
       entityId: id,
       before: existing as any,
-      after: deliverable as any,
+      after: deliverableOut as any,
       fields: ["name", "fragnetId", "bestDuration", "likelyDuration", "assignedResources", "externalProjectId"],
     });
-    res.json(deliverable);
+    res.json(deliverableOut);
   } catch (err) {
     if (isPrismaForeignKeyViolation(err)) {
       res.status(400).json({ error: "Invalid cross-company reference" });

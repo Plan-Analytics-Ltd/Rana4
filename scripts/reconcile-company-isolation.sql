@@ -1,4 +1,10 @@
 -- Company-based isolation reconciliation (idempotent, no data loss)
+--
+-- This file does NOT fix Prisma Migrate errors ("modified after applied", drift).
+-- For those, run from repo root:
+--   npx tsx scripts/repair-prisma-migration-checksums.ts
+--   npx tsx scripts/generate-reconcile-to-migrations-sql.ts   (needs SHADOW_DATABASE_URL)
+-- then apply the generated SQL and run npm run db:migrate.
 -- Phases:
 -- 1) Structure (nullable)
 -- 2) Backfill

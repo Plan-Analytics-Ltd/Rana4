@@ -1,12 +1,12 @@
 /**
- * Stage 3 smoke: generateWBS / buildWbsFromDeliverables (no HTTP).
+ * Stage 3 smoke: generateWBS / buildWbsForFragnetExport (no HTTP).
  * Run: npm run test:wbs-stage3
  * Requires DATABASE_URL and migrations through Stage 1.
  */
 import "dotenv/config";
 import { prisma } from "../src/utils/prisma.js";
 import { runWithAuthContextAsync } from "../src/utils/requestContext.js";
-import { buildWbsFromDeliverables, generateWBS } from "../src/services/wbsGenerate.service.js";
+import { buildWbsForFragnetExport, generateWBS } from "../src/services/wbsGenerate.service.js";
 
 const TAG = `wbs-stage3-${Date.now()}`;
 
@@ -96,19 +96,19 @@ async function main(): Promise<void> {
         include: { activities: { orderBy: [{ activityCode: "asc" }, { id: "asc" }] } },
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       });
-      const built = buildWbsFromDeliverables(TAG, loaded);
+      const built = buildWbsForFragnetExport(TAG, { id: fragnet.id, name: fragnet.name }, loaded);
       if (built.project_wbs.wbs_id !== 1 || built.project_wbs.wbs_short_name !== "1" || built.project_wbs.wbs_name !== TAG) {
-        throw new Error(`buildWbsFromDeliverables root: ${JSON.stringify(built.project_wbs)}`);
+        throw new Error(`buildWbsForFragnetExport root: ${JSON.stringify(built.project_wbs)}`);
       }
       if (built.deliverable_wbs_list.length !== 2) {
         throw new Error(`expected 2 deliverable slices, got ${built.deliverable_wbs_list.length}`);
       }
       const alphaSlice = built.deliverable_wbs_list.find((s) => s.deliverable_id === dAlpha.id);
       const betaSlice = built.deliverable_wbs_list.find((s) => s.deliverable_id === dBeta.id);
-      if (!alphaSlice || alphaSlice.activities.length !== 1 || alphaSlice.wbs_name !== "Alpha" || alphaSlice.wbs_id !== 2 || alphaSlice.wbs_short_name !== "2") {
+      if (!alphaSlice || alphaSlice.activities.length !== 1 || alphaSlice.wbs_name !== "Alpha" || alphaSlice.wbs_id !== 3 || alphaSlice.wbs_short_name !== "3") {
         throw new Error("Alpha slice mismatch");
       }
-      if (!betaSlice || betaSlice.activities.length !== 2 || betaSlice.wbs_name !== "Beta" || betaSlice.wbs_id !== 3 || betaSlice.wbs_short_name !== "3") {
+      if (!betaSlice || betaSlice.activities.length !== 2 || betaSlice.wbs_name !== "Beta" || betaSlice.wbs_id !== 4 || betaSlice.wbs_short_name !== "4") {
         throw new Error("Beta slice mismatch");
       }
 

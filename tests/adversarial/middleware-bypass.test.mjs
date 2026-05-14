@@ -5,7 +5,7 @@ import { readRepoFile, withoutComments } from "../security/test-utils.mjs";
 test("middleware ordering cannot be the only decrypt protection", async () => {
   const secureTables = withoutComments(await readRepoFile("src/repositories/secureData/secureTables.ts"));
   assert.match(secureTables, /assertSensitiveAccess/);
-  assert.match(secureTables, /assertApprovalForDecrypt/);
+  assert.match(secureTables, /auditDecrypt/);
   assert.match(secureTables, /decryptPayload/);
 });
 

@@ -23,6 +23,15 @@ export function validateFragnetForWbsExport(fragnet: FragnetExportValidationInpu
     fragnet.deliverables.filter((d) => d.fragnetId === fragnet.id).map((d) => d.id)
   );
 
+  for (const d of fragnet.deliverables) {
+    if (d.fragnetId !== fragnet.id) {
+      issues.push({
+        code: "DELIVERABLE_NOT_ON_STAGE",
+        message: `Deliverable ${d.id} is not assigned to this stage (fragnet ${fragnet.id})`,
+      });
+    }
+  }
+
   for (const a of fragnet.activities) {
     const did = String(a.deliverableId ?? "").trim();
     if (!did) {
@@ -45,6 +54,28 @@ export function validateFragnetForWbsExport(fragnet: FragnetExportValidationInpu
         code: "ORPHAN_ACTIVITY",
         message: `Activity "${a.name}" (${a.id}) deliverable ${did} is not attached to this fragnet`,
       });
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * Structural rules for P6 / XER export: Project → Stage → Deliverable only (no deliverables directly under root
+ * when stages exist). Same source deliverable name may repeat under one stage; WBS display names are uniquified per parent.
+ */
+export function validateGeneratedWbsForP6Export(wbs: GeneratedWbs): WbsExportValidationIssue[] {
+  const issues: WbsExportValidationIssue[] = [];
+  const hasFragnet = wbs.wbs_nodes.some((n) => n.kind === "FRAGNET");
+
+  if (hasFragnet) {
+    for (const n of wbs.wbs_nodes) {
+      if (n.kind === "DELIVERABLE" && n.parent_wbs_id === wbs.project_wbs.wbs_id) {
+        issues.push({
+          code: "DELIVERABLE_UNDER_PROJECT_ROOT",
+          message: `WBS node ${n.wbs_id} is a deliverable attached directly to the project root while stage (fragnet) nodes exist. Expected Project → Stage → Deliverable.`,
+        });
+      }
     }
   }
 

@@ -11,23 +11,6 @@ import {
   listSecureRateCardsByType,
   secureRateCardId,
 } from "../repositories/secureData/rateCard.repository.js";
-import { ApprovalDeniedError, ApprovalRequiredError } from "../services/approvals/approval.service.js";
-
-function handleSecureApprovalError(err: unknown, res: Response): boolean {
-  if (err instanceof ApprovalRequiredError) {
-    res.status(202).json({
-      error: "Sensitive decrypt approval required",
-      code: err.code,
-      approvalRequestId: err.approvalRequestId,
-    });
-    return true;
-  }
-  if (err instanceof ApprovalDeniedError) {
-    res.status(err.status).json({ error: err.message, code: err.code });
-    return true;
-  }
-  return false;
-}
 
 /** GET /rate-card — current uploaded rate card (may be empty) */
 export async function listRateCard(req: AuthRequest, res: Response): Promise<void> {
@@ -42,7 +25,6 @@ export async function listRateCard(req: AuthRequest, res: Response): Promise<voi
     const types = [...new Set(entries.map((e) => e.resourceType))].sort();
     res.json({ entries, types, summary });
   } catch (err) {
-    if (handleSecureApprovalError(err, res)) return;
     console.error("[rate-card] Failed to load rate card");
     res.status(500).json({ error: "Failed to load rate card" });
   }
@@ -91,7 +73,6 @@ export async function getSecureRateCardExample(req: AuthRequest, res: Response):
       entries,
     });
   } catch (err) {
-    if (handleSecureApprovalError(err, res)) return;
     console.error("[rate-card] Failed to load secure rate card");
     res.status(500).json({ error: "Failed to load secure rate card" });
   }
@@ -137,7 +118,6 @@ export async function uploadRateCard(req: AuthRequest, res: Response): Promise<v
     });
     res.status(201).json({ ok: true, count: parsed.entries.length, message: "Rate card updated." });
   } catch (err) {
-    if (handleSecureApprovalError(err, res)) return;
     console.error("[rate-card] Failed to upload rate card");
     res.status(500).json({ error: "Failed to upload rate card" });
   }
@@ -169,7 +149,6 @@ export async function clearRateCard(req: AuthRequest, res: Response): Promise<vo
     });
     res.json({ ok: true, message: "Rate card removed." });
   } catch (err) {
-    if (handleSecureApprovalError(err, res)) return;
     console.error("[rate-card] Failed to clear rate card");
     res.status(500).json({ error: "Failed to remove rate card" });
   }

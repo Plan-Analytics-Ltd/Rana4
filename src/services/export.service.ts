@@ -3,7 +3,7 @@
  * Structure and columns match Primavera P6 Spreadsheet Import template.
  *
  * If NO deliverables: export activities normally (TASK = activities, TASKPRED = relationships).
- * TASK `wbs_id` / `wbs_name` come from {@link buildWbsFromDeliverables} (project root + deliverable nodes), not a flat constant.
+ * TASK uses stable WBS path strings in `wbs_id`, `resource_list` (comma-separated resource short names from the rate card / XER RSRC), and optional `actv_code_<type>_id` columns with semantic code values for spreadsheet import. The bundled `.xer` also emits `TASK` + `TASKACTV` so P6 shows activity code assignments on activities after import.
  *
  * If deliverables exist: block-based duplication per deliverable:
  * - For each deliverable, create a block: deliverable row + duplicate of ALL activities.
@@ -18,6 +18,16 @@ import type { GeneratedWbs } from "./wbsGenerate.service.js";
 import type { P6Resource } from "./p6ResourceMap.service.js";
 import { buildP6ResourceMap } from "./p6ResourceMap.service.js";
 import { buildXerAlignedWbsCodeMap } from "./wbsHumanReadable.service.js";
+import type { ActivityCodeCatalogForExport } from "./activityCodeCatalog.service.js";
+import {
+  canonicalActivityIdForAssignmentLookup,
+} from "./p6ExternalId.service.js";
+import {
+  activityCodeAssignmentColumnHeader,
+  assertEveryTaskHasWbsPath,
+  assertUniqueTaskCodesInSheet,
+} from "./p6SpreadsheetExportValidation.service.js";
+import { mergeInheritedAndOwnActivityAssignments } from "./activityCodeAssignmentsMerge.service.js";
 
 export type DeliverableForExport = {
   id: string;
@@ -75,13 +85,19 @@ function findEntryActivity(
   return sorted[0] ?? null;
 }
 
-/** P6 TASK sheet: row = [task_code, task_name, status_code, wbs_id, proj_id, orig_dur_hr_cnt, delete_record_flag]. Duration: days → hours (8h/day). */
 /**
- * P6 TASK sheet headers (match Primavera export template).
- * Row 1: P6 field names
- * Row 2: Human-friendly column labels
+ * P6 spreadsheet import — TASK sheet (operational data).
+ *
+ * Activity code assignments use semantic columns `actv_code_<type_name>_id` with human/P6 code values
+ * (short name or name), NOT Oracle internal IDs. The companion XER uses deterministic numeric ids for
+ * ACTVTYPE / ACTVCODE / TASK / TASKACTV so assignments resolve without `p6_external_id` mappings.
+ *
+ * WBS placement uses stable hierarchical WBS path strings (same as XER PROJWBS / WBS Code), never internal
+ * numeric-only node ids in this column.
+ *
+ * Row 1: P6 database field names; Row 2: labels for humans.
  */
-const TASK_DB_HEADERS = [
+const TASK_SEMANTIC_DB_HEADERS_BASE = [
   "task_code",
   "status_code",
   "wbs_id",
@@ -89,12 +105,14 @@ const TASK_DB_HEADERS = [
   "task_name",
   "start_date",
   "end_date",
+  "resource_list",
+  "delete_record_flag",
   "orig_dur_hr_cnt",
   "remain_drtn_hr_cnt",
   "total_float_hr_cnt",
-  "delete_record_flag",
 ] as const;
-const TASK_USER_HEADERS = [
+
+const TASK_SEMANTIC_USER_HEADERS_BASE = [
   "Activity ID",
   "Activity Status",
   "WBS Code",
@@ -102,12 +120,131 @@ const TASK_USER_HEADERS = [
   "Activity Name",
   "Start",
   "Finish",
+  "Resource List",
+  "Delete This Row",
   "Original Duration (hr)",
   "Remaining Duration (hr)",
   "Total Float (hr)",
-  "Delete This Row",
 ] as const;
+
 const ACTIVITY_STATUS = "Not Started";
+
+export type P6ExportContext = {
+  companyId: string;
+  ranaProjectId: string;
+  p6ProjIdCell: string | number;
+};
+
+export type FragnetExportOptions = {
+  exportContext?: (P6ExportContext & { fragnetId: string }) | null;
+  activityCatalog?: ActivityCodeCatalogForExport | null;
+};
+
+export type StandardExportOptions = {
+  exportContext?: P6ExportContext | null;
+  activityCatalog?: ActivityCodeCatalogForExport | null;
+};
+
+/** One semantic TASK row before activity-code columns are expanded (mirrors spreadsheet export). */
+export type P6PendingSemanticTaskRow = {
+  /** Catalog key for this row's own assignments (canonical activity id or deliverable id). */
+  ownAssignmentKey: string | null;
+  /**
+   * For activity TASK rows under a deliverable WBS: inherit codes stored on that deliverable.
+   * Activity-level assignments override by type.
+   */
+  inheritDeliverableId: string | null;
+  /** Matches {@link TASK_SEMANTIC_DB_HEADERS_BASE} column order (12 cells). */
+  baseCells: (string | number | null)[];
+};
+
+type TaskRowP6Meta = {
+  fragnetId: string;
+  deliverableBlockId: string;
+  rowKind: "DELIVERABLE" | "ACTIVITY";
+  exportActivityId: string;
+};
+
+function buildTaskSheetHeaders(catalog: ActivityCodeCatalogForExport): {
+  dbHeaders: string[];
+  userHeaders: string[];
+  typeIdsOrdered: string[];
+} {
+  const typesSorted = [...catalog.types].sort((a, b) => {
+    if (a.seqNum !== b.seqNum) return a.seqNum - b.seqNum;
+    return a.name.localeCompare(b.name);
+  });
+  const typeIdsOrdered = typesSorted.map((t) => t.id);
+  const actvDb = typesSorted.map((t) => activityCodeAssignmentColumnHeader(t.name));
+  const actvUser = typesSorted.map((t) => `${t.name} (code value)`);
+  return {
+    dbHeaders: [...TASK_SEMANTIC_DB_HEADERS_BASE, ...actvDb],
+    userHeaders: [...TASK_SEMANTIC_USER_HEADERS_BASE, ...actvUser],
+    typeIdsOrdered,
+  };
+}
+
+function buildSemanticTaskDataRows(args: {
+  pendingTaskRows: P6PendingSemanticTaskRow[];
+  catalog: ActivityCodeCatalogForExport;
+  typeIdsOrdered: string[];
+}): (string | number | null)[][] {
+  const codeById = new Map(args.catalog.codes.map((c) => [c.id, c]));
+  const typeById = new Map(args.catalog.types.map((t) => [t.id, t]));
+
+  for (const p of args.pendingTaskRows) {
+    const wbsCell = p.baseCells[2];
+    if (wbsCell === null || wbsCell === undefined || String(wbsCell).trim() === "") {
+      throw new Error("P6 export: TASK row missing wbs_id (WBS path must be set before writing TASK)");
+    }
+    const wbsNameCell = p.baseCells[3];
+    if (wbsNameCell === null || wbsNameCell === undefined || String(wbsNameCell).trim() === "") {
+      throw new Error("P6 export: TASK row missing wbs_name");
+    }
+  }
+
+  const out: (string | number | null)[][] = [];
+  for (const p of args.pendingTaskRows) {
+    const actvCells: string[] = [];
+
+    const merged = mergeInheritedAndOwnActivityAssignments(
+      args.catalog,
+      p.ownAssignmentKey,
+      p.inheritDeliverableId
+    );
+    const mergedByType = new Map(merged.map((a) => [a.typeId, a]));
+
+    for (const tid of args.typeIdsOrdered) {
+      const t = typeById.get(tid);
+      if (!t) {
+        actvCells.push("");
+        continue;
+      }
+      const hit = mergedByType.get(tid);
+      if (!hit) {
+        actvCells.push("");
+        continue;
+      }
+      const code = codeById.get(hit.codeId);
+      if (!code) {
+        throw new Error(
+          `P6 export: missing activity code ${hit.codeId} (type ${hit.typeId}; own=${p.ownAssignmentKey ?? "—"}; inherit=${p.inheritDeliverableId ?? "—"})`
+        );
+      }
+      const semantic = String(code.shortName?.trim() || code.name).trim();
+      if (!semantic) {
+        throw new Error(`P6 export: activity code ${code.id} has empty short_name and name`);
+      }
+      const tc = p.baseCells[0];
+      if (tc === null || tc === undefined || String(tc).trim() === "") {
+        throw new Error("P6 export: TASK row missing task_code while activity code assignments exist");
+      }
+      actvCells.push(semantic);
+    }
+    out.push([...p.baseCells, ...actvCells]);
+  }
+  return out;
+}
 
 function deliverableWbsLookupFromGenerated(generatedWbs: GeneratedWbs): Map<string, { wbs_id: string; wbs_name: string }> {
   const m = new Map<string, { wbs_id: string; wbs_name: string }>();
@@ -144,21 +281,6 @@ const RSRC_USER_HEADERS = [
 const RSRC_RESOURCE_TYPE = "Labor";
 const RSRC_UNIT_ID = "hr";
 const RSRC_DEFAULT_UNITS_PER_TIME = 8;
-
-/**
- * P6 TASKRSRC sheet (task–resource assignments), matching Primavera spreadsheet template.
- * Row 1: technical keys; Row 2: labels (with (*) and (h) as in P6 export).
- */
-// Note: first column contains `rsrc_short_name` values (e.g. PLARES-1) used for linking to XER.
-// This header label is kept as `rsrc_id` per export template expectations.
-const TASKRSRC_DB_HEADERS = ["rsrc_id", "task_id", "TASK__status_code", "rsrc_type", "target_qty"] as const;
-const TASKRSRC_USER_HEADERS = [
-  "Resource ID",
-  "Activity ID",
-  "(*)Activity Status",
-  "(*)Resource Type",
-  "Budgeted Units(h)",
-] as const;
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -368,23 +490,17 @@ function makeNumericResourceIdGenerator() {
   return { getId, logMapping };
 }
 
-/** Default resource units: activity duration (days) → hours at 8h/day. */
-function defaultUnitsFromDurationDays(durationDays: number): number {
-  return durationDays * 8;
-}
-
 export type ExportScenario = "best" | "likely";
 
 /**
  * Generate xlsx buffer for fragnet export (P6 Spreadsheet Import format).
  * - Two header rows per sheet: database field names, then user-friendly names.
- * - TASK: task_code, task_name, status_code, wbs_id, proj_id, orig_dur_hr_cnt, delete_record_flag.
+ * - TASK: semantic columns including stable WBS path, resource_list, optional actv_code_<type>_id (values match XER ACTVCODE short/name — not Oracle IDs). No TASKACTV sheet in xlsx (assignments are in the bundled `.xer` TASKACTV table).
  * - TASKPRED: pred_task_id, task_id, pred_type, pred_proj_id, proj_id, lag_hr_cnt, delete_record_flag.
- * - RSRC (only if rate card has rows): rsrc_short_name, rsrc_name, rsrc_type, unit_id, role_id, def_qty_per_hr, rate.
- * - TASKRSRC: rsrc_id, task_id, TASK__status_code, rsrc_type, target_qty (P6 template; autofilter on data range).
+ * - RSRC (only if rate card has rows): resource dictionary for spreadsheet import alongside XER RSRC.
  * - Block duplication per deliverable unchanged; empty rows only in TASK.
  */
-export function generateFragnetXlsx(
+export async function generateFragnetXlsx(
   generatedWbs: GeneratedWbs,
   deliverables: DeliverableForExport[],
   activities: ActivityForExport[],
@@ -392,9 +508,9 @@ export function generateFragnetXlsx(
   scenario: ExportScenario,
   projectId: string,
   projectNameForWbsCode: string,
-  unassignedDeliverables?: DeliverableForExport[],
-  rateCardEntries: RateCardEntry[] = []
-): Buffer {
+  rateCardEntries: RateCardEntry[] = [],
+  opts?: FragnetExportOptions | null
+): Promise<{ buffer: Buffer; pendingSemanticRows: P6PendingSemanticTaskRow[] }> {
   const idFor = (n: number) => `A${n}`;
   const suggestAvailableIds = (startN: number, used: Set<string>, count = 8): string[] => {
     const out: string[] = [];
@@ -407,22 +523,13 @@ export function generateFragnetXlsx(
     return out;
   };
 
-  // WBS Code numbering must align with XER WBS structure:
-  // root is "1", deliverables start at ".2", ".3", ...
-  const wbsCodeNumberForPosition = (pos1: number): number => {
-    if (!Number.isInteger(pos1) || pos1 < 1) return pos1;
-    return pos1 + 1;
-  };
-  const wbsCodeForPosition = (pos1: number): string => {
-    const n = wbsCodeNumberForPosition(pos1);
-    const prefix = String(projectNameForWbsCode ?? "").trim();
-    return prefix ? `${prefix}.${n}` : String(n);
-  };
+  const p6Ctx = opts?.exportContext ?? null;
+  const activityCatalog: ActivityCodeCatalogForExport =
+    opts?.activityCatalog ?? { types: [], codes: [], assignmentsByCanonicalActivityId: new Map() };
 
   const durationField = scenario === "best" ? "bestDuration" : "likelyDuration";
-  const taskDataRows: (string | number | null)[][] = [];
+  const pendingSemanticRows: P6PendingSemanticTaskRow[] = [];
   const taskPredDataRows: (string | number | null)[][] = [];
-  const taskrsrcDataRows: (string | number)[][] = [];
   let nextId = 1000;
   const usedExportIds = new Set<string>();
   const allocateId = (kind: "deliverable" | "activity"): string => {
@@ -439,22 +546,40 @@ export function generateFragnetXlsx(
     return candidate;
   };
   const sortedActivities = sortByCreatedAt(activities);
-  const entryActivity = findEntryActivity(activities, relationships);
   const rootWbs = generatedWbs.project_wbs;
   const deliverableWbsById = deliverableWbsLookupFromGenerated(generatedWbs);
+  const wbsCodeById = buildXerAlignedWbsCodeMap(generatedWbs, projectNameForWbsCode);
+  const rootWbsCode = wbsCodeById.get(generatedWbs.project_wbs.wbs_id) ?? String(projectNameForWbsCode ?? "").trim();
 
   const p6Resources = buildP6ResourceMap(rateCardEntries);
   const resourceKey = (type: string, name: string): string =>
     `${String(type ?? "").trim().toLowerCase()}|${String(name ?? "").trim().toLowerCase()}`;
 
   const droppedActivityRows: { reason: string; id: string; name: unknown; duration: unknown }[] = [];
+
+  const buildResourceListCell = (assigned: AssignedResourceStored[]): string => {
+    if (assigned.length === 0) return "";
+    const parts: string[] = [];
+    for (const ar of assigned) {
+      const r = p6Resources.byTypeName.get(resourceKey(ar.resourceType, ar.resourceName));
+      if (!r) {
+        throw new Error(
+          `TASK resource_list: resource "${ar.resourceName}" (${ar.resourceType}) is not on the rate card. Upload rate card or remove the assignment.`
+        );
+      }
+      parts.push(r.rsrc_short_name);
+    }
+    return parts.join(", ");
+  };
+
   const pushActivityRow = (
     exportId: string,
     rawName: unknown,
     rawDurationDays: unknown,
     assigned: AssignedResourceStored[],
     wbsId: string,
-    wbsName: string
+    wbsName: string,
+    rowP6?: TaskRowP6Meta
   ) => {
     const activityName = cleanActivityName(rawName);
     if (!activityName) {
@@ -465,44 +590,46 @@ export function generateFragnetXlsx(
       droppedActivityRows.push({ reason: "missing/invalid duration", id: exportId, name: rawName, duration: rawDurationDays });
       return;
     }
-    // Intentionally write raw user input into the P6 hour fields (format compatibility),
-    // with no conversion/multiplication.
     const durationHours = rawDurationDays;
     if (!Number.isFinite(durationHours)) {
       droppedActivityRows.push({ reason: "invalid converted duration", id: exportId, name: rawName, duration: rawDurationDays });
       return;
     }
-    // Keep columns aligned with TASK_DB_HEADERS / TASK_USER_HEADERS
-    taskDataRows.push([
-      exportId, // task_code
-      ACTIVITY_STATUS, // status_code
-      wbsId, // wbs_id
-      wbsName, // wbs_name
-      activityName, // task_name
-      null, // start_date
-      null, // end_date
-      durationHours, // orig_dur_hr_cnt (raw user input)
-      durationHours, // remain_drtn_hr_cnt (raw user input)
-      0, // total_float_hr_cnt
-      null, // delete_record_flag
-    ]);
-
-    const defaultUnits = defaultUnitsFromDurationDays(rawDurationDays);
-    for (const ar of assigned) {
-      const r = p6Resources.byTypeName.get(resourceKey(ar.resourceType, ar.resourceName));
-      if (!r) {
-        throw new Error("TASKRSRC export: resource not found in rate card map");
+    const resourceList = buildResourceListCell(assigned);
+    let ownAssignmentKey: string | null = null;
+    let inheritDeliverableId: string | null = null;
+    if (rowP6) {
+      if (rowP6.rowKind === "DELIVERABLE") {
+        ownAssignmentKey = rowP6.exportActivityId;
+      } else if (rowP6.rowKind === "ACTIVITY") {
+        ownAssignmentKey = canonicalActivityIdForAssignmentLookup(
+          rowP6.exportActivityId,
+          rowP6.deliverableBlockId === "__ROOT__" ? "" : rowP6.deliverableBlockId
+        );
+        if (rowP6.deliverableBlockId !== "__ROOT__") {
+          inheritDeliverableId = rowP6.deliverableBlockId;
+        }
       }
-      const units = ar.units ?? defaultUnits;
-      taskrsrcDataRows.push([
-        r.rsrc_short_name, // Resource ID / rsrc_short_name (must match XER.RSRC.rsrc_short_name)
-        exportId, // Activity ID / task_id
-        ACTIVITY_STATUS, // TASK__status_code
-        RSRC_RESOURCE_TYPE, // rsrc_type (fixed)
-        units, // target_qty — budgeted hours
-      ]);
     }
+    const baseCells: (string | number | null)[] = [
+      exportId,
+      ACTIVITY_STATUS,
+      wbsId,
+      wbsName,
+      activityName,
+      null,
+      null,
+      resourceList,
+      null,
+      durationHours,
+      durationHours,
+      0,
+    ];
+    pendingSemanticRows.push({ ownAssignmentKey, inheritDeliverableId, baseCells });
   };
+
+  const p6Row = (deliverableBlockId: string, rowKind: "DELIVERABLE" | "ACTIVITY", exportActivityId: string): TaskRowP6Meta | undefined =>
+    p6Ctx ? { fragnetId: p6Ctx.fragnetId, deliverableBlockId, rowKind, exportActivityId } : undefined;
 
   if (deliverables.length === 0) {
     // No deliverables: export activities under the project root WBS only.
@@ -520,14 +647,16 @@ export function generateFragnetXlsx(
       activityMap.set(a.id, exportId);
     });
     nextId = 1000 + sortedActivities.length;
+    const rootWbsIdForTask = rootWbsCode;
     sortedActivities.forEach((a) => {
       pushActivityRow(
         activityMap.get(a.id)!,
         a.name,
         a[durationField],
         a.assignedResources,
-        String(rootWbs.wbs_id),
-        rootWbs.wbs_name
+        rootWbsIdForTask,
+        rootWbs.wbs_name,
+        p6Row("__ROOT__", "ACTIVITY", a.id)
       );
     });
     relationships.forEach((r) => {
@@ -537,20 +666,25 @@ export function generateFragnetXlsx(
       taskPredDataRows.push([predId, succId, r.relationshipType, projectId, projectId, r.lag, null]);
     });
   } else {
-    // Block-based duplication per deliverable
+    // Block-based duplication per deliverable — only activities that belong to each deliverable.
     const sortedDeliverables = sortByCreatedAt(deliverables);
 
-    for (let i = 0; i < sortedDeliverables.length; i++) {
-      const d = sortedDeliverables[i];
+    for (const d of sortedDeliverables) {
       const blockWbs = deliverableWbsById.get(d.id);
       if (!blockWbs) {
         throw new Error(`Export: deliverable ${d.id} missing from generated WBS map`);
       }
-      const wbsCode = wbsCodeForPosition(i + 1);
+      const wbsIdNum = Number.parseInt(String(blockWbs.wbs_id), 10);
+      if (!Number.isInteger(wbsIdNum) || wbsIdNum < 1) {
+        throw new Error(`Export: invalid deliverable wbs_id for deliverable ${d.id}: ${JSON.stringify(blockWbs.wbs_id)}`);
+      }
+      const wbsCode = wbsCodeById.get(wbsIdNum);
+      if (!wbsCode || String(wbsCode).trim() === "" || wbsCode === rootWbsCode) {
+        throw new Error(
+          `Export: invalid deliverable WBS Code for deliverable ${d.id} (wbs_id=${wbsIdNum}): ${JSON.stringify(wbsCode)}`
+        );
+      }
 
-      // IMPORTANT: deliverable rows are exported as a TASK row for P6 linking,
-      // and must have stable IDs so users can reference them in P6.
-      // NOTE: deliverables share the same "A####" namespace; we reserve their IDs first so activities cannot collide.
       const deliverableExportId = allocateId("deliverable");
       pushActivityRow(
         deliverableExportId,
@@ -558,25 +692,34 @@ export function generateFragnetXlsx(
         d[durationField],
         d.assignedResources,
         wbsCode,
-        blockWbs.wbs_name
+        blockWbs.wbs_name,
+        p6Row(d.id, "DELIVERABLE", d.id)
       );
 
+      const activitiesInDeliverable = sortedActivities.filter((a) => a.deliverableId === d.id);
+      const activityIds = new Set(activitiesInDeliverable.map((a) => a.id));
+      const blockRelationships = relationships.filter(
+        (r) => activityIds.has(r.predecessorActivityId) && activityIds.has(r.successorActivityId)
+      );
+      const entryActivity = findEntryActivity(activitiesInDeliverable, blockRelationships);
+
       const activityMapInBlock = new Map<string, string>();
-      sortedActivities.forEach((a) => {
+      activitiesInDeliverable.forEach((a) => {
         activityMapInBlock.set(a.id, allocateId("activity"));
       });
-      sortedActivities.forEach((a) => {
+      activitiesInDeliverable.forEach((a) => {
         pushActivityRow(
           activityMapInBlock.get(a.id)!,
           a.name,
           a[durationField],
           a.assignedResources,
           wbsCode,
-          blockWbs.wbs_name
+          blockWbs.wbs_name,
+          p6Row(d.id, "ACTIVITY", a.id)
         );
       });
 
-      relationships.forEach((r) => {
+      blockRelationships.forEach((r) => {
         const predId = activityMapInBlock.get(r.predecessorActivityId);
         const succId = activityMapInBlock.get(r.successorActivityId);
         if (predId && succId) {
@@ -584,95 +727,36 @@ export function generateFragnetXlsx(
         }
       });
 
-      // Link deliverable row to the first activity in the block (FS, 0).
-      // This matches the intended P6 behavior: deliverable "task" acts as a container with an entry activity.
       if (entryActivity) {
         const firstActivityExportId = activityMapInBlock.get(entryActivity.id);
         if (firstActivityExportId) {
           taskPredDataRows.push([deliverableExportId, firstActivityExportId, "FS", projectId, projectId, 0, null]);
         }
       }
-
-      // No blank separator rows: P6 import can mis-read after empty lines
     }
   }
 
-  // Append blocks for unassigned deliverables (no fragnet)
-  if (unassignedDeliverables && unassignedDeliverables.length > 0) {
-    const sortedUnassigned = sortByCreatedAt(unassignedDeliverables);
-    let maxWbsId = generatedWbs.project_wbs.wbs_id;
-    for (const s of generatedWbs.deliverable_wbs_list) {
-      maxWbsId = Math.max(maxWbsId, s.wbs_id);
-    }
-    let unassignedSeq = 0;
-    // No blank separator rows
-    for (let i = 0; i < sortedUnassigned.length; i++) {
-      const d = sortedUnassigned[i];
-      unassignedSeq += 1;
-      const wbsIdNum = maxWbsId + unassignedSeq;
-      const unassignedWbs = { wbs_id: String(wbsIdNum), wbs_name: d.name };
-      const pos1 = (deliverables?.length ?? 0) + unassignedSeq;
-      const wbsCode = wbsCodeForPosition(pos1);
-      const deliverableExportId = allocateId("deliverable");
-      pushActivityRow(
-        deliverableExportId,
-        d.name,
-        d[durationField],
-        d.assignedResources,
-        wbsCode,
-        unassignedWbs.wbs_name
-      );
-      const activityMapInBlock = new Map<string, string>();
-      sortedActivities.forEach((a) => {
-        activityMapInBlock.set(a.id, allocateId("activity"));
-      });
-      sortedActivities.forEach((a) => {
-        pushActivityRow(
-          activityMapInBlock.get(a.id)!,
-          a.name,
-          a[durationField],
-          a.assignedResources,
-          wbsCode,
-          unassignedWbs.wbs_name
-        );
-      });
-      relationships.forEach((r) => {
-        const predId = activityMapInBlock.get(r.predecessorActivityId);
-        const succId = activityMapInBlock.get(r.successorActivityId);
-        if (predId && succId) {
-          taskPredDataRows.push([predId, succId, r.relationshipType, projectId, projectId, r.lag, null]);
-        }
-      });
-      // No blank separator rows
-    }
-  }
+  const { dbHeaders: taskDbHeaders, userHeaders: taskUserHeaders, typeIdsOrdered } = buildTaskSheetHeaders(activityCatalog);
+  const taskDataRows = buildSemanticTaskDataRows({
+    pendingTaskRows: pendingSemanticRows,
+    catalog: activityCatalog,
+    typeIdsOrdered,
+  });
 
   if (droppedActivityRows.length > 0) {
     console.warn("[export] Dropped invalid TASK rows", { count: droppedActivityRows.length });
   }
 
-  console.info("[export] Generated TASK/TASKRSRC rows", {
+  console.info("[export] Generated TASK rows", {
     taskRows: taskDataRows.length,
-    taskResourceRows: taskrsrcDataRows.length,
   });
 
-  const taskAoa = [TASK_DB_HEADERS as unknown as string[], TASK_USER_HEADERS as unknown as string[], ...taskDataRows];
+  const taskAoa = [taskDbHeaders, taskUserHeaders, ...taskDataRows];
   const taskPredAoa = [TASKPRED_DB_HEADERS, TASKPRED_USER_HEADERS, ...taskPredDataRows];
-  const taskrsrcAoa = [
-    TASKRSRC_DB_HEADERS as unknown as string[],
-    TASKRSRC_USER_HEADERS as unknown as string[],
-    ...taskrsrcDataRows,
-  ];
 
   const workbook = XLSX.utils.book_new();
   const taskSheet = XLSX.utils.aoa_to_sheet(taskAoa);
   const taskPredSheet = XLSX.utils.aoa_to_sheet(taskPredAoa);
-  const taskrsrcSheet = XLSX.utils.aoa_to_sheet(taskrsrcAoa);
-
-  const taskrsrcLastRow0 = 1 + taskrsrcDataRows.length;
-  taskrsrcSheet["!autofilter"] = {
-    ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: taskrsrcLastRow0, c: TASKRSRC_DB_HEADERS.length - 1 } }),
-  };
 
   XLSX.utils.book_append_sheet(workbook, taskSheet, "TASK");
   XLSX.utils.book_append_sheet(workbook, taskPredSheet, "TASKPRED");
@@ -692,27 +776,30 @@ export function generateFragnetXlsx(
     XLSX.utils.book_append_sheet(workbook, rsrcSheet, "RSRC");
   }
 
-  XLSX.utils.book_append_sheet(workbook, taskrsrcSheet, "TASKRSRC");
+  assertUniqueTaskCodesInSheet(taskDataRows);
+  assertEveryTaskHasWbsPath(taskDataRows);
 
-  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  return { buffer, pendingSemanticRows };
 }
 
 /**
- * Standard export: keep one workbook, but scope activity duplication to each fragnet.
+ * Standard export: one workbook, activities scoped per fragnet (same TASK / TASKPRED / RSRC layout as {@link generateFragnetXlsx}).
  *
  * CRITICAL RULES:
  * - Activities repeat within a fragnet
  * - Activities MUST NOT repeat across fragnets
  * - Never use a standard-global activity list
  */
-export function generateStandardXlsx(
+export async function generateStandardXlsx(
   generatedWbs: GeneratedWbs,
   fragnets: StandardFragnetForExport[],
   scenario: ExportScenario,
   projectId: string,
   projectNameForWbsCode: string,
-  rateCardEntries: RateCardEntry[] = []
-): Buffer {
+  rateCardEntries: RateCardEntry[] = [],
+  opts?: StandardExportOptions | null
+): Promise<{ buffer: Buffer; pendingSemanticRows: P6PendingSemanticTaskRow[] }> {
   const idFor = (n: number) => `A${n}`;
   const suggestAvailableIds = (startN: number, used: Set<string>, count = 8): string[] => {
     const out: string[] = [];
@@ -725,10 +812,13 @@ export function generateStandardXlsx(
     return out;
   };
 
+  const p6Ctx = opts?.exportContext ?? null;
+  const activityCatalog: ActivityCodeCatalogForExport =
+    opts?.activityCatalog ?? { types: [], codes: [], assignmentsByCanonicalActivityId: new Map() };
+
   const durationField = scenario === "best" ? "bestDuration" : "likelyDuration";
-  const taskDataRows: (string | number | null)[][] = [];
+  const pendingSemanticRows: P6PendingSemanticTaskRow[] = [];
   const taskPredDataRows: (string | number | null)[][] = [];
-  const taskrsrcDataRows: (string | number)[][] = [];
   let nextId = 1000;
   const usedExportIds = new Set<string>();
   const allocateId = (kind: "deliverable" | "activity"): string => {
@@ -754,13 +844,30 @@ export function generateStandardXlsx(
     `${String(type ?? "").trim().toLowerCase()}|${String(name ?? "").trim().toLowerCase()}`;
 
   const droppedActivityRows: { reason: string; id: string; name: unknown; duration: unknown }[] = [];
+
+  const buildResourceListCell = (assigned: AssignedResourceStored[]): string => {
+    if (assigned.length === 0) return "";
+    const parts: string[] = [];
+    for (const ar of assigned) {
+      const r = p6Resources.byTypeName.get(resourceKey(ar.resourceType, ar.resourceName));
+      if (!r) {
+        throw new Error(
+          `TASK resource_list: resource "${ar.resourceName}" (${ar.resourceType}) is not on the rate card. Upload rate card or remove the assignment.`
+        );
+      }
+      parts.push(r.rsrc_short_name);
+    }
+    return parts.join(", ");
+  };
+
   const pushActivityRow = (
     exportId: string,
     rawName: unknown,
     rawDurationDays: unknown,
     assigned: AssignedResourceStored[],
     wbsId: string,
-    wbsName: string
+    wbsName: string,
+    rowP6?: TaskRowP6Meta
   ) => {
     const activityName = cleanActivityName(rawName);
     if (!activityName) {
@@ -776,36 +883,46 @@ export function generateStandardXlsx(
       droppedActivityRows.push({ reason: "invalid converted duration", id: exportId, name: rawName, duration: rawDurationDays });
       return;
     }
-    taskDataRows.push([
-      exportId, // task_code
-      ACTIVITY_STATUS, // status_code
-      wbsId, // wbs_id
-      wbsName, // wbs_name
-      activityName, // task_name
-      null, // start_date
-      null, // end_date
-      durationHours, // orig_dur_hr_cnt (raw user input)
-      durationHours, // remain_drtn_hr_cnt (raw user input)
-      0, // total_float_hr_cnt
-      null, // delete_record_flag
-    ]);
-
-    const defaultUnits = defaultUnitsFromDurationDays(rawDurationDays);
-    for (const ar of assigned) {
-      const r = p6Resources.byTypeName.get(resourceKey(ar.resourceType, ar.resourceName));
-      if (!r) {
-        throw new Error("TASKRSRC export: resource not found in rate card map");
+    const resourceList = buildResourceListCell(assigned);
+    let ownAssignmentKey: string | null = null;
+    let inheritDeliverableId: string | null = null;
+    if (rowP6) {
+      if (rowP6.rowKind === "DELIVERABLE") {
+        ownAssignmentKey = rowP6.exportActivityId;
+      } else if (rowP6.rowKind === "ACTIVITY") {
+        ownAssignmentKey = canonicalActivityIdForAssignmentLookup(
+          rowP6.exportActivityId,
+          rowP6.deliverableBlockId === "__ROOT__" ? "" : rowP6.deliverableBlockId
+        );
+        if (rowP6.deliverableBlockId !== "__ROOT__") {
+          inheritDeliverableId = rowP6.deliverableBlockId;
+        }
       }
-      const units = ar.units ?? defaultUnits;
-      taskrsrcDataRows.push([
-        r.rsrc_short_name, // Resource ID / rsrc_short_name
-        exportId, // Activity ID / task_id
-        ACTIVITY_STATUS, // TASK__status_code
-        RSRC_RESOURCE_TYPE, // rsrc_type
-        units, // target_qty
-      ]);
     }
+    const baseCells: (string | number | null)[] = [
+      exportId,
+      ACTIVITY_STATUS,
+      wbsId,
+      wbsName,
+      activityName,
+      null,
+      null,
+      resourceList,
+      null,
+      durationHours,
+      durationHours,
+      0,
+    ];
+    pendingSemanticRows.push({ ownAssignmentKey, inheritDeliverableId, baseCells });
   };
+
+  const stdP6Row = (
+    fragnetId: string,
+    deliverableBlockId: string,
+    rowKind: "DELIVERABLE" | "ACTIVITY",
+    exportActivityId: string
+  ): TaskRowP6Meta | undefined =>
+    p6Ctx ? { fragnetId, deliverableBlockId, rowKind, exportActivityId } : undefined;
 
   // Assign activities correctly (per deliverable, per fragnet).
   // CRITICAL: activities must ONLY appear under their own deliverable (no sharing across deliverables/fragnets).
@@ -843,7 +960,8 @@ export function generateStandardXlsx(
         deliverable[durationField],
         deliverable.assignedResources,
         wbsCode,
-        blockWbs.wbs_name
+        blockWbs.wbs_name,
+        stdP6Row(fragnet.id, deliverable.id, "DELIVERABLE", deliverable.id)
       );
 
       // Step A — attach specific activities (only those already assigned to this deliverable)
@@ -885,7 +1003,8 @@ export function generateStandardXlsx(
           a[durationField],
           a.assignedResources,
           wbsCode,
-          blockWbs.wbs_name
+          blockWbs.wbs_name,
+          stdP6Row(fragnet.id, deliverable.id, "ACTIVITY", a.id)
         );
       });
 
@@ -908,35 +1027,27 @@ export function generateStandardXlsx(
     }
   }
 
+  const { dbHeaders: taskDbHeaders, userHeaders: taskUserHeaders, typeIdsOrdered } = buildTaskSheetHeaders(activityCatalog);
+  const taskDataRows = buildSemanticTaskDataRows({
+    pendingTaskRows: pendingSemanticRows,
+    catalog: activityCatalog,
+    typeIdsOrdered,
+  });
+
   if (droppedActivityRows.length > 0) {
     console.warn("[export] Dropped invalid TASK rows", { count: droppedActivityRows.length });
   }
 
-  console.info("[export] Generated TASK/TASKRSRC rows", {
+  console.info("[export] Generated TASK rows", {
     taskRows: taskDataRows.length,
-    taskResourceRows: taskrsrcDataRows.length,
   });
 
-  const taskAoa = [TASK_DB_HEADERS as unknown as string[], TASK_USER_HEADERS as unknown as string[], ...taskDataRows];
+  const taskAoa = [taskDbHeaders, taskUserHeaders, ...taskDataRows];
   const taskPredAoa = [TASKPRED_DB_HEADERS, TASKPRED_USER_HEADERS, ...taskPredDataRows];
-  const taskrsrcAoa = [
-    TASKRSRC_DB_HEADERS as unknown as string[],
-    TASKRSRC_USER_HEADERS as unknown as string[],
-    ...taskrsrcDataRows,
-  ];
 
   const workbook = XLSX.utils.book_new();
   const taskSheet = XLSX.utils.aoa_to_sheet(taskAoa);
   const taskPredSheet = XLSX.utils.aoa_to_sheet(taskPredAoa);
-  const taskrsrcSheet = XLSX.utils.aoa_to_sheet(taskrsrcAoa);
-
-  const taskrsrcLastRow0 = 1 + taskrsrcDataRows.length;
-  taskrsrcSheet["!autofilter"] = {
-    ref: XLSX.utils.encode_range({
-      s: { r: 0, c: 0 },
-      e: { r: taskrsrcLastRow0, c: TASKRSRC_DB_HEADERS.length - 1 },
-    }),
-  };
 
   XLSX.utils.book_append_sheet(workbook, taskSheet, "TASK");
   XLSX.utils.book_append_sheet(workbook, taskPredSheet, "TASKPRED");
@@ -959,7 +1070,9 @@ export function generateStandardXlsx(
     XLSX.utils.book_append_sheet(workbook, rsrcSheet, "RSRC");
   }
 
-  XLSX.utils.book_append_sheet(workbook, taskrsrcSheet, "TASKRSRC");
+  assertUniqueTaskCodesInSheet(taskDataRows);
+  assertEveryTaskHasWbsPath(taskDataRows);
 
-  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  return { buffer, pendingSemanticRows };
 }

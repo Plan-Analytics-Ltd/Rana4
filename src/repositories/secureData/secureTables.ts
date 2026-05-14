@@ -2,7 +2,6 @@ import { Prisma } from "@prisma/client";
 import { decryptPayload, encryptPayload, type EncryptedPayload, type SecureDbClient } from "../../services/encryption/index.js";
 import { auditSecureDecryptAccess, auditSecureQueryMetrics } from "../../services/audit/secureAudit.service.js";
 import { logAbuseSignal } from "../../services/audit/immutableAudit.service.js";
-import { requireSensitiveApproval } from "../../services/approvals/approval.service.js";
 import { getRuntimeSecurityConfig } from "../../services/security/runtimeConfig.js";
 import { requireSensitiveAccess, type SensitiveAccessAction } from "../../middleware/security/sensitiveAccess.middleware.js";
 import { getAuthContext } from "../../utils/requestContext.js";
@@ -195,34 +194,6 @@ async function auditDecrypt(table: SecureTable, operation: SensitiveAccessAction
   });
 }
 
-async function assertApprovalForDecrypt(params: {
-  table: SecureTable;
-  grant: ReturnType<typeof assertSensitiveAccess>;
-  operation: SensitiveAccessAction["operation"];
-  resourceId: string;
-  resourceType?: string | null;
-  decryptCount: number;
-  batchSize: number;
-}): Promise<{ approvalRequestId: string }> {
-  return await requireSensitiveApproval({
-    scope: {
-      userId: params.grant.userId,
-      companyId: params.grant.companyId,
-      action: String(params.operation),
-      resourceCategory: params.table,
-      resourceId: params.resourceId,
-      resourceType: params.resourceType ?? params.table,
-    },
-    decryptCount: params.decryptCount,
-    batchSize: params.batchSize,
-    metadata: {
-      table: params.table,
-      resourceId: params.resourceId,
-      resourceType: params.resourceType ?? params.table,
-    },
-  });
-}
-
 export async function lockSecureRecord(client: SecureDbClient, lockKey: string): Promise<void> {
   await client.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
 }
@@ -233,22 +204,12 @@ export async function readSecurePayload<T>(
   operation: SensitiveAccessAction["operation"] = "read",
   client?: SecureDbClient
 ): Promise<T | null> {
-  const grant = assertSensitiveAccess(table, operation, id);
   const rows = await db(client).$queryRaw<SecureRow[]>(
     Prisma.sql`SELECT id, company_id, resource_type, created_at, payload_enc FROM ${secureTableSql(table)} WHERE id = ${id}`
   );
   const row = rows[0];
   if (!row) return null;
 
-  await assertApprovalForDecrypt({
-    table,
-    grant,
-    operation,
-    resourceId: id,
-    resourceType: row.resource_type,
-    decryptCount: 1,
-    batchSize: 1,
-  });
   await auditDecrypt(table, operation, id);
   return await decryptPayload<T>(row.payload_enc, client);
 }
@@ -282,17 +243,6 @@ export async function querySecurePayloads<T>(
   );
 
   const out: Array<{ metadata: SecureRowMetadata; payload: T }> = [];
-  if (rows.length > 0) {
-    await assertApprovalForDecrypt({
-      table,
-      grant,
-      operation,
-      resourceId: `${table}:${filters.companyId}`,
-      resourceType: filters.resourceType ?? table,
-      decryptCount: rows.length,
-      batchSize: rows.length,
-    });
-  }
   for (const row of rows) {
     await auditDecrypt(table, operation, row.id);
     out.push({ metadata: metadataFromRow(row), payload: await decryptPayload<T>(row.payload_enc, client) });

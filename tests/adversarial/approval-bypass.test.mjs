@@ -2,11 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { assertOrdered, readRepoFile, withoutComments } from "../security/test-utils.mjs";
 
-test("repository decrypt path requires approval before pgcrypto decrypt", async () => {
+test("repository decrypt path audits RBAC before pgcrypto decrypt", async () => {
   const secureTables = withoutComments(await readRepoFile("src/repositories/secureData/secureTables.ts"));
-  assertOrdered(secureTables, "await assertApprovalForDecrypt", "await decryptPayload<T>", "approval must execute before single-row decrypt");
-  assertOrdered(secureTables, "await assertApprovalForDecrypt", "payload: await decryptPayload<T>", "approval must execute before batch decrypt");
-  assert.match(secureTables, /requireSensitiveApproval/);
+  assertOrdered(secureTables, "await auditDecrypt", "await decryptPayload<T>", "audit must execute before single-row decrypt");
+  assertOrdered(secureTables, "await auditDecrypt", "payload: await decryptPayload<T>", "audit must execute before batch decrypt");
+  assert.match(secureTables, /assertSensitiveAccess/);
+  assert.doesNotMatch(secureTables, /requireSensitiveApproval/);
 });
 
 test("decryptPayload is only called from the centralized secure repository", async () => {
@@ -44,10 +45,12 @@ test("forged, wrong-scope, and bypassed approval tokens create deny/abuse paths"
   assert.match(approval, /resource_category = \$\{params\.scope\.resourceCategory\}/);
 });
 
-test("sensitive routes carry approval middleware but repository enforcement remains authoritative", async () => {
+test("sensitive routes use RBAC middleware; export does not gate on approval tokens; repository stays authoritative", async () => {
   const rateCardRoutes = withoutComments(await readRepoFile("src/routes/rateCard.routes.ts"));
   const exportRoutes = withoutComments(await readRepoFile("src/routes/export.routes.ts"));
-  assert.match(rateCardRoutes, /requireSensitiveApproval/);
-  assert.match(exportRoutes, /requireSensitiveApproval/);
-  assert.match(await readRepoFile("src/repositories/secureData/secureTables.ts"), /requireSensitiveApproval/);
+  const secureTables = withoutComments(await readRepoFile("src/repositories/secureData/secureTables.ts"));
+  assert.match(rateCardRoutes, /requireSensitiveAccessMiddleware/);
+  assert.doesNotMatch(exportRoutes, /requireSensitiveApproval/);
+  assert.match(secureTables, /await auditDecrypt/);
+  assert.doesNotMatch(secureTables, /requireSensitiveApproval/);
 });

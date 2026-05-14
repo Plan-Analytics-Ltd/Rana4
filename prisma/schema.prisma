@@ -77,17 +77,21 @@ model EmailVerificationToken {
 }
 
 model Company {
-  id             String          @id @default(cuid())
-  name           String
-  joinCode       String          @unique @map("join_code") @db.VarChar(32)
-  activities     Activity[]
-  assuranceNotes AssuranceNote[]
-  deliverables   Deliverable[]
-  fragnets       Fragnet[]
-  projects       Project[]
-  relationships  Relationship[]
-  standards      Standard[]
-  users          User[]
+  id                 String              @id @default(cuid())
+  name               String
+  joinCode           String              @unique @map("join_code") @db.VarChar(32)
+  activities         Activity[]
+  activityCodeTypes  ActivityCodeType[]
+  activityCodes      ActivityCode[]
+  activityCodeAssignments ActivityCodeAssignment[]
+  assuranceNotes     AssuranceNote[]
+  deliverables       Deliverable[]
+  fragnets           Fragnet[]
+  p6ExternalIds      P6ExternalId[]
+  projects           Project[]
+  relationships      Relationship[]
+  standards          Standard[]
+  users              User[]
 
   @@map("companies")
 }
@@ -106,6 +110,7 @@ model Project {
   activities     Activity[]
   relationships  Relationship[]
   auditLogs      AuditLog[]
+  p6ExternalIds  P6ExternalId[]
 
   @@unique([id, companyId])
   @@index([companyId])
@@ -233,6 +238,7 @@ model Activity {
   deliverableId     String         @map("deliverable_id")
   projectId         String         @map("project_id")
   companyId         String         @map("company_id")
+  activityCodeAssignments ActivityCodeAssignment[]
   assuranceNote     AssuranceNote? @relation(fields: [assuranceNoteId, companyId], references: [id, companyId])
   company           Company        @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "activities_company_fk")
   deliverable       Deliverable    @relation(fields: [deliverableId, companyId], references: [id, companyId])
@@ -245,6 +251,85 @@ model Activity {
   @@unique([companyId, fragnetId, activityCode])
   @@index([projectId])
   @@map("activities")
+}
+
+/// P6 Activity Code Type (ACTVTYPE) — company-wide catalog.
+model ActivityCodeType {
+  id          String         @id @default(cuid())
+  companyId   String         @map("company_id")
+  slug        String         @db.VarChar(64)
+  name        String         @db.VarChar(255)
+  shortName   String?        @map("short_name") @db.VarChar(64)
+  seqNum      Int            @default(0) @map("seq_num")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  company     Company        @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "activity_code_types_company_fk")
+  codes       ActivityCode[]
+  assignments ActivityCodeAssignment[]
+
+  @@unique([companyId, slug])
+  @@index([companyId])
+  @@map("activity_code_types")
+}
+
+/// P6 Activity Code value (ACTVCODE) — hierarchical optional parent.
+model ActivityCode {
+  id          String         @id @default(cuid())
+  companyId   String         @map("company_id")
+  typeId      String         @map("type_id")
+  parentId    String?        @map("parent_id")
+  name        String         @db.VarChar(255)
+  shortName   String?        @map("short_name") @db.VarChar(64)
+  seqNum      Int            @default(0) @map("seq_num")
+  color       String?        @db.VarChar(32)
+  createdAt   DateTime       @default(now()) @map("created_at")
+  company     Company        @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "activity_codes_company_fk")
+  type        ActivityCodeType @relation(fields: [typeId], references: [id], onDelete: Cascade)
+  parent      ActivityCode?  @relation("ActivityCodeHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children    ActivityCode[] @relation("ActivityCodeHierarchy")
+  assignments ActivityCodeAssignment[]
+
+  @@unique([companyId, typeId, name])
+  @@index([companyId])
+  @@index([typeId])
+  @@map("activity_codes")
+}
+
+/// At most one code per type per activity or per deliverable (P6). Exactly one of activityId / deliverableId is set.
+model ActivityCodeAssignment {
+  id            String          @id @default(cuid())
+  activityId    String?         @map("activity_id")
+  deliverableId String?         @map("deliverable_id")
+  typeId        String          @map("type_id")
+  codeId        String          @map("code_id")
+  companyId     String          @map("company_id")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  activity      Activity?       @relation(fields: [activityId, companyId], references: [id, companyId], onDelete: Cascade)
+  deliverable   Deliverable?    @relation(fields: [deliverableId, companyId], references: [id, companyId], onDelete: Cascade)
+  type          ActivityCodeType @relation(fields: [typeId], references: [id], onDelete: Cascade)
+  code          ActivityCode    @relation(fields: [codeId], references: [id], onDelete: Cascade)
+  company       Company         @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "activity_code_assignments_company_fk")
+
+  @@index([companyId])
+  @@index([codeId])
+  @@index([deliverableId])
+  @@map("activity_code_assignments")
+}
+
+/// Stable numeric IDs for P6 spreadsheet / XER alignment (scoped per company + project).
+model P6ExternalId {
+  id           String   @id @default(cuid())
+  companyId    String   @map("company_id")
+  projectId    String   @map("project_id")
+  entityKind   String   @map("entity_kind") @db.VarChar(32)
+  entityKey    String   @map("entity_key") @db.VarChar(512)
+  p6NumericId  Int      @map("p6_numeric_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "p6_external_ids_company_fk")
+  project      Project  @relation(fields: [projectId, companyId], references: [id, companyId], onDelete: Cascade)
+
+  @@unique([companyId, projectId, entityKind, entityKey])
+  @@index([companyId, projectId])
+  @@map("p6_external_ids")
 }
 
 model Relationship {
@@ -281,6 +366,7 @@ model Deliverable {
   externalProjectId String?    @map("external_project_id") @db.VarChar(255)
   companyId         String     @map("company_id")
   activities        Activity[]
+  activityCodeAssignments ActivityCodeAssignment[]
   company           Company    @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "deliverables_company_fk")
   fragnet           Fragnet?   @relation(fields: [fragnetId, companyId], references: [id, companyId], onDelete: Cascade)
   project           Project    @relation(fields: [projectId, companyId], references: [id, companyId], onDelete: NoAction)

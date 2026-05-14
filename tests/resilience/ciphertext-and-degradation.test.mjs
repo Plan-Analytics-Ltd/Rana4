@@ -10,10 +10,10 @@ test("corrupted ciphertext and wrong-key decrypt failures expose only generic er
   assert.doesNotMatch(encryption, /console\.(log|error|warn|info).*decrypted/i);
 });
 
-test("approval and audit failures fail closed or isolate safely", async () => {
+test("RBAC audit runs before decrypt; immutable audit failures fail closed or isolate safely", async () => {
   const secureTables = withoutComments(await readRepoFile("src/repositories/secureData/secureTables.ts"));
   const audit = withoutComments(await readRepoFile("src/services/audit/immutableAudit.service.ts"));
-  assertOrdered(secureTables, "await assertApprovalForDecrypt", "await decryptPayload<T>");
+  assertOrdered(secureTables, "await auditDecrypt", "await decryptPayload<T>");
   assert.match(audit, /safeLogImmutableAudit/);
   assert.match(audit, /catch\s*\{/);
 });

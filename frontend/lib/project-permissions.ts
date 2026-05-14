@@ -5,6 +5,7 @@ export type ProjectRole = NonNullable<Project["myRole"]>;
 export type ProjectEntity =
   | "project"
   | "activity"
+  | "activityCode"
   | "relationship"
   | "deliverable"
   | "standard"
@@ -33,6 +34,13 @@ export const permissions: PermissionMap = {
     manageMembers: ["ADMIN"],
   },
   activity: {
+    read: ["VIEWER", "EDITOR", "ADMIN"],
+    create: ["EDITOR", "ADMIN"],
+    update: ["EDITOR", "ADMIN"],
+    delete: ["EDITOR", "ADMIN"],
+    manageMembers: ["ADMIN"],
+  },
+  activityCode: {
     read: ["VIEWER", "EDITOR", "ADMIN"],
     create: ["EDITOR", "ADMIN"],
     update: ["EDITOR", "ADMIN"],

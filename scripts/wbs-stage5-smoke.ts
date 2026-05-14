@@ -63,8 +63,8 @@ async function main(): Promise<void> {
       });
 
       const xer = await generateXERFile({ mode: "FRAGNET", projectId: TAG });
-      if (!xer.includes("%T\tTASK") || !xer.includes(act.id) || xer.includes("wbs-deliverable-")) {
-        throw new Error("XER missing TASK/activity id or still contains UUID-style wbs-deliverable- ids");
+      if (xer.includes("%T\tTASK")) {
+        throw new Error("XER should not embed TASK table (activities export via spreadsheet only)");
       }
       const lines = xer.split("\n");
       const projwbsRow2 = lines.find((l) => l.startsWith("%R\t2\t"));
@@ -75,16 +75,8 @@ async function main(): Promise<void> {
       if (p2[5] !== "2" || p2[4] !== "Pkg") {
         throw new Error(`PROJWBS row 2 wbs_name/wbs_short_name: ${JSON.stringify(p2)}`);
       }
-      const taskRow = lines.find((l) => l.startsWith("%R\t") && l.includes(act.id));
-      if (!taskRow) {
-        throw new Error("XER TASK row for activity not found");
-      }
-      const tCells = taskRow.split("\t");
-      if (tCells[3] !== "2") {
-        throw new Error(`TASK wbs_id should be numeric 2, got ${tCells[3]}`);
-      }
-      if (!xer.includes("\tTK_NotStart\t")) {
-        throw new Error("XER missing default task status");
+      if (!act.id) {
+        throw new Error("activity create failed");
       }
 
       await prisma.standard.delete({ where: { id: standard.id } });
