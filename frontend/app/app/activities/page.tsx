@@ -1,8 +1,26 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Loader2, Link2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2, Unlink, ListOrdered } from "lucide-react";
+import { ActivityOwnershipBadge } from "@/components/schedule/activity-ownership-badge";
+import { ActivityBulkActionsBar } from "@/components/activities/ActivityBulkActionsBar";
+import { ActivityListToolbar } from "@/components/activities/ActivityListToolbar";
+import { ActivityRelationshipsPanel } from "@/components/activities/ActivityRelationshipsPanel";
+import { ActivityDefinitionForm } from "@/components/activities/ActivityDefinitionForm";
+import {
+  DEFAULT_ACTIVITY_FILTERS,
+  filterActivities,
+  type ActivityListFilters,
+} from "@/lib/activity-list-filters";
+import { activityListCostPreview } from "@/lib/activity-row-metrics";
+import { buildRelationshipAdjacency } from "@/lib/schedule-relationship-health";
+import {
+  buildActivityCodePayload,
+  buildDeliverableActivityP6FormMap,
+  emptyP6FormMap,
+  validateActivityDefinitionFields,
+} from "@/lib/activity-form-utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -51,23 +69,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useProject } from "@/contexts/project-context";
 import { hasPermission } from "@/lib/project-permissions";
-
-const RELATIONSHIP_TYPES: RelationshipType[] = ["FS", "SS", "FF", "SF"];
-
-/** P6 form map: deliverable defaults, then activity overrides (per type). */
-function buildActivityP6FormMap(a: Activity, types: ActivityCodeType[], dels: Deliverable[]): Record<string, string> {
-  const next: Record<string, string> = {};
-  for (const t of types) next[t.id] = "__NONE__";
-  const deliverableId = a.deliverableId;
-  const d = deliverableId ? dels.find((x) => x.id === deliverableId) : undefined;
-  for (const row of d?.activityCodeAssignments ?? []) {
-    next[row.typeId] = row.codeId;
-  }
-  for (const row of a.activityCodeAssignments ?? []) {
-    next[row.typeId] = row.codeId;
-  }
-  return next;
-}
+import { detectRelationshipCycles, validateFragnetRelationships } from "@/lib/schedule-validation";
 
 export default function ActivitiesPage() {
   const { selectedProjectId, selectedProjectRole } = useProject();
@@ -88,8 +90,14 @@ export default function ActivitiesPage() {
   const [loadingActivities, setLoadingActivities] = useState(false);
   const [loadingRelationships, setLoadingRelationships] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [tplCode, setTplCode] = useState("");
+  const [tplName, setTplName] = useState("");
+  const [tplBest, setTplBest] = useState("1");
+  const [tplLikely, setTplLikely] = useState("1");
+  const [tplResourceDrafts, setTplResourceDrafts] = useState<ResourceAssignmentDraft[]>([]);
+  const [tplP6Codes, setTplP6Codes] = useState<Record<string, string>>({});
   const [editId, setEditId] = useState<string | null>(null);
-  const [relCreateOpen, setRelCreateOpen] = useState(false);
   const [formActivityCode, setFormActivityCode] = useState("");
   const [formName, setFormName] = useState("");
   const [formBestDuration, setFormBestDuration] = useState("");
@@ -98,10 +106,6 @@ export default function ActivitiesPage() {
   const [loadingDeliverables, setLoadingDeliverables] = useState(false);
   const [formDeliverableId, setFormDeliverableId] = useState<string>("");
   const [formAssuranceNoteId, setFormAssuranceNoteId] = useState<string>("");
-  const [relPredecessorId, setRelPredecessorId] = useState("");
-  const [relSuccessorId, setRelSuccessorId] = useState("");
-  const [relType, setRelType] = useState<RelationshipType>("FS");
-  const [relLag, setRelLag] = useState("0");
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletingRelId, setDeletingRelId] = useState<string | null>(null);
@@ -111,6 +115,9 @@ export default function ActivitiesPage() {
   const [formP6Codes, setFormP6Codes] = useState<Record<string, string>>({});
   /** Bumps when opening the edit dialog so P6 fields re-merge after code types / deliverables load. */
   const [p6EditEpoch, setP6EditEpoch] = useState(0);
+  const [listFilters, setListFilters] = useState<ActivityListFilters>(DEFAULT_ACTIVITY_FILTERS);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const fetchCodeTypes = async () => {
     if (!selectedProjectId) {
@@ -271,7 +278,10 @@ export default function ActivitiesPage() {
     const a = activities.find((x) => x.id === editId);
     if (!a) return;
     if (a.deliverableId && !deliverables.some((d) => d.id === a.deliverableId)) return;
-    setFormP6Codes(buildActivityP6FormMap(a, codeTypes, deliverables));
+    const d = a.deliverableId ? deliverables.find((x) => x.id === a.deliverableId) : undefined;
+    setFormP6Codes(
+      buildDeliverableActivityP6FormMap(a.activityCodeAssignments, d?.activityCodeAssignments, codeTypes)
+    );
   }, [editId, codeTypes, deliverables, p6EditEpoch]);
 
   const resetActivityForm = () => {
@@ -287,55 +297,22 @@ export default function ActivitiesPage() {
     setCreateOpen(false);
   };
 
-  const resetRelForm = () => {
-    setRelPredecessorId("");
-    setRelSuccessorId("");
-    setRelType("FS");
-    setRelLag("0");
-    setRelCreateOpen(false);
-  };
-
-  const buildActivityCodePayloadForCreate = (): Record<string, string | null> | undefined => {
-    if (!mayEditP6Codes || codeTypes.length === 0) return undefined;
-    const out: Record<string, string | null> = {};
-    let any = false;
-    for (const t of codeTypes) {
-      const v = formP6Codes[t.id];
-      if (v && v !== "__NONE__") {
-        out[t.id] = v;
-        any = true;
-      }
-    }
-    return any ? out : undefined;
-  };
-
-  const buildActivityCodePayloadForUpdate = (): Record<string, string | null> | undefined => {
-    if (!mayEditP6Codes || codeTypes.length === 0) return undefined;
-    const out: Record<string, string | null> = {};
-    for (const t of codeTypes) {
-      const v = formP6Codes[t.id];
-      out[t.id] = !v || v === "__NONE__" ? null : v;
-    }
-    return out;
-  };
-
   const handleCreateActivity = async (e: React.FormEvent) => {
     e.preventDefault();
-    const best = parseInt(formBestDuration, 10);
-    const likely = parseInt(formLikelyDuration, 10);
-    if (
-      !selectedFragnetId ||
-      !formDeliverableId ||
-      !formActivityCode.trim() ||
-      !formName.trim() ||
-      !Number.isInteger(best) ||
-      best < 1 ||
-      !Number.isInteger(likely) ||
-      likely < 1
-    ) {
-      toast.error("Deliverable, activity code, name, and positive durations are required");
+    const err = validateActivityDefinitionFields({
+      scope: "deliverable",
+      deliverableId: formDeliverableId,
+      activityCode: formActivityCode,
+      name: formName,
+      bestDuration: formBestDuration,
+      likelyDuration: formLikelyDuration,
+    });
+    if (!selectedFragnetId || err) {
+      toast.error(err || "Select a fragnet");
       return;
     }
+    const best = parseInt(formBestDuration, 10);
+    const likely = parseInt(formLikelyDuration, 10);
     setSubmitting(true);
     try {
       await activitiesApi.create({
@@ -347,13 +324,52 @@ export default function ActivitiesPage() {
         likelyDuration: likely,
         assuranceNoteId: formAssuranceNoteId || undefined,
         assignedResources: draftsToPayload(formResourceDrafts),
-        activityCodeByTypeId: buildActivityCodePayloadForCreate(),
+        activityCodeByTypeId: buildActivityCodePayload(formP6Codes, codeTypes, "create", mayEditP6Codes),
       });
       toast.success("Activity created");
       resetActivityForm();
       await fetchActivities();
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err) || "Failed to create activity");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCreateDefaultActivity = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const err = validateActivityDefinitionFields({
+      scope: "default",
+      activityCode: tplCode,
+      name: tplName,
+      bestDuration: tplBest,
+      likelyDuration: tplLikely,
+    });
+    if (!selectedFragnetId || err) {
+      toast.error(err || "Select a fragnet");
+      return;
+    }
+    const best = parseInt(tplBest, 10);
+    const likely = parseInt(tplLikely, 10);
+    setSubmitting(true);
+    try {
+      await fragnetsApi.createActivityTemplate(selectedFragnetId, {
+        templateCode: tplCode.trim(),
+        name: tplName.trim(),
+        bestDuration: best,
+        likelyDuration: likely,
+        assignedResources: draftsToPayload(tplResourceDrafts),
+        activityCodeByTypeId: buildActivityCodePayload(tplP6Codes, codeTypes, "create", mayEditP6Codes),
+      });
+      toast.success("Default activity added to all deliverables in this fragnet");
+      setTemplateOpen(false);
+      setTplCode("");
+      setTplName("");
+      setTplResourceDrafts([]);
+      setTplP6Codes(emptyP6FormMap(codeTypes));
+      await fetchActivities();
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err) || "Failed to add default activity");
     } finally {
       setSubmitting(false);
     }
@@ -381,7 +397,7 @@ export default function ActivitiesPage() {
         likelyDuration: likely,
         assuranceNoteId: formAssuranceNoteId || null,
         assignedResources: draftsToPayload(formResourceDrafts),
-        activityCodeByTypeId: buildActivityCodePayloadForUpdate(),
+        activityCodeByTypeId: buildActivityCodePayload(formP6Codes, codeTypes, "update", mayEditP6Codes),
       });
       toast.success("Activity updated");
       resetActivityForm();
@@ -390,6 +406,16 @@ export default function ActivitiesPage() {
       toast.error(getApiErrorMessage(err) || "Failed to update activity");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleDetachFromTemplate = async (id: string) => {
+    try {
+      await activitiesApi.detachFromTemplate(id);
+      toast.success("Activity detached — no longer syncs from fragnet defaults");
+      await fetchActivities();
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err) || "Failed to detach");
     }
   };
 
@@ -408,52 +434,9 @@ export default function ActivitiesPage() {
     }
   };
 
-  const handleCreateRelationship = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const lag = parseInt(relLag, 10) || 0;
-    if (!selectedFragnetId || !relPredecessorId || !relSuccessorId) {
-      toast.error("Select predecessor and successor activities");
-      return;
-    }
-    if (relPredecessorId === relSuccessorId) {
-      toast.error("Predecessor and successor must be different");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      await relationshipsApi.create({
-        fragnetId: selectedFragnetId,
-        predecessorActivityId: relPredecessorId,
-        successorActivityId: relSuccessorId,
-        relationshipType: relType,
-        lag,
-      });
-      toast.success("Relationship created");
-      resetRelForm();
-      await fetchRelationships();
-    } catch (err: unknown) {
-      toast.error(getApiErrorMessage(err) || "Failed to create relationship");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleDeleteRelationship = async (id: string) => {
-    if (!confirm("Remove this relationship?")) return;
-    setDeletingRelId(id);
-    try {
-      await relationshipsApi.delete(id);
-      toast.success("Relationship removed");
-      await fetchRelationships();
-    } catch (err: unknown) {
-      toast.error(getApiErrorMessage(err) || "Failed to delete relationship");
-    } finally {
-      setDeletingRelId(null);
-    }
-  };
-
   const openEditActivity = (a: Activity) => {
     setEditId(a.id);
+    setFormActivityCode(a.activityCode);
     setFormName(a.name);
     setFormBestDuration(String(a.bestDuration));
     setFormLikelyDuration(String(a.likelyDuration));
@@ -468,6 +451,153 @@ export default function ActivitiesPage() {
   const selectedFragnet = fragnets.find((f) => f.id === selectedFragnetId);
 
   const activityById = (id: string) => activities.find((a) => a.id === id);
+  const activityLabel = (id: string) => {
+    const a = activityById(id);
+    return a ? `${a.activityCode} — ${a.name}` : id;
+  };
+
+  const { predCount, succCount } = useMemo(
+    () => buildRelationshipAdjacency(activities, relationships),
+    [activities, relationships]
+  );
+
+  const filteredActivities = useMemo(
+    () => filterActivities(activities, relationships, deliverables, listFilters, codeTypes),
+    [activities, relationships, deliverables, listFilters, codeTypes]
+  );
+
+  const relValidationCount = useMemo(
+    () => validateFragnetRelationships(activities, relationships).filter((i) => i.severity === "critical").length,
+    [activities, relationships]
+  );
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredActivities.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(filteredActivities.map((a) => a.id)));
+  };
+
+  const handleBulkDetach = async () => {
+    const ids = [...selectedIds].filter((id) => {
+      const a = activityById(id);
+      return a?.isInherited && !a.detachedFromTemplate;
+    });
+    if (ids.length === 0) {
+      toast.error("No inherited activities selected");
+      return;
+    }
+    if (!confirm(`Detach ${ids.length} activit${ids.length === 1 ? "y" : "ies"} from fragnet defaults?`)) return;
+    setBulkBusy(true);
+    try {
+      for (const id of ids) await activitiesApi.detachFromTemplate(id);
+      toast.success(`Detached ${ids.length} activities`);
+      setSelectedIds(new Set());
+      await fetchActivities();
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err) || "Bulk detach failed");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = [...selectedIds];
+    if (!confirm(`Delete ${ids.length} activit${ids.length === 1 ? "y" : "ies"}?`)) return;
+    setBulkBusy(true);
+    try {
+      for (const id of ids) await activitiesApi.delete(id);
+      toast.success(`Deleted ${ids.length} activities`);
+      setSelectedIds(new Set());
+      await fetchActivities();
+      await fetchRelationships();
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err) || "Bulk delete failed");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const handleApplyDefaults = async () => {
+    if (!selectedFragnetId) return;
+    setSubmitting(true);
+    try {
+      const { data } = await fragnetsApi.syncActivityTemplates(selectedFragnetId);
+      toast.success(`Applied defaults: ${data.updated} updated, ${data.activities} new activities`);
+      await fetchActivities();
+      await fetchRelationships();
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err) || "Apply failed");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const createRelationship = async (data: {
+    predecessorActivityId: string;
+    successorActivityId: string;
+    relationshipType: RelationshipType;
+    lag: number;
+  }) => {
+    if (!selectedFragnetId) return;
+    const dup = relationships.some(
+      (r) =>
+        r.predecessorActivityId === data.predecessorActivityId &&
+        r.successorActivityId === data.successorActivityId &&
+        r.relationshipType === data.relationshipType
+    );
+    if (dup) {
+      toast.error("This relationship already exists");
+      return;
+    }
+    const hypothetical = [
+      ...relationships,
+      {
+        id: "new",
+        fragnetId: selectedFragnetId,
+        ...data,
+      },
+    ];
+    if (detectRelationshipCycles(activities, hypothetical).length > 0) {
+      toast.error("This link would create a circular dependency");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await relationshipsApi.create({ fragnetId: selectedFragnetId, ...data });
+      toast.success("Relationship created");
+      await fetchRelationships();
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err) || "Failed to create relationship");
+      throw err;
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const updateRelationship = async (
+    id: string,
+    data: { relationshipType?: RelationshipType; lag?: number }
+  ) => {
+    setSubmitting(true);
+    try {
+      await relationshipsApi.update(id, data);
+      toast.success("Relationship updated");
+      await fetchRelationships();
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err) || "Failed to update relationship");
+      throw err;
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const p6Snippet = (a: Activity) => {
     const d = a.deliverableId ? deliverables.find((x) => x.id === a.deliverableId) : undefined;
@@ -543,162 +673,238 @@ export default function ActivitiesPage() {
       {selectedFragnetId && (
         <>
           <Card>
-            <CardHeader className="flex flex-row items-start justify-between space-y-0">
-              <div>
-                <CardTitle>Activities — {selectedFragnet?.name}</CardTitle>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{activities.length} activit{activities.length === 1 ? "y" : "ies"}</p>
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <CardTitle className="truncate">Activities — {selectedFragnet?.name}</CardTitle>
+                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                  {activities.length} materialized activit{activities.length === 1 ? "y" : "ies"} on this fragnet
+                </p>
               </div>
-              <Dialog
-                open={createOpen}
-                onOpenChange={(o) => {
-                  setCreateOpen(o);
-                  if (o) {
-                    setFormResourceDrafts([]);
-                    setFormDeliverableId((prev) => prev || deliverables[0]?.id || "");
-                  }
-                  else resetActivityForm();
-                }}
-              >
-                {mayCreate ? (
-                  <DialogTrigger asChild>
-                    <Button><Plus className="h-4 w-4" /> Add Activity</Button>
-                  </DialogTrigger>
-                ) : null}
-                <DialogContent>
-                  <form onSubmit={handleCreateActivity} className="min-w-0">
-                    <DialogHeader><DialogTitle>Create Activity</DialogTitle></DialogHeader>
-                    <div className="grid min-w-0 gap-4 py-4">
-                      <div className="grid gap-2">
-                        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Deliverable</label>
-                        <select
-                          value={formDeliverableId}
-                          onChange={(e) => setFormDeliverableId(e.target.value)}
-                          disabled={loadingDeliverables || deliverables.length === 0}
-                          className={cn(
-                            "flex h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100",
-                            "focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 dark:focus:ring-offset-slate-900 disabled:opacity-50"
-                          )}
-                          required
-                        >
-                          {deliverables.length === 0 ? (
-                            <option value="">No deliverables found for this fragnet</option>
-                          ) : null}
-                          {deliverables.map((d) => (
-                            <option key={d.id} value={d.id}>{d.name}</option>
-                          ))}
-                        </select>
-                        {deliverables.length === 0 ? (
-                          <p className="text-xs text-slate-500 dark:text-slate-400">
-                            Create a deliverable for this fragnet before adding activities.
+              {mayCreate ? (
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Dialog
+                    open={templateOpen}
+                    onOpenChange={(o) => {
+                      setTemplateOpen(o);
+                      if (!o) {
+                        setTplCode("");
+                        setTplName("");
+                        setTplResourceDrafts([]);
+                        setTplP6Codes(emptyP6FormMap(codeTypes));
+                      } else if (codeTypes.length > 0) {
+                        setTplP6Codes(emptyP6FormMap(codeTypes));
+                      }
+                    }}
+                  >
+                    <DialogTrigger asChild>
+                      <Button type="button" variant="outline">
+                        <ListOrdered className="h-4 w-4" /> Add default activity
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[720px]">
+                      <form onSubmit={handleCreateDefaultActivity} className="min-w-0">
+                        <DialogHeader className="space-y-2 pb-2">
+                          <DialogTitle>Add default activity</DialogTitle>
+                          <p className="text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+                            Standard activity every deliverable in this fragnet receives automatically.
                           </p>
-                        ) : null}
-                      </div>
-                      <div className="grid gap-2">
-                        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Activity code</label>
-                        <Input value={formActivityCode} onChange={(e) => setFormActivityCode(e.target.value)} placeholder="e.g. A100" required />
-                      </div>
-                      <div className="grid gap-2">
-                        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Name</label>
-                        <Input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="Activity name" required />
-                      </div>
-                      <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
-                        <div className="grid min-w-0 gap-2">
-                          <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Best duration</label>
-                          <Input className="min-w-0" type="number" min={1} value={formBestDuration} onChange={(e) => setFormBestDuration(e.target.value)} required />
-                        </div>
-                        <div className="grid min-w-0 gap-2">
-                          <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Likely duration</label>
-                          <Input className="min-w-0" type="number" min={1} value={formLikelyDuration} onChange={(e) => setFormLikelyDuration(e.target.value)} required />
-                        </div>
-                      </div>
-                      {assuranceNotes.length > 0 && (
-                        <div className="grid gap-2">
-                          <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Assurance note (optional)</label>
-                          <select
-                            value={formAssuranceNoteId}
-                            onChange={(e) => setFormAssuranceNoteId(e.target.value)}
-                            className={cn("flex h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2")}
-                          >
-                            <option value="">None</option>
-                            {assuranceNotes.map((n) => (
-                              <option key={n.id} value={n.id}>{n.noteText.slice(0, 50)}{n.noteText.length > 50 ? "…" : ""}</option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
-                      {mayEditP6Codes && codeTypes.length > 0 ? (
-                        <div className="space-y-3 rounded-md border border-slate-200 p-3 dark:border-slate-700">
-                          <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Primavera activity codes</div>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">
-                            Optional: one value per type. Manage the catalog under Activity codes.
+                        </DialogHeader>
+                        <ActivityDefinitionForm
+                          scope="default"
+                          formActivityCode={tplCode}
+                          onActivityCode={setTplCode}
+                          formName={tplName}
+                          onName={setTplName}
+                          formBestDuration={tplBest}
+                          onBestDuration={setTplBest}
+                          formLikelyDuration={tplLikely}
+                          onLikelyDuration={setTplLikely}
+                          mayEditP6Codes={mayEditP6Codes}
+                          codeTypes={codeTypes}
+                          formP6Codes={tplP6Codes}
+                          onP6Code={(typeId, codeId) => setTplP6Codes((prev) => ({ ...prev, [typeId]: codeId }))}
+                          rateCardEntries={rateCardEntries}
+                          formResourceDrafts={tplResourceDrafts}
+                          onResourceDrafts={setTplResourceDrafts}
+                          submitting={submitting}
+                        />
+                        <DialogFooter className="gap-2 pt-4">
+                          <Button type="button" variant="outline" onClick={() => setTemplateOpen(false)}>
+                            Cancel
+                          </Button>
+                          <Button type="submit" disabled={submitting}>
+                            {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                            Add default activity
+                          </Button>
+                        </DialogFooter>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                  <Dialog
+                    open={createOpen}
+                    onOpenChange={(o) => {
+                      setCreateOpen(o);
+                      if (o) {
+                        setFormResourceDrafts([]);
+                        setFormDeliverableId((prev) => prev || deliverables[0]?.id || "");
+                      } else resetActivityForm();
+                    }}
+                  >
+                    <DialogTrigger asChild>
+                      <Button type="button">
+                        <Plus className="h-4 w-4" /> Add deliverable activity
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[720px]">
+                      <form onSubmit={handleCreateActivity} className="min-w-0">
+                        <DialogHeader className="space-y-2 pb-2">
+                          <DialogTitle>Add deliverable activity</DialogTitle>
+                          <p className="text-sm leading-relaxed text-slate-500 dark:text-slate-400">
+                            Custom activity for one deliverable only — not shared across the fragnet.
                           </p>
-                          {codeTypes.map((t) => (
-                            <div key={t.id} className="grid gap-1">
-                              <label className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t.name}</label>
-                              <select
-                                value={formP6Codes[t.id] ?? "__NONE__"}
-                                onChange={(e) => setFormP6Codes((prev) => ({ ...prev, [t.id]: e.target.value }))}
-                                className={cn(
-                                  "flex h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100",
-                                  "focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
-                                )}
-                              >
-                                <option value="__NONE__">— None —</option>
-                                {(t.codes ?? []).map((c) => (
-                                  <option key={c.id} value={c.id}>
-                                    {c.shortName || c.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-                      <ResourceAssignmentsEditor
-                        entries={rateCardEntries}
-                        value={formResourceDrafts}
-                        onChange={setFormResourceDrafts}
-                        disabled={submitting}
-                      />
-                    </div>
-                    <DialogFooter>
-                      <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
-                      <Button type="submit" disabled={submitting}>{submitting && <Loader2 className="h-4 w-4 animate-spin" />} Create</Button>
-                    </DialogFooter>
-                  </form>
-                </DialogContent>
-              </Dialog>
+                        </DialogHeader>
+                        <ActivityDefinitionForm
+                          scope="deliverable"
+                          deliverables={deliverables}
+                          loadingDeliverables={loadingDeliverables}
+                          formDeliverableId={formDeliverableId}
+                          onDeliverableId={setFormDeliverableId}
+                          formActivityCode={formActivityCode}
+                          onActivityCode={setFormActivityCode}
+                          formName={formName}
+                          onName={setFormName}
+                          formBestDuration={formBestDuration}
+                          onBestDuration={setFormBestDuration}
+                          formLikelyDuration={formLikelyDuration}
+                          onLikelyDuration={setFormLikelyDuration}
+                          assuranceNotes={assuranceNotes}
+                          formAssuranceNoteId={formAssuranceNoteId}
+                          onAssuranceNoteId={setFormAssuranceNoteId}
+                          mayEditP6Codes={mayEditP6Codes}
+                          codeTypes={codeTypes}
+                          formP6Codes={formP6Codes}
+                          onP6Code={(typeId, codeId) => setFormP6Codes((prev) => ({ ...prev, [typeId]: codeId }))}
+                          rateCardEntries={rateCardEntries}
+                          formResourceDrafts={formResourceDrafts}
+                          onResourceDrafts={setFormResourceDrafts}
+                          submitting={submitting}
+                        />
+                        <DialogFooter className="gap-2 pt-4">
+                          <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
+                          <Button type="submit" disabled={submitting}>{submitting && <Loader2 className="h-4 w-4 animate-spin" />} Create activity</Button>
+                        </DialogFooter>
+                      </form>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              ) : null}
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
+              {activities.length > 0 && (
+                <>
+                  <ActivityListToolbar
+                    filters={listFilters}
+                    onChange={setListFilters}
+                    deliverables={deliverables}
+                    codeTypes={codeTypes}
+                    totalCount={activities.length}
+                    filteredCount={filteredActivities.length}
+                  />
+                  <ActivityBulkActionsBar
+                    selectedCount={selectedIds.size}
+                    onClear={() => setSelectedIds(new Set())}
+                    onBulkDetach={handleBulkDetach}
+                    onBulkDelete={handleBulkDelete}
+                    busy={bulkBusy}
+                    canDetach={mayEditByRole}
+                    canDelete={mayDeleteByRole}
+                  />
+                  {mayEditByRole && (
+                    <Button type="button" variant="outline" size="sm" disabled={submitting} onClick={handleApplyDefaults}>
+                      Apply default activities to deliverables
+                    </Button>
+                  )}
+                  {relValidationCount > 0 && (
+                    <p className="text-sm text-red-700 dark:text-red-300">
+                      {relValidationCount} critical relationship issue{relValidationCount !== 1 ? "s" : ""} on this fragnet — review links below.
+                    </p>
+                  )}
+                </>
+              )}
               {loadingActivities ? (
                 <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-slate-400" /></div>
               ) : activities.length === 0 ? (
                 <p className="py-8 text-center text-slate-500 dark:text-slate-400">No activities. Add one to get started.</p>
+              ) : filteredActivities.length === 0 ? (
+                <p className="py-8 text-center text-slate-500 dark:text-slate-400">No activities match filters.</p>
               ) : (
+                <div className="overflow-x-auto rounded-md border border-slate-200 dark:border-slate-700">
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-10">
+                        <input
+                          type="checkbox"
+                          aria-label="Select all"
+                          checked={selectedIds.size === filteredActivities.length && filteredActivities.length > 0}
+                          onChange={toggleSelectAll}
+                        />
+                      </TableHead>
                       <TableHead>Code</TableHead>
+                      <TableHead>Deliverable</TableHead>
+                      <TableHead>Type</TableHead>
                       <TableHead>Name</TableHead>
+                      <TableHead>Links</TableHead>
                       <TableHead>P6 codes</TableHead>
                       <TableHead>Best</TableHead>
                       <TableHead>Likely</TableHead>
-                      <TableHead>Resources</TableHead>
+                      <TableHead>Cost (best)</TableHead>
                       <TableHead className="w-[120px] text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {activities.map((a) => (
+                    {filteredActivities.map((a) => {
+                      const cost = activityListCostPreview(a, rateCardEntries, "best");
+                      const dName = deliverables.find((d) => d.id === a.deliverableId)?.name ?? "—";
+                      const preds = predCount.get(a.id) ?? 0;
+                      const succs = succCount.get(a.id) ?? 0;
+                      return (
                       <TableRow key={a.id}>
+                        <TableCell>
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${a.activityCode}`}
+                            checked={selectedIds.has(a.id)}
+                            onChange={() => toggleSelect(a.id)}
+                          />
+                        </TableCell>
                         <TableCell className="font-medium">{a.activityCode}</TableCell>
+                        <TableCell className="max-w-[140px] truncate text-sm text-slate-600 dark:text-slate-400" title={dName}>
+                          {dName}
+                        </TableCell>
+                        <TableCell>
+                          <ActivityOwnershipBadge activity={a} />
+                          {a.isInherited && !a.detachedFromTemplate && (
+                            <p className="mt-1 text-xs text-violet-600 dark:text-violet-400">Synced from fragnet default</p>
+                          )}
+                          {a.detachedFromTemplate && (
+                            <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">Detached — edits won&apos;t sync</p>
+                          )}
+                        </TableCell>
                         <TableCell>{a.name}</TableCell>
+                        <TableCell className="text-xs tabular-nums text-slate-600 dark:text-slate-400">
+                          {preds}P / {succs}S
+                        </TableCell>
                         <TableCell className="max-w-[220px] truncate text-xs text-slate-600 dark:text-slate-400" title={p6Snippet(a)}>
                           {p6Snippet(a)}
                         </TableCell>
                         <TableCell>{a.bestDuration}</TableCell>
                         <TableCell>{a.likelyDuration}</TableCell>
-                        <TableCell className="text-sm text-slate-600 dark:text-slate-400">
-                          {a.assignedResources?.length ?? 0}
+                        <TableCell className="text-sm tabular-nums text-slate-700 dark:text-slate-300">
+                          {cost.totalCost > 0 ? `$${cost.totalCost.toLocaleString()}` : "—"}
+                          {cost.missingRates > 0 && (
+                            <span className="ml-1 text-xs text-amber-600">({cost.missingRates} unrated)</span>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
@@ -720,84 +926,39 @@ export default function ActivitiesPage() {
                                   <Pencil className="h-4 w-4" />
                                 </Button>
                               </DialogTrigger>
-                              <DialogContent>
+                              <DialogContent className="sm:max-w-[720px]">
                                 <form onSubmit={handleUpdateActivity} className="min-w-0">
-                                  <DialogHeader><DialogTitle>Edit Activity</DialogTitle></DialogHeader>
-                                    <div className="grid min-w-0 gap-4 py-4">
-                                      <div className="grid gap-2">
-                                        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Deliverable</label>
-                                        <select
-                                          value={formDeliverableId}
-                                          onChange={(e) => setFormDeliverableId(e.target.value)}
-                                          disabled={loadingDeliverables || deliverables.length === 0}
-                                          className={cn(
-                                            "flex h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100",
-                                            "focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 dark:focus:ring-offset-slate-900 disabled:opacity-50"
-                                          )}
-                                        >
-                                          {deliverables.map((d) => (
-                                            <option key={d.id} value={d.id}>{d.name}</option>
-                                          ))}
-                                        </select>
-                                      </div>
-                                      <div className="grid gap-2">
-                                        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Name</label>
-                                        <Input value={formName} onChange={(e) => setFormName(e.target.value)} required />
-                                      </div>
-                                      <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
-                                        <div className="grid min-w-0 gap-2">
-                                          <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Best duration</label>
-                                          <Input className="min-w-0" type="number" min={1} value={formBestDuration} onChange={(e) => setFormBestDuration(e.target.value)} />
-                                        </div>
-                                        <div className="grid min-w-0 gap-2">
-                                          <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Likely duration</label>
-                                          <Input className="min-w-0" type="number" min={1} value={formLikelyDuration} onChange={(e) => setFormLikelyDuration(e.target.value)} />
-                                        </div>
-                                      </div>
-                                      {assuranceNotes.length > 0 && (
-                                        <div className="grid gap-2">
-                                          <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Assurance note</label>
-                                          <select value={formAssuranceNoteId} onChange={(e) => setFormAssuranceNoteId(e.target.value)} className={cn("flex h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2")}>
-                                            <option value="">None</option>
-                                            {assuranceNotes.map((n) => (
-                                              <option key={n.id} value={n.id}>{n.noteText.slice(0, 50)}{n.noteText.length > 50 ? "…" : ""}</option>
-                                            ))}
-                                          </select>
-                                        </div>
-                                      )}
-                                      {mayEditP6Codes && codeTypes.length > 0 ? (
-                                        <div className="space-y-3 rounded-md border border-slate-200 p-3 dark:border-slate-700">
-                                          <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Primavera activity codes</div>
-                                          {codeTypes.map((t) => (
-                                            <div key={t.id} className="grid gap-1">
-                                              <label className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t.name}</label>
-                                              <select
-                                                value={formP6Codes[t.id] ?? "__NONE__"}
-                                                onChange={(e) => setFormP6Codes((prev) => ({ ...prev, [t.id]: e.target.value }))}
-                                                className={cn(
-                                                  "flex h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100",
-                                                  "focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
-                                                )}
-                                              >
-                                                <option value="__NONE__">— None —</option>
-                                                {(t.codes ?? []).map((c) => (
-                                                  <option key={c.id} value={c.id}>
-                                                    {c.shortName || c.name}
-                                                  </option>
-                                                ))}
-                                              </select>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      ) : null}
-                                      <ResourceAssignmentsEditor
-                                        entries={rateCardEntries}
-                                        value={formResourceDrafts}
-                                        onChange={setFormResourceDrafts}
-                                        disabled={submitting}
-                                      />
-                                    </div>
-                                  <DialogFooter>
+                                  <DialogHeader className="space-y-2 pb-2">
+                                    <DialogTitle>Edit activity</DialogTitle>
+                                  </DialogHeader>
+                                  <ActivityDefinitionForm
+                                    scope="deliverable"
+                                    deliverables={deliverables}
+                                    loadingDeliverables={loadingDeliverables}
+                                    formDeliverableId={formDeliverableId}
+                                    onDeliverableId={setFormDeliverableId}
+                                    formActivityCode={formActivityCode}
+                                    onActivityCode={setFormActivityCode}
+                                    formName={formName}
+                                    onName={setFormName}
+                                    formBestDuration={formBestDuration}
+                                    onBestDuration={setFormBestDuration}
+                                    formLikelyDuration={formLikelyDuration}
+                                    onLikelyDuration={setFormLikelyDuration}
+                                    assuranceNotes={assuranceNotes}
+                                    formAssuranceNoteId={formAssuranceNoteId}
+                                    onAssuranceNoteId={setFormAssuranceNoteId}
+                                    mayEditP6Codes={mayEditP6Codes}
+                                    codeTypes={codeTypes}
+                                    formP6Codes={formP6Codes}
+                                    onP6Code={(typeId, codeId) => setFormP6Codes((prev) => ({ ...prev, [typeId]: codeId }))}
+                                    rateCardEntries={rateCardEntries}
+                                    formResourceDrafts={formResourceDrafts}
+                                    onResourceDrafts={setFormResourceDrafts}
+                                    submitting={submitting}
+                                    lockActivityCode
+                                  />
+                                  <DialogFooter className="gap-2 pt-4">
                                     <Button type="button" variant="outline" onClick={() => setEditId(null)}>Cancel</Button>
                                     <Button type="submit" disabled={submitting}>{submitting && <Loader2 className="h-4 w-4 animate-spin" />} Save</Button>
                                   </DialogFooter>
@@ -805,6 +966,17 @@ export default function ActivitiesPage() {
                               </DialogContent>
                             </Dialog>
 
+                            {a.isInherited && !a.detachedFromTemplate && mayEditByRole && (
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                type="button"
+                                onClick={() => handleDetachFromTemplate(a.id)}
+                                title="Detach from fragnet defaults"
+                              >
+                                <Unlink className="h-4 w-4" />
+                              </Button>
+                            )}
                             <Button
                               variant="outline"
                               size="icon"
@@ -817,105 +989,39 @@ export default function ActivitiesPage() {
                           </div>
                         </TableCell>
                       </TableRow>
-                    ))}
+                    );
+                    })}
                   </TableBody>
                 </Table>
+                </div>
               )}
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader className="flex flex-row items-start justify-between space-y-0">
-              <div>
-                <CardTitle className="flex items-center gap-2"><Link2 className="h-5 w-5" /> Relationships</CardTitle>
-                <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{relationships.length} relationship{relationships.length !== 1 ? "s" : ""}</p>
-              </div>
-              <Dialog open={relCreateOpen} onOpenChange={(o) => { setRelCreateOpen(o); if (!o) resetRelForm(); }}>
-                {mayEditByRole ? (
-                  <DialogTrigger asChild>
-                    <Button disabled={activities.length < 2}><Plus className="h-4 w-4" /> Add Relationship</Button>
-                  </DialogTrigger>
-                ) : null}
-                <DialogContent>
-                  <form onSubmit={handleCreateRelationship}>
-                    <DialogHeader><DialogTitle>Create Relationship</DialogTitle></DialogHeader>
-                    <div className="grid gap-4 py-4">
-                      <div className="grid gap-2">
-                        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Predecessor</label>
-                        <select value={relPredecessorId} onChange={(e) => setRelPredecessorId(e.target.value)} className={cn("flex h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2")} required>
-                          <option value="">Select activity</option>
-                          {activities.map((a) => (
-                            <option key={a.id} value={a.id}>{a.activityCode} — {a.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="grid gap-2">
-                        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Successor</label>
-                        <select value={relSuccessorId} onChange={(e) => setRelSuccessorId(e.target.value)} className={cn("flex h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2")} required>
-                          <option value="">Select activity</option>
-                          {activities.map((a) => (
-                            <option key={a.id} value={a.id}>{a.activityCode} — {a.name}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="grid gap-2">
-                        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Type</label>
-                        <select value={relType} onChange={(e) => setRelType(e.target.value as RelationshipType)} className={cn("flex h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2")}>
-                          {RELATIONSHIP_TYPES.map((t) => (
-                            <option key={t} value={t}>{t}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="grid gap-2">
-                        <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Lag</label>
-                        <Input type="number" value={relLag} onChange={(e) => setRelLag(e.target.value)} />
-                      </div>
-                    </div>
-                    <DialogFooter>
-                      <Button type="button" variant="outline" onClick={resetRelForm}>Cancel</Button>
-                      <Button type="submit" disabled={submitting}>{submitting && <Loader2 className="h-4 w-4 animate-spin" />} Create</Button>
-                    </DialogFooter>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            </CardHeader>
-            <CardContent>
-              {loadingRelationships ? (
-                <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>
-              ) : relationships.length === 0 ? (
-                <p className="py-6 text-center text-slate-500 dark:text-slate-400">No relationships. Add at least two activities, then link them.</p>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Predecessor</TableHead>
-                      <TableHead>Successor</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Lag</TableHead>
-                      <TableHead className="w-[80px] text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {relationships.map((r) => (
-                      <TableRow key={r.id}>
-                        <TableCell className="font-medium">{activityById(r.predecessorActivityId)?.activityCode ?? r.predecessorActivityId}</TableCell>
-                        <TableCell>{activityById(r.successorActivityId)?.activityCode ?? r.successorActivityId}</TableCell>
-                        <TableCell>{r.relationshipType}</TableCell>
-                        <TableCell>{r.lag}</TableCell>
-                        <TableCell className="text-right">
-                          {mayDeleteRelationshipByRole ? (
-                            <Button variant="outline" size="icon" onClick={() => handleDeleteRelationship(r.id)} disabled={deletingRelId === r.id}>
-                              {deletingRelId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-600" />}
-                            </Button>
-                          ) : null}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
+          <ActivityRelationshipsPanel
+            activities={activities}
+            relationships={relationships}
+            loading={loadingRelationships}
+            mayEdit={mayEditByRole}
+            mayDelete={mayDeleteRelationshipByRole}
+            submitting={submitting}
+            onCreate={createRelationship}
+            onUpdate={updateRelationship}
+            onDelete={async (id) => {
+              if (!confirm("Remove this relationship?")) return;
+              setDeletingRelId(id);
+              try {
+                await relationshipsApi.delete(id);
+                toast.success("Relationship removed");
+                await fetchRelationships();
+              } catch (err: unknown) {
+                toast.error(getApiErrorMessage(err) || "Failed to delete relationship");
+              } finally {
+                setDeletingRelId(null);
+              }
+            }}
+            activityLabel={activityLabel}
+          />
         </>
       )}
     </div>

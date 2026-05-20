@@ -113,7 +113,7 @@ export function assertAssignedResourcesExistOnRateCard(
 ): void {
   const hasAnyAssignment = rows.some((r) => r.assignedResources.length > 0);
   if (!hasAnyAssignment) return;
-  const { byTypeName } = buildP6ResourceMap(rateCardEntries);
+  const { byTypeName } = buildP6ResourceMap(rateCardEntries, { deterministicScope: "p6-export-validation" });
   for (let i = 0; i < rows.length; i++) {
     const assigned = rows[i]!.assignedResources;
     for (const ar of assigned) {

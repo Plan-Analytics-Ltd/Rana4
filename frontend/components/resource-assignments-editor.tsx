@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { RateCardEntry } from "@/lib/api";
+import { assignmentCost } from "@/lib/schedule-metrics";
+import { rateCardLookup } from "@/lib/schedule-types";
 
 /** Sent to API: only type + name (+ optional units); server applies rate from card */
 export type ResourceAssignmentDraft = {
@@ -21,10 +23,13 @@ type Props = {
   value: ResourceAssignmentDraft[];
   onChange: (next: ResourceAssignmentDraft[]) => void;
   disabled?: boolean;
+  /** Activity duration in days (for cost preview when units omitted). */
+  durationDays?: number;
 };
 
-export function ResourceAssignmentsEditor({ entries, value, onChange, disabled }: Props) {
+export function ResourceAssignmentsEditor({ entries, value, onChange, disabled, durationDays = 1 }: Props) {
   const types = entries ? [...new Set(entries.map((e) => e.resourceType))].sort() : [];
+  const lookup = rateCardLookup(entries ?? []);
 
   const namesForType = (t: string) =>
     (entries ?? []).filter((e) => e.resourceType === t).sort((a, b) => a.resourceName.localeCompare(b.resourceName));
@@ -82,6 +87,22 @@ export function ResourceAssignmentsEditor({ entries, value, onChange, disabled }
     );
   }
 
+  let summaryHours = 0;
+  let summaryCost = 0;
+  for (const row of value) {
+    if (!row.resourceType || !row.resourceName) continue;
+    const entry = lookup.get(keyOf(row.resourceType, row.resourceName));
+    if (!entry) continue;
+    const u = row.units.trim() === "" ? undefined : Number(row.units);
+    const { hours, cost } = assignmentCost(
+      { resourceType: row.resourceType, resourceName: row.resourceName, rate: entry.rate, unit: entry.unit, units: u },
+      durationDays,
+      lookup
+    );
+    summaryHours += hours;
+    summaryCost += cost;
+  }
+
   return (
     <div className="min-w-0 space-y-3">
       <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -110,6 +131,21 @@ export function ResourceAssignmentsEditor({ entries, value, onChange, disabled }
                 .map((r) => keyOf(r.resourceType, r.resourceName))
             );
             const filteredOptions = options.filter((e) => !selectedOther.has(keyOf(e.resourceType, e.resourceName)));
+            const entry = row.resourceType && row.resourceName ? lookup.get(keyOf(row.resourceType, row.resourceName)) : undefined;
+            const lineUnits = row.units.trim() === "" ? undefined : Number(row.units);
+            const linePreview = entry
+              ? assignmentCost(
+                  {
+                    resourceType: row.resourceType,
+                    resourceName: row.resourceName,
+                    rate: entry.rate,
+                    unit: entry.unit,
+                    units: lineUnits,
+                  },
+                  durationDays,
+                  lookup
+                )
+              : null;
             return (
               <div
                 key={i}
@@ -164,6 +200,11 @@ export function ResourceAssignmentsEditor({ entries, value, onChange, disabled }
                     ))}
                   </select>
                 </div>
+                {linePreview && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Line cost: £{linePreview.cost.toLocaleString()} · {linePreview.hours}h @ £{entry!.rate}/{entry!.unit}
+                  </p>
+                )}
                 <div className="grid min-w-0 gap-1 sm:grid-cols-[1fr_auto] sm:items-end sm:gap-3">
                   <div className="min-w-0">
                     <label className="text-xs text-slate-600 dark:text-slate-400">Units (optional)</label>
@@ -187,6 +228,19 @@ export function ResourceAssignmentsEditor({ entries, value, onChange, disabled }
               </div>
             );
           })}
+        </div>
+      )}
+      {value.length > 0 && (
+        <div className="flex flex-wrap gap-2 rounded-md border border-slate-100 bg-slate-50 p-2 text-xs dark:border-slate-700 dark:bg-slate-900">
+          <span className="font-medium text-slate-600 dark:text-slate-400">
+            {value.filter((r) => r.resourceName).length} resources
+          </span>
+          <span>·</span>
+          <span>{Math.round(summaryHours * 10) / 10}h total</span>
+          <span>·</span>
+          <span className="font-semibold text-slate-800 dark:text-slate-200">
+            £{Math.round(summaryCost).toLocaleString()} activity cost
+          </span>
         </div>
       )}
     </div>

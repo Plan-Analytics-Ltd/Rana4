@@ -12,7 +12,9 @@ import {
   p6DeterministicActvTypeId,
   p6DeterministicTaskId,
 } from "./p6DeterministicId.service.js";
-import type { P6PendingSemanticTaskRow } from "./export.service.js";
+import type { P6PendingSemanticTaskRow, P6TaskPredExportRow } from "./export.service.js";
+import { buildP6TaskRsrcAndTaskPredSections } from "./p6XerScheduleTables.service.js";
+import { assertValidGeneratedXer } from "./p6XerExportValidation.service.js";
 
 type XerSection = {
   tIndex: number;
@@ -115,6 +117,8 @@ export type GenerateXerWithWbsOptions = {
   pendingSemanticTaskRows?: P6PendingSemanticTaskRow[] | null;
   /** Namespace for deterministic TASK ids (e.g. companyId:projectId:projectCode). */
   xerDeterministicScope?: string | null;
+  /** Predecessor/successor activity IDs (task_code) and lag hours for `TASKPRED`. */
+  taskPredExportRows?: P6TaskPredExportRow[] | null;
 };
 
 function projIdFromProjectSection(lines: string[]): string {
@@ -127,6 +131,17 @@ function projIdFromProjectSection(lines: string[]): string {
   const v = vals[idx];
   if (v === undefined || String(v).trim() === "") throw new Error("XER template PROJECT proj_id is empty");
   return String(v).trim();
+}
+
+function clndrIdFromProjectSection(lines: string[]): number {
+  const sec = getSection(lines, "PROJECT");
+  const row = sec.rowLines[0];
+  if (!row) return 107653;
+  const vals = splitRow(row).slice(1);
+  const idx = sec.fields.indexOf("clndr_id");
+  if (idx < 0) return 107653;
+  const n = Number(vals[idx]);
+  return Number.isFinite(n) && n > 0 ? n : 107653;
 }
 
 const ACTVTYPE_XER_FIELDS = [
@@ -259,6 +274,7 @@ function taskXerRowFromSemantic(input: {
   taskId: number;
   projId: string;
   wbsId: number;
+  clndrId: number;
   taskCode: string;
   taskName: string;
   durationHours: number;
@@ -267,7 +283,7 @@ function taskXerRowFromSemantic(input: {
   v.task_id = input.taskId;
   v.proj_id = input.projId;
   v.wbs_id = input.wbsId;
-  v.clndr_id = 107653;
+  v.clndr_id = input.clndrId;
   v.phys_complete_pct = 0;
   v.rev_fdbk_flag = "N";
   v.est_wt = 1;
@@ -322,12 +338,16 @@ function appendP6ActivityTaskTables(params: {
   catalog: ActivityCodeCatalogForExport | null | undefined;
   pendingSemanticTaskRows: P6PendingSemanticTaskRow[] | null | undefined;
   xerDeterministicScope: string;
-}): string[] {
+  clndrId: number;
+}): { lines: string[]; taskCodeToTaskId: Map<string, number> } {
   const blocks: string[] = [];
   const projId = projIdFromProjectSection(params.lines);
+  const clndrId = params.clndrId;
   const cat = params.catalog;
   const pending = params.pendingSemanticTaskRows ?? [];
   const scope = params.xerDeterministicScope;
+
+  const taskCodeToTaskId = new Map<string, number>();
 
   let ranaCodeToNumeric = new Map<string, number>();
 
@@ -353,9 +373,9 @@ function appendP6ActivityTaskTables(params: {
         actvtypeXerRow({
           actv_code_type_id: typeNumById.get(t.id)!,
           proj_id: projId,
-          seq_num: Number.isFinite(t.seqNum) ? t.seqNum : i + 1,
+          seq_num: Number.isFinite(t.seqNum) ? t.seqNum : i,
           actv_short_len: 40,
-          actv_code_type: slugU,
+          actv_code_type: String(t.name).trim() || slugU,
         })
       );
     }
@@ -386,7 +406,7 @@ function appendP6ActivityTaskTables(params: {
         blocks.push(
           actvcodeXerRow({
             actv_code_id: codeNum,
-            parent_actv_code_id: parentNum,
+            parent_actv_code_id: parentNum ?? typeNum,
             actv_code_type_id: typeNum,
             actv_code_name: c.name,
             short_name: shortName,
@@ -419,14 +439,16 @@ function appendP6ActivityTaskTables(params: {
       if (!taskCode || !wbsPath || !taskName || !Number.isFinite(dur)) continue;
       const wbsIdNum = wbsNumericIdFromSpreadsheetPath(wbsPath, params.wbs, params.projectShortNameForWbsPaths);
       const taskNum = p6DeterministicTaskId(scope, taskCode);
+      taskCodeToTaskId.set(taskCode, taskNum);
       taskDataRowStrings.push(
         taskXerRowFromSemantic({
           taskId: taskNum,
           projId,
           wbsId: wbsIdNum,
+          clndrId,
           taskCode,
           taskName,
-          durationHours: dur,
+          durationHours: Math.max(1, Math.round(dur)),
         })
       );
 
@@ -464,11 +486,17 @@ function appendP6ActivityTaskTables(params: {
       blocks.push(joinRow(["%T", "TASKACTV"]));
       blocks.push(joinRow(["%F", ...TASKACTV_XER_FIELDS]));
       blocks.push(...taskActvRowStrings);
+    } else if (hasActv) {
+      blocks.push(joinRow(["%T", "TASKACTV"]));
+      blocks.push(joinRow(["%F", ...TASKACTV_XER_FIELDS]));
     }
+  } else {
+    blocks.push(joinRow(["%T", "TASK"]));
+    blocks.push(joinRow(["%F", ...TASK_XER_FIELDS]));
   }
 
-  if (blocks.length === 0) return params.lines;
-  return appendBeforeEof(params.lines, blocks);
+  if (blocks.length === 0) return { lines: params.lines, taskCodeToTaskId };
+  return { lines: appendBeforeEof(params.lines, blocks), taskCodeToTaskId };
 }
 
 function sortActivityCodesParentsBeforeChildren(codes: ActivityCodeCatalogForExport["codes"]): ActivityCodeCatalogForExport["codes"] {
@@ -517,7 +545,7 @@ function actvtypeXerRow(input: {
 
 function actvcodeXerRow(input: {
   actv_code_id: number;
-  parent_actv_code_id: number | null;
+  parent_actv_code_id: number;
   actv_code_type_id: number;
   actv_code_name: string;
   short_name: string;
@@ -530,7 +558,7 @@ function actvcodeXerRow(input: {
     if (i >= 0) vals[i] = cleanCell(value);
   };
   set("actv_code_id", input.actv_code_id);
-  set("parent_actv_code_id", input.parent_actv_code_id === null ? "" : input.parent_actv_code_id);
+  set("parent_actv_code_id", input.parent_actv_code_id);
   set("actv_code_type_id", input.actv_code_type_id);
   set("actv_code_name", input.actv_code_name);
   set("short_name", input.short_name);
@@ -629,9 +657,19 @@ export async function generateXERWithWBS(
 
   outLines = appendProjwbsRows(outLines, appended);
 
-  // RSRC + RSRCRATE (XER only): generated from a single, unified resource map derived from the rate card.
-  const { resources } = buildP6ResourceMap(rateCardEntries);
+  const cat = opts?.activityCatalog;
+  const pending = opts?.pendingSemanticTaskRows ?? [];
+  const scope =
+    String(opts?.xerDeterministicScope ?? "").trim() ||
+    `${String(project_name).trim()}:${String(project_short_name).trim()}`;
+  const rateStartDate = "2026-01-01";
+  const clndrId = clndrIdFromProjectSection(outLines);
+  const { resources, byShortName, byTypeName } = buildP6ResourceMap(rateCardEntries, {
+    deterministicScope: scope,
+    rateStartDate,
+  });
 
+  // RSRC + RSRCRATE (XER): rate card with deterministic ids (aligned with spreadsheet when exportContext is used).
   const rsrcFields = [
     "rsrc_id",
     "parent_rsrc_id",
@@ -674,24 +712,21 @@ export async function generateXERWithWBS(
       const idx = rsrcFields.indexOf(name);
       if (idx >= 0) vals[idx] = cleanCell(value);
     };
-    // Dynamic fields
     set("rsrc_id", r.rsrc_id);
     set("rsrc_seq_num", r.rsrc_seq_num);
     set("rsrc_name", r.rsrc_name);
     set("rsrc_short_name", r.rsrc_short_name);
-
-    // Fixed values (STRICT)
-    set("clndr_id", 107653);
-    set("def_qty_per_hr", 1);
-    set("cost_qty_type", "QT_Hour");
+    set("clndr_id", clndrId);
+    set("def_qty_per_hr", r.cost_qty_type === "QT_Day" ? 8 : 1);
+    set("cost_qty_type", r.cost_qty_type);
     set("active_flag", "Y");
     set("auto_compute_act_flag", "Y");
     set("def_cost_qty_link_flag", "Y");
     set("ot_flag", "N");
     set("curr_id", 26781);
-    set("rsrc_type", "RT_Labor");
+    set("unit_id", r.cost_qty_type === "QT_Day" ? "d" : "h");
+    set("rsrc_type", r.rsrc_type);
     set("timesheet_flag", "N");
-
     return joinRow(["%R", ...vals]);
   });
 
@@ -718,7 +753,7 @@ export async function generateXERWithWBS(
     set("rsrc_id", r.rsrc_id);
     set("max_qty_per_hr", 1);
     set("cost_per_qty", r.cost_per_qty);
-    set("start_date", "2025-01-01");
+    set("start_date", rateStartDate);
     return joinRow(["%R", ...vals]);
   });
 
@@ -732,20 +767,33 @@ export async function generateXERWithWBS(
 
   outLines = appendBeforeEof(outLines, resourceSections);
 
-  const cat = opts?.activityCatalog;
-  const pending = opts?.pendingSemanticTaskRows ?? [];
-  const scope =
-    String(opts?.xerDeterministicScope ?? "").trim() ||
-    `${String(project_name).trim()}:${String(project_short_name).trim()}`;
-  outLines = appendP6ActivityTaskTables({
+  const projIdForSchedule = projIdFromProjectSection(outLines);
+  const appendResult = appendP6ActivityTaskTables({
     lines: outLines,
     wbs,
     projectShortNameForWbsPaths: String(project_short_name).trim() || String(project_name).trim(),
     catalog: cat ?? null,
     pendingSemanticTaskRows: pending,
     xerDeterministicScope: scope,
+    clndrId,
   });
+  outLines = appendResult.lines;
 
-  return outLines.join(eol);
+  outLines = appendBeforeEof(
+    outLines,
+    buildP6TaskRsrcAndTaskPredSections({
+      projId: projIdForSchedule,
+      scope,
+      byShortName,
+      byTypeName,
+      pendingSemanticTaskRows: pending,
+      taskCodeToTaskId: appendResult.taskCodeToTaskId,
+      taskPredExportRows: opts?.taskPredExportRows ?? [],
+    })
+  );
+
+  const xerOut = outLines.join(eol);
+  assertValidGeneratedXer(xerOut);
+  return xerOut;
 }
 

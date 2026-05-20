@@ -11,6 +11,7 @@ import {
   Tags,
   Package,
   Download,
+  FileSearch,
   TableProperties,
   ClipboardList,
   Upload,
@@ -33,7 +34,8 @@ const platformNav = [
   { href: "/app/activity-codes", label: "Activity codes", icon: Tags },
   { href: "/app/deliverables", label: "Deliverables", icon: Package },
   { href: "/app/rate-card", label: "Rate card", icon: TableProperties },
-  { href: "/app/export", label: "Export", icon: Download },
+  { href: "/app/export", label: "Export Center", icon: Download },
+  { href: "/app/xer-audit", label: "XER Audit", icon: FileSearch },
   { href: "/app/import", label: "Import", icon: Upload },
 ];
 

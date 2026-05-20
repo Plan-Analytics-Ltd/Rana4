@@ -491,6 +491,11 @@ export async function importFullTemplate(
       deliverableByFragAndName.set(`${normalize(frag.name)}||${normalize(created.name)}`, created);
     }
 
+    const { materializeTemplatesForDeliverable } = await import("../fragnetActivityTemplate.service.js");
+    for (const del of deliverableByFragAndName.values()) {
+      await materializeTemplatesForDeliverable(del.id, companyIdStr);
+    }
+
     // Create activities
     const activitiesCreated: (Activity & { deliverable: Deliverable })[] = [];
     for (const a of bundle.activities) {

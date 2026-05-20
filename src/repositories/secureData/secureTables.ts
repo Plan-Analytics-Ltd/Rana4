@@ -195,7 +195,8 @@ async function auditDecrypt(table: SecureTable, operation: SensitiveAccessAction
 }
 
 export async function lockSecureRecord(client: SecureDbClient, lockKey: string): Promise<void> {
-  await client.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+  // pg_advisory_xact_lock() returns PostgreSQL `void`; $queryRaw cannot deserialize that column.
+  await client.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
 }
 
 export async function readSecurePayload<T>(

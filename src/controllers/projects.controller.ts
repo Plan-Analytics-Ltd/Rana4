@@ -256,7 +256,12 @@ type FullDataActivity = {
   relationships: { predecessors: FullDataActivityRel[]; successors: FullDataActivityRel[] };
 };
 type FullDataDeliverable = { id: string; name: string; activities: FullDataActivity[] };
-type FullDataFragnet = { id: string; name: string; deliverables: FullDataDeliverable[] };
+type FullDataFragnet = {
+  id: string;
+  name: string;
+  activityTemplateCount: number;
+  deliverables: FullDataDeliverable[];
+};
 
 /** GET /projects/:id/full-data — nested view for read-only project viewer UI. */
 export async function getFullData(req: AuthRequest, res: Response): Promise<void> {
@@ -288,6 +293,9 @@ export async function getFullData(req: AuthRequest, res: Response): Promise<void
                 likelyDuration: true,
                 assignedResources: true,
                 fragnetId: true,
+                isInherited: true,
+                templateActivityId: true,
+                detachedFromTemplate: true,
               },
             },
           },
@@ -296,6 +304,12 @@ export async function getFullData(req: AuthRequest, res: Response): Promise<void
     });
 
     const fragnetIds = fragnets.map((f) => f.id);
+    const templateCounts = await prisma.fragnetActivityTemplate.groupBy({
+      by: ["fragnetId"],
+      where: { companyId: req.user.companyId, fragnetId: { in: fragnetIds } },
+      _count: { _all: true },
+    });
+    const templateCountByFragnet = new Map(templateCounts.map((t) => [t.fragnetId, t._count._all]));
     const relationships = await prisma.relationship.findMany({
       where: { companyId: req.user.companyId, projectId, fragnetId: { in: fragnetIds } },
       select: {
@@ -349,6 +363,7 @@ export async function getFullData(req: AuthRequest, res: Response): Promise<void
       fragnets: fragnets.map((f) => ({
         id: f.id,
         name: f.name,
+        activityTemplateCount: templateCountByFragnet.get(f.id) ?? 0,
         deliverables: f.deliverables.map((d) => ({
           id: d.id,
           name: d.name,
@@ -359,6 +374,9 @@ export async function getFullData(req: AuthRequest, res: Response): Promise<void
             bestDuration: a.bestDuration,
             likelyDuration: a.likelyDuration,
             assignedResources: a.assignedResources,
+            isInherited: a.isInherited,
+            templateActivityId: a.templateActivityId,
+            detachedFromTemplate: a.detachedFromTemplate,
             relationships: {
               predecessors: (predecessorsByActivityId.get(a.id) ?? []).sort((x, y) => x.activityCode.localeCompare(y.activityCode)),
               successors: (successorsByActivityId.get(a.id) ?? []).sort((x, y) => x.activityCode.localeCompare(y.activityCode)),

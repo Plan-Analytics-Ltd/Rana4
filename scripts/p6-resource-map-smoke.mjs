@@ -1,5 +1,5 @@
 /**
- * Smoke: lock down P6 resource short-name generation.
+ * Smoke: lock down P6 resource short-name generation and deterministic ids.
  *
  * Runs against compiled output to avoid tsx/esbuild platform issues.
  * Run: npm run test:p6-resources
@@ -14,16 +14,17 @@ function expectEqual(actual, expected, label) {
 }
 
 function main() {
+  const scope = "smoke-test-scope";
   const entries = [
-    { resourceType: "IGNORED", resourceName: "Senior - Project Manager", unit: "hr", rate: 152 },
-    { resourceType: "IGNORED2", resourceName: "Senior - Project Manager", unit: "hr", rate: 152 },
-    { resourceType: "X", resourceName: "Architect", unit: "hr", rate: 100 },
-    { resourceType: "Y", resourceName: "Quality Inspector", unit: "hr", rate: 80 },
-    { resourceType: "Z", resourceName: "Lead--Engineer (MEP)", unit: "hr", rate: 90 },
+    { resourceType: "IGNORED", resourceName: "Senior - Project Manager", rsrcShortName: "PLARES-1", unit: "hr", rate: 152 },
+    { resourceType: "IGNORED2", resourceName: "Senior - Project Manager", rsrcShortName: "PLARES-2", unit: "hr", rate: 152 },
+    { resourceType: "X", resourceName: "Architect", rsrcShortName: "PLARES-3", unit: "hr", rate: 100 },
+    { resourceType: "Y", resourceName: "Quality Inspector", rsrcShortName: "PLARES-4", unit: "hr", rate: 80 },
+    { resourceType: "Z", resourceName: "Lead--Engineer (MEP)", rsrcShortName: "PLARES-5", unit: "hr", rate: 90 },
   ];
 
-  const a = buildP6ResourceMap(entries);
-  const b = buildP6ResourceMap(entries);
+  const a = buildP6ResourceMap(entries, { deterministicScope: scope });
+  const b = buildP6ResourceMap(entries, { deterministicScope: scope });
 
   // Determinism: exact same output on repeated runs
   expectEqual(JSON.stringify(a.resources), JSON.stringify(b.resources), "determinism");
@@ -33,30 +34,25 @@ function main() {
     throw new Error(`expected unique rsrc_short_name values, got ${JSON.stringify(shorts)}`);
   }
 
-  // Spec examples
-  // Sorted by resourceName first, so order will be: Architect, Lead--Engineer (MEP), Quality Inspector, Senior..., Senior...
-  expectEqual(a.resources[0]?.rsrc_short_name, "PLARES-1", "first resource short name");
-  expectEqual(a.resources[1]?.rsrc_short_name, "PLARES-2", "second resource short name");
-  expectEqual(a.resources[2]?.rsrc_short_name, "PLARES-3", "third resource short name");
-  expectEqual(a.resources[3]?.rsrc_short_name, "PLARES-4", "fourth resource short name");
-  expectEqual(a.resources[4]?.rsrc_short_name, "PLARES-5", "fifth resource short name");
+  expectEqual(a.resources.length, entries.length, "resource row count");
 
-  // Base format constraints
+  // Order follows P6 sort (resource name / type), not spreadsheet row order.
+  for (const e of entries) {
+    const r = a.resources.find((x) => x.rsrc_short_name === e.rsrcShortName);
+    if (!r) {
+      throw new Error(`missing resource for short name ${JSON.stringify(e.rsrcShortName)}`);
+    }
+    expectEqual(r.rsrc_name, e.resourceName, `rsrc_name for ${e.rsrcShortName}`);
+  }
+
   for (const r of a.resources) {
     if (!/^PLARES-\d+$/.test(r.rsrc_short_name)) {
       throw new Error(`short name must be PLARES-<number>, got ${r.rsrc_short_name}`);
     }
-  }
-
-  // ID rules (strict ranges)
-  for (let i = 0; i < a.resources.length; i++) {
-    const index = i + 1;
-    const r = a.resources[i];
-    expectEqual(r.rsrc_id, 99999900 + index, `rsrc_id index ${index}`);
-    expectEqual(r.rsrc_seq_num, 460000000 + index, `rsrc_seq_num index ${index}`);
-    expectEqual(r.rsrc_rate_id, 999900 + index, `rsrc_rate_id index ${index}`);
+    if (r.rsrc_id < 1_266_000_000 || r.rsrc_id >= 1_266_000_000 + 6_000_000) {
+      throw new Error(`rsrc_id out of deterministic band: ${r.rsrc_id}`);
+    }
   }
 }
 
 main();
-

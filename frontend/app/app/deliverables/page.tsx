@@ -471,6 +471,7 @@ export default function DeliverablesPage() {
                     value={formResourceDrafts}
                     onChange={setFormResourceDrafts}
                     disabled={submitting}
+                    durationDays={Math.max(0.01, Number(formBestDuration) || 1)}
                   />
                 </div>
                 <DialogFooter>
@@ -587,6 +588,7 @@ export default function DeliverablesPage() {
                                     value={formResourceDrafts}
                                     onChange={setFormResourceDrafts}
                                     disabled={submitting}
+                                    durationDays={Math.max(0.01, Number(formBestDuration) || 1)}
                                   />
                                 </div>
                                 <DialogFooter>

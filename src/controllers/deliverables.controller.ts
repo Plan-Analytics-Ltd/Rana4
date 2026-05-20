@@ -9,6 +9,7 @@ import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
 import { auditUpdateIfChanged } from "../services/auditDiff.service.js";
 import { replaceActivityCodeAssignmentsForDeliverable } from "../services/activityCodeAssignments.service.js";
+import { materializeTemplatesForDeliverable } from "../services/fragnetActivityTemplate.service.js";
 
 /**
  * Prisma `DeliverableInclude` must list `activityCodeAssignments` (schema + `npx prisma generate`).
@@ -128,6 +129,13 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
         return;
       }
       throw e;
+    }
+    if (fragnetIdTrimmed) {
+      try {
+        await materializeTemplatesForDeliverable(deliverable.id, req.user.companyId);
+      } catch (matErr) {
+        console.error("materializeTemplatesForDeliverable", matErr);
+      }
     }
     const deliverableOut = await prisma.deliverable.findFirstOrThrow({
       where: { id: deliverable.id, companyId: req.user.companyId },

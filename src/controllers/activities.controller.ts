@@ -14,6 +14,7 @@ import { getActivityVersions } from "../services/activityVersions.service.js";
 import { rollbackActivityToVersion } from "../services/activityRollback.service.js";
 import { changeApprovalState } from "../services/activityApproval.service.js";
 import { replaceActivityCodeAssignmentsForActivity } from "../services/activityCodeAssignments.service.js";
+import { detachActivityFromTemplate } from "../services/fragnetActivityTemplate.service.js";
 
 function isPrismaUniqueViolation(err: unknown): boolean {
   return (
@@ -154,6 +155,8 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
       assignedResources: assignedParsed.assignments as Prisma.InputJsonValue,
       projectId: fragnet.projectId,
       companyId: req.user.companyId,
+      isInherited: false,
+      detachedFromTemplate: true,
     };
     const activity = await prisma.activity.create({ data: createData });
     try {
@@ -627,5 +630,34 @@ export async function reject(req: AuthRequest, res: Response): Promise<void> {
     if (status === 409) return void res.status(409).json({ error: (err as Error).message || "Action not allowed in current state" });
     console.error(err);
     res.status(500).json({ error: "Failed to reject activity" });
+  }
+}
+
+/** PATCH /activities/:id/detach-from-template — stop syncing with fragnet template. */
+export async function detachFromTemplate(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const { id } = req.params as { id: string };
+    const activity = await prisma.activity.findFirst({
+      where: { id, companyId: req.user.companyId },
+    });
+    if (!activity) {
+      res.status(404).json({ error: "Activity not found" });
+      return;
+    }
+    const membership = await requireProjectAccess(activity.projectId, req.user);
+    requirePermission(membership.role, "activity", "update");
+    await detachActivityFromTemplate(id, req.user.companyId);
+    const updated = await prisma.activity.findFirstOrThrow({
+      where: { id, companyId: req.user.companyId },
+      include: { activityCodeAssignments: { include: { type: true, code: true } } },
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to detach activity from template" });
   }
 }

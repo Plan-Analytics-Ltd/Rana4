@@ -14,6 +14,7 @@ router.patch("/:id/status", activitiesController.updateStatus);
 router.patch("/:id/submit", activitiesController.submit);
 router.patch("/:id/approve", activitiesController.approve);
 router.patch("/:id/reject", activitiesController.reject);
+router.patch("/:id/detach-from-template", activitiesController.detachFromTemplate);
 router.post("/:id/rollback", activitiesController.rollback);
 router.delete("/:id", activitiesController.remove);
 

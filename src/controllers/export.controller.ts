@@ -184,7 +184,7 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
-    const { buffer, pendingSemanticRows } = await generateFragnetXlsx(
+    const { buffer, pendingSemanticRows, taskPredExportRows } = await generateFragnetXlsx(
       generatedWbs,
       deliverablesForExport,
       activitiesForExport,
@@ -223,11 +223,19 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
     XLSX.utils.book_append_sheet(wbsReviewWb, wbsReviewSheet, "WBS");
     const wbsReviewBuffer = XLSX.write(wbsReviewWb, { type: "buffer", bookType: "xlsx" }) as Buffer;
 
-    const xerString = await generateXERWithWBS(generatedWbs, pname, projectCode, rateCardEntries, {
-      activityCatalog,
-      pendingSemanticTaskRows: pendingSemanticRows,
-      xerDeterministicScope: `${companyId}:${fragnet.projectId}:${projectCode}`,
-    });
+    let xerString: string;
+    try {
+      xerString = await generateXERWithWBS(generatedWbs, pname, projectCode, rateCardEntries, {
+        activityCatalog,
+        pendingSemanticTaskRows: pendingSemanticRows,
+        xerDeterministicScope: `${companyId}:${fragnet.projectId}:${projectCode}`,
+        taskPredExportRows,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      res.status(400).json({ error: "P6 XER export failed", detail: msg });
+      return;
+    }
     const zip = new JSZip();
     zip.file(`${safeName}_fragnet.xlsx`, buffer);
     zip.file(`${safeName}_wbs_review.xlsx`, wbsReviewBuffer);
@@ -414,7 +422,7 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
       return;
     }
 
-    const { buffer, pendingSemanticRows } = await generateStandardXlsx(
+    const { buffer, pendingSemanticRows, taskPredExportRows } = await generateStandardXlsx(
       generatedWbs,
       fragnetsForExport,
       scenario as ExportScenario,
@@ -446,11 +454,19 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
     XLSX.utils.book_append_sheet(wbsReviewWb, wbsReviewSheet, "WBS");
     const wbsReviewBuffer = XLSX.write(wbsReviewWb, { type: "buffer", bookType: "xlsx" }) as Buffer;
 
-    const xerString = await generateXERWithWBS(generatedWbs, pname, projectCode, rateCardEntries, {
-      activityCatalog,
-      pendingSemanticTaskRows: pendingSemanticRows,
-      xerDeterministicScope: `${companyId}:${standard.projectId}:${projectCode}`,
-    });
+    let xerString: string;
+    try {
+      xerString = await generateXERWithWBS(generatedWbs, pname, projectCode, rateCardEntries, {
+        activityCatalog,
+        pendingSemanticTaskRows: pendingSemanticRows,
+        xerDeterministicScope: `${companyId}:${standard.projectId}:${projectCode}`,
+        taskPredExportRows,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      res.status(400).json({ error: "P6 XER export failed", detail: msg });
+      return;
+    }
 
     const zip = new JSZip();
     zip.file(`${safeName}_standard.xlsx`, buffer);

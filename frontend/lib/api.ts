@@ -314,6 +314,51 @@ export const fragnetsApi = {
   update: (id: string, data: { name?: string; description?: string }) =>
     api.put<Fragnet>(`/fragnets/${id}`, data),
   delete: (id: string) => api.delete(`/fragnets/${id}`),
+  listActivityTemplates: (fragnetId: string) =>
+    api.get<FragnetActivityTemplate[]>(`/fragnets/${fragnetId}/activity-templates`),
+  createActivityTemplate: (
+    fragnetId: string,
+    data: {
+      templateCode: string;
+      name: string;
+      bestDuration: number;
+      likelyDuration: number;
+      orderIndex?: number;
+      assignedResources?: { resourceType: string; resourceName: string; units?: number }[];
+      activityCodeByTypeId?: Record<string, string | null>;
+    }
+  ) => api.post<FragnetActivityTemplate>(`/fragnets/${fragnetId}/activity-templates`, data),
+  updateActivityTemplate: (
+    fragnetId: string,
+    templateId: string,
+    data: Partial<{
+      name: string;
+      bestDuration: number;
+      likelyDuration: number;
+      orderIndex: number;
+      assignedResources: { resourceType: string; resourceName: string; units?: number }[];
+      activityCodeByTypeId?: Record<string, string | null>;
+    }>
+  ) => api.put<FragnetActivityTemplate>(`/fragnets/${fragnetId}/activity-templates/${templateId}`, data),
+  deleteActivityTemplate: (fragnetId: string, templateId: string) =>
+    api.delete(`/fragnets/${fragnetId}/activity-templates/${templateId}`),
+  createTemplateRelationship: (
+    fragnetId: string,
+    data: {
+      predecessorTemplateId: string;
+      successorTemplateId: string;
+      relationshipType: RelationshipType;
+      lag?: number;
+    }
+  ) => api.post(`/fragnets/${fragnetId}/activity-templates/relationships`, data),
+  syncActivityTemplates: (fragnetId: string) =>
+    api.post<{ updated: number; deliverables: number; activities: number; relationships: number }>(
+      `/fragnets/${fragnetId}/activity-templates/sync`
+    ),
+  materializeActivityTemplates: (fragnetId: string) =>
+    api.post<{ deliverables: number; activities: number; relationships: number }>(
+      `/fragnets/${fragnetId}/activity-templates/materialize`
+    ),
 };
 
 export type ActivityCodeValue = {
@@ -359,7 +404,36 @@ export type Activity = {
   assuranceNoteId: string | null;
   assignedResources?: AssignedResource[];
   activityCodeAssignments?: ActivityCodeAssignmentRow[];
+  isInherited?: boolean;
+  templateActivityId?: string | null;
+  detachedFromTemplate?: boolean;
   createdAt: string;
+};
+
+export type FragnetActivityTemplate = {
+  id: string;
+  fragnetId: string;
+  templateCode: string;
+  name: string;
+  bestDuration: number;
+  likelyDuration: number;
+  orderIndex: number;
+  assignedResources?: AssignedResource[];
+  activityCodeAssignments?: ActivityCodeAssignmentRow[];
+  predecessorIn: {
+    id: string;
+    predecessorTemplateId: string;
+    successorTemplateId: string;
+    relationshipType: RelationshipType;
+    lag: number;
+  }[];
+  successorIn: {
+    id: string;
+    predecessorTemplateId: string;
+    successorTemplateId: string;
+    relationshipType: RelationshipType;
+    lag: number;
+  }[];
 };
 
 export const activitiesApi = {
@@ -402,6 +476,7 @@ export const activitiesApi = {
   rollback: (id: string, targetVersion: number) =>
     api.post<{ updated: Activity; fromVersion: number; toVersion: number }>(`/activities/${id}/rollback`, { targetVersion }),
   delete: (id: string) => api.delete(`/activities/${id}`),
+  detachFromTemplate: (id: string) => api.patch<Activity>(`/activities/${id}/detach-from-template`),
 };
 
 export const activityCodeTypesApi = {
@@ -467,6 +542,10 @@ export const relationshipsApi = {
     relationshipType: RelationshipType;
     lag?: number;
   }) => api.post<Relationship>("/relationships", data),
+  update: (
+    id: string,
+    data: { relationshipType?: RelationshipType; lag?: number }
+  ) => api.put<Relationship>(`/relationships/${id}`, data),
   delete: (id: string) => api.delete(`/relationships/${id}`),
 };
 

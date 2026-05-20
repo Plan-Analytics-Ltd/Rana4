@@ -29,6 +29,16 @@ import {
 } from "./p6SpreadsheetExportValidation.service.js";
 import { mergeInheritedAndOwnActivityAssignments } from "./activityCodeAssignmentsMerge.service.js";
 
+/** Calendar hours per schedule day for P6 export (durations and relationship lag in DB are stored in days). */
+export const P6_SCHEDULE_HOURS_PER_DAY = 8;
+
+export type P6TaskPredExportRow = {
+  predecessorTaskCode: string;
+  successorTaskCode: string;
+  relationshipType: string;
+  lagHr: number;
+};
+
 export type DeliverableForExport = {
   id: string;
   name: string;
@@ -156,6 +166,8 @@ export type P6PendingSemanticTaskRow = {
   inheritDeliverableId: string | null;
   /** Matches {@link TASK_SEMANTIC_DB_HEADERS_BASE} column order (12 cells). */
   baseCells: (string | number | null)[];
+  /** Drives TASKRSRC units/costs in XER (same rows as rate card). */
+  assignedResources: AssignedResourceStored[];
 };
 
 type TaskRowP6Meta = {
@@ -278,8 +290,6 @@ const RSRC_USER_HEADERS = [
   "(*)Price / Unit(£/h)",
 ] as const;
 
-const RSRC_RESOURCE_TYPE = "Labor";
-const RSRC_UNIT_ID = "hr";
 const RSRC_DEFAULT_UNITS_PER_TIME = 8;
 
 function isFiniteNumber(value: unknown): value is number {
@@ -346,7 +356,7 @@ function validateRsrcRows(rows: (string | number)[][]): void {
       throw new Error(`RSRC export: invalid rsrc_id at row ${i + 2}`);
     }
     // rsrc_type (index 3) should be the fixed string "Labor"
-    if (typeof r[3] !== "string" || String(r[3]).trim().toLowerCase() !== "labor") {
+    if (typeof r[3] !== "string" || !["labor", "material"].includes(String(r[3]).trim().toLowerCase())) {
       throw new Error(`RSRC export: invalid rsrc_type at row ${i + 2}`);
     }
     // def_qty_per_hr (index 6) should be numeric
@@ -360,13 +370,17 @@ function validateRsrcRows(rows: (string | number)[][]): void {
   }
 }
 
+function spreadsheetResourceTypeLabel(r: P6Resource): string {
+  return r.rsrc_type === "RT_Mat" ? "Material" : "Labor";
+}
+
 function buildRsrcDataRows(resources: P6Resource[]): (string | number)[][] {
   const rows = resources.map((r) => [
     r.rsrc_id,
     r.rsrc_short_name,
     r.rsrc_name,
-    RSRC_RESOURCE_TYPE,
-    RSRC_UNIT_ID,
+    spreadsheetResourceTypeLabel(r),
+    r.unit || (r.cost_qty_type === "QT_Day" ? "d" : "hr"),
     "",
     RSRC_DEFAULT_UNITS_PER_TIME,
     r.cost_per_qty,
@@ -510,7 +524,7 @@ export async function generateFragnetXlsx(
   projectNameForWbsCode: string,
   rateCardEntries: RateCardEntry[] = [],
   opts?: FragnetExportOptions | null
-): Promise<{ buffer: Buffer; pendingSemanticRows: P6PendingSemanticTaskRow[] }> {
+): Promise<{ buffer: Buffer; pendingSemanticRows: P6PendingSemanticTaskRow[]; taskPredExportRows: P6TaskPredExportRow[] }> {
   const idFor = (n: number) => `A${n}`;
   const suggestAvailableIds = (startN: number, used: Set<string>, count = 8): string[] => {
     const out: string[] = [];
@@ -551,7 +565,10 @@ export async function generateFragnetXlsx(
   const wbsCodeById = buildXerAlignedWbsCodeMap(generatedWbs, projectNameForWbsCode);
   const rootWbsCode = wbsCodeById.get(generatedWbs.project_wbs.wbs_id) ?? String(projectNameForWbsCode ?? "").trim();
 
-  const p6Resources = buildP6ResourceMap(rateCardEntries);
+  const resourceDeterministicScope = p6Ctx
+    ? `${p6Ctx.companyId}:${p6Ctx.ranaProjectId}:${String(projectNameForWbsCode).trim()}`
+    : "no-p6-context";
+  const p6Resources = buildP6ResourceMap(rateCardEntries, { deterministicScope: resourceDeterministicScope });
   const resourceKey = (type: string, name: string): string =>
     `${String(type ?? "").trim().toLowerCase()}|${String(name ?? "").trim().toLowerCase()}`;
 
@@ -587,14 +604,21 @@ export async function generateFragnetXlsx(
       return;
     }
     if (!isFiniteNumber(rawDurationDays)) {
-      droppedActivityRows.push({ reason: "missing/invalid duration", id: exportId, name: rawName, duration: rawDurationDays });
-      return;
+      if (rowP6?.rowKind !== "DELIVERABLE") {
+        droppedActivityRows.push({ reason: "missing/invalid duration", id: exportId, name: rawName, duration: rawDurationDays });
+        return;
+      }
     }
-    const durationHours = rawDurationDays;
-    if (!Number.isFinite(durationHours)) {
-      droppedActivityRows.push({ reason: "invalid converted duration", id: exportId, name: rawName, duration: rawDurationDays });
-      return;
+    let durationDays = Number(rawDurationDays);
+    if (!Number.isFinite(durationDays) || durationDays <= 0) {
+      if (rowP6?.rowKind === "DELIVERABLE") {
+        durationDays = 1;
+      } else {
+        droppedActivityRows.push({ reason: "missing/invalid duration", id: exportId, name: rawName, duration: rawDurationDays });
+        return;
+      }
     }
+    const durationHours = Math.max(1, Math.round(durationDays * P6_SCHEDULE_HOURS_PER_DAY));
     const resourceList = buildResourceListCell(assigned);
     let ownAssignmentKey: string | null = null;
     let inheritDeliverableId: string | null = null;
@@ -625,7 +649,7 @@ export async function generateFragnetXlsx(
       durationHours,
       0,
     ];
-    pendingSemanticRows.push({ ownAssignmentKey, inheritDeliverableId, baseCells });
+    pendingSemanticRows.push({ ownAssignmentKey, inheritDeliverableId, baseCells, assignedResources: assigned });
   };
 
   const p6Row = (deliverableBlockId: string, rowKind: "DELIVERABLE" | "ACTIVITY", exportActivityId: string): TaskRowP6Meta | undefined =>
@@ -662,8 +686,16 @@ export async function generateFragnetXlsx(
     relationships.forEach((r) => {
       const predId = activityMap.get(r.predecessorActivityId) ?? r.predecessorActivityId;
       const succId = activityMap.get(r.successorActivityId) ?? r.successorActivityId;
-      // Keep lag value as-is (no conversion) while still using lag_hr_cnt field name.
-      taskPredDataRows.push([predId, succId, r.relationshipType, projectId, projectId, r.lag, null]);
+      // `lag` is stored in days; spreadsheet / XER use lag hours = days × {@link P6_SCHEDULE_HOURS_PER_DAY}.
+      taskPredDataRows.push([
+        predId,
+        succId,
+        r.relationshipType,
+        projectId,
+        projectId,
+        Math.round(Number(r.lag) * P6_SCHEDULE_HOURS_PER_DAY) || 0,
+        null,
+      ]);
     });
   } else {
     // Block-based duplication per deliverable — only activities that belong to each deliverable.
@@ -723,7 +755,15 @@ export async function generateFragnetXlsx(
         const predId = activityMapInBlock.get(r.predecessorActivityId);
         const succId = activityMapInBlock.get(r.successorActivityId);
         if (predId && succId) {
-          taskPredDataRows.push([predId, succId, r.relationshipType, projectId, projectId, r.lag, null]);
+          taskPredDataRows.push([
+        predId,
+        succId,
+        r.relationshipType,
+        projectId,
+        projectId,
+        Math.round(Number(r.lag) * P6_SCHEDULE_HOURS_PER_DAY) || 0,
+        null,
+      ]);
         }
       });
 
@@ -779,8 +819,15 @@ export async function generateFragnetXlsx(
   assertUniqueTaskCodesInSheet(taskDataRows);
   assertEveryTaskHasWbsPath(taskDataRows);
 
+  const taskPredExportRows: P6TaskPredExportRow[] = taskPredDataRows.map((row) => ({
+    predecessorTaskCode: String(row[0] ?? ""),
+    successorTaskCode: String(row[1] ?? ""),
+    relationshipType: String(row[2] ?? "FS"),
+    lagHr: Number(row[5] ?? 0),
+  }));
+
   const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
-  return { buffer, pendingSemanticRows };
+  return { buffer, pendingSemanticRows, taskPredExportRows };
 }
 
 /**
@@ -799,7 +846,7 @@ export async function generateStandardXlsx(
   projectNameForWbsCode: string,
   rateCardEntries: RateCardEntry[] = [],
   opts?: StandardExportOptions | null
-): Promise<{ buffer: Buffer; pendingSemanticRows: P6PendingSemanticTaskRow[] }> {
+): Promise<{ buffer: Buffer; pendingSemanticRows: P6PendingSemanticTaskRow[]; taskPredExportRows: P6TaskPredExportRow[] }> {
   const idFor = (n: number) => `A${n}`;
   const suggestAvailableIds = (startN: number, used: Set<string>, count = 8): string[] => {
     const out: string[] = [];
@@ -839,7 +886,10 @@ export async function generateStandardXlsx(
   const wbsCodeById = buildXerAlignedWbsCodeMap(generatedWbs, projectNameForWbsCode);
   const rootWbsCode =
     wbsCodeById.get(generatedWbs.project_wbs.wbs_id) ?? String(projectNameForWbsCode ?? "").trim();
-  const p6Resources = buildP6ResourceMap(rateCardEntries);
+  const resourceDeterministicScope = p6Ctx
+    ? `${p6Ctx.companyId}:${p6Ctx.ranaProjectId}:${String(projectNameForWbsCode).trim()}`
+    : "no-p6-context";
+  const p6Resources = buildP6ResourceMap(rateCardEntries, { deterministicScope: resourceDeterministicScope });
   const resourceKey = (type: string, name: string): string =>
     `${String(type ?? "").trim().toLowerCase()}|${String(name ?? "").trim().toLowerCase()}`;
 
@@ -875,14 +925,21 @@ export async function generateStandardXlsx(
       return;
     }
     if (!isFiniteNumber(rawDurationDays)) {
-      droppedActivityRows.push({ reason: "missing/invalid duration", id: exportId, name: rawName, duration: rawDurationDays });
-      return;
+      if (rowP6?.rowKind !== "DELIVERABLE") {
+        droppedActivityRows.push({ reason: "missing/invalid duration", id: exportId, name: rawName, duration: rawDurationDays });
+        return;
+      }
     }
-    const durationHours = rawDurationDays;
-    if (!Number.isFinite(durationHours)) {
-      droppedActivityRows.push({ reason: "invalid converted duration", id: exportId, name: rawName, duration: rawDurationDays });
-      return;
+    let durationDays = Number(rawDurationDays);
+    if (!Number.isFinite(durationDays) || durationDays <= 0) {
+      if (rowP6?.rowKind === "DELIVERABLE") {
+        durationDays = 1;
+      } else {
+        droppedActivityRows.push({ reason: "missing/invalid duration", id: exportId, name: rawName, duration: rawDurationDays });
+        return;
+      }
     }
+    const durationHours = Math.max(1, Math.round(durationDays * P6_SCHEDULE_HOURS_PER_DAY));
     const resourceList = buildResourceListCell(assigned);
     let ownAssignmentKey: string | null = null;
     let inheritDeliverableId: string | null = null;
@@ -913,7 +970,7 @@ export async function generateStandardXlsx(
       durationHours,
       0,
     ];
-    pendingSemanticRows.push({ ownAssignmentKey, inheritDeliverableId, baseCells });
+    pendingSemanticRows.push({ ownAssignmentKey, inheritDeliverableId, baseCells, assignedResources: assigned });
   };
 
   const stdP6Row = (
@@ -1012,7 +1069,15 @@ export async function generateStandardXlsx(
         const predId = activityMapInBlock.get(r.predecessorActivityId);
         const succId = activityMapInBlock.get(r.successorActivityId);
         if (predId && succId) {
-          taskPredDataRows.push([predId, succId, r.relationshipType, projectId, projectId, r.lag, null]);
+          taskPredDataRows.push([
+        predId,
+        succId,
+        r.relationshipType,
+        projectId,
+        projectId,
+        Math.round(Number(r.lag) * P6_SCHEDULE_HOURS_PER_DAY) || 0,
+        null,
+      ]);
         }
       });
 
@@ -1073,6 +1138,13 @@ export async function generateStandardXlsx(
   assertUniqueTaskCodesInSheet(taskDataRows);
   assertEveryTaskHasWbsPath(taskDataRows);
 
+  const taskPredExportRows: P6TaskPredExportRow[] = taskPredDataRows.map((row) => ({
+    predecessorTaskCode: String(row[0] ?? ""),
+    successorTaskCode: String(row[1] ?? ""),
+    relationshipType: String(row[2] ?? "FS"),
+    lagHr: Number(row[5] ?? 0),
+  }));
+
   const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
-  return { buffer, pendingSemanticRows };
+  return { buffer, pendingSemanticRows, taskPredExportRows };
 }

@@ -32,11 +32,13 @@ import {
 import { useProject } from "@/contexts/project-context";
 import { cn } from "@/lib/utils";
 import { hasPermission } from "@/lib/project-permissions";
+import { FragnetDefaultActivitiesPanel } from "@/components/fragnet/FragnetDefaultActivitiesPanel";
 
 export default function FragnetsPage() {
   const { selectedProjectId, selectedProjectRole } = useProject();
   const mayEdit = hasPermission(selectedProjectRole, "fragnet", "update");
   const mayDelete = hasPermission(selectedProjectRole, "fragnet", "delete");
+  const mayEditP6Codes = hasPermission(selectedProjectRole, "activityCode", "update");
   const [standards, setStandards] = useState<Standard[]>([]);
   const [selectedStandardId, setSelectedStandardId] = useState<string>("");
   const [fragnets, setFragnets] = useState<Fragnet[]>([]);
@@ -48,6 +50,7 @@ export default function FragnetsPage() {
   const [formDescription, setFormDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [defaultsFragnetId, setDefaultsFragnetId] = useState<string>("");
 
   const fetchStandards = async () => {
     setLoadingStandards(true);
@@ -78,6 +81,9 @@ export default function FragnetsPage() {
     try {
       const { data } = await fragnetsApi.listByStandard(selectedStandardId);
       setFragnets(data);
+      if (data.length > 0 && !data.some((f) => f.id === defaultsFragnetId)) {
+        setDefaultsFragnetId(data[0].id);
+      }
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err) || "Failed to load fragnets");
       setFragnets([]);
@@ -366,6 +372,32 @@ export default function FragnetsPage() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {fragnets.length > 0 && defaultsFragnetId && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Default activities for</label>
+            <select
+              value={defaultsFragnetId}
+              onChange={(e) => setDefaultsFragnetId(e.target.value)}
+              className="h-10 min-w-[200px] rounded-md border border-slate-200 bg-white px-3 text-sm dark:border-slate-600 dark:bg-slate-800"
+            >
+              {fragnets.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <FragnetDefaultActivitiesPanel
+            fragnetId={defaultsFragnetId}
+            fragnetName={fragnets.find((f) => f.id === defaultsFragnetId)?.name ?? ""}
+            projectId={selectedProjectId ?? ""}
+            mayEdit={mayEdit}
+            mayEditP6Codes={mayEditP6Codes}
+          />
+        </div>
       )}
     </div>
   );
