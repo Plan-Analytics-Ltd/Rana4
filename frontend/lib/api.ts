@@ -286,6 +286,17 @@ export type IntelligenceFinding = {
   evidence: { label: string; value: string | number }[];
 };
 
+export type IntelligenceDriver = {
+  driverType: string;
+  confidence: "LOW" | "MEDIUM" | "HIGH";
+  confidenceScore: number;
+  impactLevel: "LOW" | "MEDIUM" | "HIGH";
+  title: string;
+  summary: string;
+  reasoning: string[];
+  evidence: { label: string; value: string | number }[];
+};
+
 export const intelligenceApi = {
   getDeliverableBenchmark: (projectId: string, deliverableId: string, opts?: { projectIds?: string[] }) => {
     const pid = requireProjectId(projectId);
@@ -299,6 +310,16 @@ export const intelligenceApi = {
     const projectIds = (opts?.projectIds ?? []).filter(Boolean);
     return api.get<{ findings: IntelligenceFinding[] }>(
       `/projects/${encodeURIComponent(pid)}/intelligence/findings/${encodeURIComponent(deliverableId)}`,
+      {
+        params: projectIds.length ? { projectIds: projectIds.join(",") } : undefined,
+      }
+    );
+  },
+  getDeliverableDrivers: (projectId: string, deliverableId: string, opts?: { projectIds?: string[] }) => {
+    const pid = requireProjectId(projectId);
+    const projectIds = (opts?.projectIds ?? []).filter(Boolean);
+    return api.get<{ drivers: IntelligenceDriver[] }>(
+      `/projects/${encodeURIComponent(pid)}/intelligence/drivers/${encodeURIComponent(deliverableId)}`,
       {
         params: projectIds.length ? { projectIds: projectIds.join(",") } : undefined,
       }
@@ -646,6 +667,8 @@ export const activitiesApi = {
   rollback: (id: string, targetVersion: number) =>
     api.post<{ updated: Activity; fromVersion: number; toVersion: number }>(`/activities/${id}/rollback`, { targetVersion }),
   delete: (id: string) => api.delete(`/activities/${id}`),
+  bulkDelete: (ids: string[]) =>
+    api.post<{ deleted: string[]; failed: { id: string; error: string }[] }>("/activities/bulk-delete", { ids }),
   detachFromTemplate: (id: string) => api.patch<Activity>(`/activities/${id}/detach-from-template`),
 };
 

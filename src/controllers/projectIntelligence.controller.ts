@@ -10,6 +10,7 @@ import {
 import { getSimilarDeliverables, getSimilarProjects } from "../services/intelligence/similarity.service.js";
 import { getDeliverableBenchmark } from "../services/intelligence/benchmark.service.js";
 import { getDeliverableFindings } from "../services/intelligence/findings.service.js";
+import { getDeliverableDrivers } from "../services/intelligence/driverAnalysis.service.js";
 
 /** GET /projects/:projectId/intelligence/profile */
 export async function getIntelligenceProfile(req: AuthRequest, res: Response): Promise<void> {
@@ -209,6 +210,43 @@ export async function getDeliverableFindingsForDeliverable(req: AuthRequest, res
     }
     console.error(err);
     res.status(500).json({ error: "Findings generation failed" });
+  }
+}
+
+/** GET /projects/:projectId/intelligence/drivers/:deliverableId */
+export async function getDeliverableDriversForDeliverable(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const projectId = String(req.params.projectId ?? "").trim();
+    const deliverableId = String(req.params.deliverableId ?? "").trim();
+    const membership = await requireProjectAccess(projectId, req.user, { adminOverride: true });
+    requirePermission(membership.role, "project", "read");
+
+    const projectIdsRaw = String(req.query.projectIds ?? "").trim();
+    const selectedProjectIds =
+      projectIdsRaw && projectIdsRaw !== "null" && projectIdsRaw !== "undefined"
+        ? projectIdsRaw.split(",").map((s) => s.trim()).filter(Boolean)
+        : undefined;
+
+    const result = await getDeliverableDrivers({
+      projectId,
+      companyId: req.user.companyId,
+      deliverableId,
+      selectedProjectIds,
+    });
+
+    res.json(result);
+  } catch (err) {
+    const status = err && typeof err === "object" && "status" in err ? Number((err as any).status) : 500;
+    if (status === 404) {
+      res.status(404).json({ error: (err as Error).message || "Not found" });
+      return;
+    }
+    console.error(err);
+    res.status(500).json({ error: "Driver analysis failed" });
   }
 }
 

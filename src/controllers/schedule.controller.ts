@@ -71,6 +71,7 @@ export async function recalculateSchedule(req: AuthRequest, res: Response): Prom
       startDate,
       scenario: body.scenario === "likely" ? "likely" : "best",
       persist: body.persist !== false,
+      repairDeliverableLinkages: true,
     });
 
     res.json({

@@ -66,13 +66,19 @@ export default function ProjectViewerPage() {
     [projectId]
   );
 
-  useEffect(() => {
-    const run = async () => {
+  const loadProjectData = useCallback(
+    async (opts?: { silent?: boolean }) => {
       setError(null);
-      setData(null);
-      if (!projectId) return;
+      if (!projectId) {
+        setData(null);
+        return;
+      }
+      const silent = opts?.silent === true;
       try {
-        setLoading(true);
+        if (!silent) {
+          setLoading(true);
+          setData(null);
+        }
         const [res, rc] = await Promise.all([
           api.get<ProjectFullData>(`/projects/${encodeURIComponent(projectId)}/full-data`),
           rateCardApi.get().catch(() => ({ data: { entries: [] as RateCardEntry[] } })),
@@ -82,11 +88,15 @@ export default function ProjectViewerPage() {
       } catch (err) {
         setError(getApiErrorMessage(err));
       } finally {
-        setLoading(false);
+        if (!silent) setLoading(false);
       }
-    };
-    run();
-  }, [projectId]);
+    },
+    [projectId]
+  );
+
+  useEffect(() => {
+    void loadProjectData();
+  }, [loadProjectData]);
 
   const validationIssues = useMemo(
     () => (data ? validateProjectSchedule(data, rateCard, scenario) : []),

@@ -2,12 +2,21 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "../utils/prisma.js";
 import { replaceActivityCodeAssignmentsForActivity } from "./activityCodeAssignments.service.js";
 import { allocateSequentialCodes, checkActivityCodeAvailability } from "./activityCodeSequence.service.js";
-import { syncFragnetDeliverableToFirstActivityFsLinks } from "./deliverableFirstActivityLink.service.js";
+import {
+  listDeliverableIdsForFragnetLinkage,
+  syncFragnetDeliverableToFirstActivityFsLinks,
+  syncStandardFragnetActivityLinkages,
+} from "./deliverableFirstActivityLink.service.js";
+import {
+  linkNewActivityToPriorInDeliverable,
+  syncDeliverableActivityLinkage,
+} from "./deliverableActivityChain.service.js";
 
 export type ReplicateActivityInput = {
   companyId: string;
   projectId: string;
   fragnetId: string;
+  standardId?: string | null;
   primaryDeliverableId: string;
   name: string;
   bestDuration: number;
@@ -24,8 +33,12 @@ export type ReplicateActivityInput = {
 export async function createNonSharedActivityOnAllFragnetDeliverables(
   input: ReplicateActivityInput
 ): Promise<{ primaryActivityId: string; createdCount: number }> {
+  const deliverableIds = await listDeliverableIdsForFragnetLinkage(input.fragnetId, input.companyId);
+  if (deliverableIds.length === 0) {
+    throw Object.assign(new Error("No deliverables on this fragnet"), { status: 400 });
+  }
   const deliverables = await prisma.deliverable.findMany({
-    where: { fragnetId: input.fragnetId, companyId: input.companyId, projectId: input.projectId },
+    where: { id: { in: deliverableIds }, companyId: input.companyId, projectId: input.projectId },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: { id: true },
   });
@@ -51,6 +64,7 @@ export async function createNonSharedActivityOnAllFragnetDeliverables(
     });
     if (existing) {
       if (d.id === input.primaryDeliverableId) primaryActivityId = existing.id;
+      await syncDeliverableActivityLinkage(d.id, input.companyId);
       continue;
     }
 
@@ -94,6 +108,14 @@ export async function createNonSharedActivityOnAllFragnetDeliverables(
       });
     }
 
+    await linkNewActivityToPriorInDeliverable({
+      companyId: input.companyId,
+      projectId: input.projectId,
+      fragnetId: input.fragnetId,
+      deliverableId: d.id,
+      newActivityId: row.id,
+    });
+
     if (d.id === input.primaryDeliverableId) primaryActivityId = row.id;
     createdCount++;
   }
@@ -119,7 +141,11 @@ export async function createNonSharedActivityOnAllFragnetDeliverables(
     throw Object.assign(new Error("Failed to create activity on deliverables"), { status: 500 });
   }
 
-  await syncFragnetDeliverableToFirstActivityFsLinks(input.fragnetId, input.companyId);
+  if (input.standardId) {
+    await syncStandardFragnetActivityLinkages(input.standardId, input.companyId);
+  } else {
+    await syncFragnetDeliverableToFirstActivityFsLinks(input.fragnetId, input.companyId);
+  }
 
   return { primaryActivityId, createdCount };
 }

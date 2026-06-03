@@ -66,16 +66,56 @@ export async function syncDeliverableToFirstActivityFsLink(
   return { successorActivityId: first.id };
 }
 
-/** Reconcile deliverable → first-activity FS for every deliverable on a fragnet. */
+export async function listDeliverableIdsForFragnetLinkage(
+  fragnetId: string,
+  companyId: string
+): Promise<string[]> {
+  const [fromDeliverables, fromActivities] = await Promise.all([
+    prisma.deliverable.findMany({
+      where: { fragnetId, companyId },
+      select: { id: true },
+    }),
+    prisma.activity.findMany({
+      where: {
+        fragnetId,
+        companyId,
+        isSharedAcrossDeliverables: false,
+      },
+      distinct: ["deliverableId"],
+      select: { deliverableId: true },
+    }),
+  ]);
+  const ids = new Set<string>();
+  for (const d of fromDeliverables) ids.add(d.id);
+  for (const a of fromActivities) {
+    if (a.deliverableId) ids.add(a.deliverableId);
+  }
+  return [...ids];
+}
+
+/** Reconcile full deliverable ↔ activity linkage for every deliverable on a fragnet. */
 export async function syncFragnetDeliverableToFirstActivityFsLinks(
   fragnetId: string,
   companyId: string
 ): Promise<void> {
-  const deliverables = await prisma.deliverable.findMany({
-    where: { fragnetId, companyId },
+  const { syncDeliverableActivityLinkage } = await import("./deliverableActivityChain.service.js");
+  const deliverableIds = await listDeliverableIdsForFragnetLinkage(fragnetId, companyId);
+  for (const deliverableId of deliverableIds) {
+    await syncDeliverableActivityLinkage(deliverableId, companyId);
+  }
+}
+
+/** Repair linkage for every fragnet on a standard (all RIBA stages in that standard). */
+export async function syncStandardFragnetActivityLinkages(
+  standardId: string,
+  companyId: string
+): Promise<void> {
+  const fragnets = await prisma.fragnet.findMany({
+    where: { standardId, companyId },
     select: { id: true },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   });
-  for (const d of deliverables) {
-    await syncDeliverableToFirstActivityFsLink(d.id, companyId);
+  for (const fragnet of fragnets) {
+    await syncFragnetDeliverableToFirstActivityFsLinks(fragnet.id, companyId);
   }
 }

@@ -404,6 +404,9 @@ export async function materializeTemplatesForDeliverable(
 
   await propagateDeliverableRelationshipsForFragnet(fragnet.id, companyId);
 
+  const { syncDeliverableActivityLinkage } = await import("./deliverableActivityChain.service.js");
+  await syncDeliverableActivityLinkage(deliverableId, companyId);
+
   return { created, relationships };
 }
 

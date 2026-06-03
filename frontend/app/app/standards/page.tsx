@@ -51,8 +51,9 @@ export default function StandardsPage() {
   const [submittingNote, setSubmittingNote] = useState(false);
   const [deletingNoteId, setDeletingNoteId] = useState<string | null>(null);
 
-  const fetchStandards = async () => {
-    setLoading(true);
+  const fetchStandards = async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (!silent) setLoading(true);
     try {
       if (!selectedProjectId) {
         setStandards([]);
@@ -63,7 +64,7 @@ export default function StandardsPage() {
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err) || "Failed to load standards");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -119,7 +120,7 @@ export default function StandardsPage() {
       });
       toast.success("Standard created");
       resetForm();
-      await fetchStandards();
+      await fetchStandards({ silent: true });
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err) || "Failed to create standard");
     } finally {
@@ -138,7 +139,7 @@ export default function StandardsPage() {
       });
       toast.success("Standard updated");
       resetForm();
-      await fetchStandards();
+      await fetchStandards({ silent: true });
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err) || "Failed to update standard");
     } finally {
@@ -152,7 +153,7 @@ export default function StandardsPage() {
     try {
       await standardsApi.delete(id);
       toast.success("Standard deleted");
-      await fetchStandards();
+      await fetchStandards({ silent: true });
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err) || "Failed to delete standard");
     } finally {

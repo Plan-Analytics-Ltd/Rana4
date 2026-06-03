@@ -691,14 +691,36 @@ export default function ActivitiesPage() {
     if (!confirm(`Delete ${ids.length} activit${ids.length === 1 ? "y" : "ies"}?`)) return;
     setBulkBusy(true);
     try {
-      for (const id of ids) await activitiesApi.delete(id);
-      toast.success(`Deleted ${ids.length} activities`);
-      setSelectedIds(new Set());
-      if (isProjectLevelFragnetSelected) {
-        await fetchProjectLevelContext();
-      } else {
-        await fetchActivities();
-        await fetchRelationships();
+      const { data } = await activitiesApi.bulkDelete(ids);
+      const deleted = data.deleted.length;
+      const failed = data.failed ?? [];
+      if (deleted > 0) {
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          for (const id of data.deleted) next.delete(id);
+          return next;
+        });
+        toast.success(`Deleted ${deleted} activit${deleted === 1 ? "y" : "ies"}`);
+      }
+      if (failed.length > 0) {
+        const lines = failed.map((f) => {
+          const act = activities.find((a) => a.id === f.id);
+          const label = act?.activityCode ?? act?.name ?? f.id;
+          return `${label}: ${f.error}`;
+        });
+        toast.error(
+          failed.length === ids.length
+            ? lines[0]!
+            : `${failed.length} failed:\n${lines.slice(0, 3).join("\n")}${lines.length > 3 ? "…" : ""}`
+        );
+      }
+      if (deleted > 0) {
+        if (isProjectLevelFragnetSelected) {
+          await fetchProjectLevelContext();
+        } else {
+          await fetchActivities();
+          await fetchRelationships();
+        }
       }
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err) || "Bulk delete failed");

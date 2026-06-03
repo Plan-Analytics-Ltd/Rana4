@@ -121,11 +121,12 @@ export default function ScheduleWorkspacePage() {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [savingCanonicalId, setSavingCanonicalId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!selectedProjectId) return;
     setError(null);
+    const silent = opts?.silent === true;
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const [tree, network, critical, rc] = await Promise.all([
         api.get<ProjectFullData>(`/projects/${encodeURIComponent(selectedProjectId)}/full-data`),
         projectsApi.getScheduleNetwork(selectedProjectId),
@@ -234,7 +235,7 @@ export default function ScheduleWorkspacePage() {
       setSavingCanonicalId(canonicalId);
       try {
         await activitiesApi.update(canonicalId, patch);
-        await load();
+        await load({ silent: true });
         toast.success("Activity saved");
       } catch (err) {
         toast.error(getApiErrorMessage(err));

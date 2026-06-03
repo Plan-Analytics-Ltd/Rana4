@@ -61,6 +61,8 @@ export default function DeliverablesPage() {
   const [allFragnets, setAllFragnets] = useState<FragnetOption[]>([]);
   const [fragnetNameById, setFragnetNameById] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [intelligenceRefreshKey, setIntelligenceRefreshKey] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [formFragnetId, setFormFragnetId] = useState("");
@@ -89,8 +91,10 @@ export default function DeliverablesPage() {
     }
   };
 
-  const loadInitialData = useCallback(async () => {
-    setLoading(true);
+  const loadInitialData = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    if (silent) setRefreshing(true);
+    else setLoading(true);
     try {
       if (!selectedProjectId) {
         setDeliverables([]);
@@ -130,7 +134,8 @@ export default function DeliverablesPage() {
       setAllFragnets([]);
       setFragnetNameById({});
     } finally {
-      setLoading(false);
+      if (silent) setRefreshing(false);
+      else setLoading(false);
     }
   }, [selectedProjectId]);
 
@@ -154,7 +159,10 @@ export default function DeliverablesPage() {
     })();
   }, []);
 
-  const fetchDeliverables = useCallback(() => loadInitialData(), [loadInitialData]);
+  const fetchDeliverables = useCallback(
+    () => loadInitialData({ silent: true }),
+    [loadInitialData]
+  );
 
   const resetForm = () => {
     setFormFragnetId("");
@@ -244,8 +252,9 @@ export default function DeliverablesPage() {
         activityCodeByTypeId: buildDeliverableCodePayloadForUpdate(),
       });
       toast.success("Deliverable updated");
-      resetForm();
+      setIntelligenceRefreshKey((k) => k + 1);
       await fetchDeliverables();
+      resetForm();
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err) || "Failed to update deliverable");
     } finally {
@@ -376,6 +385,12 @@ export default function DeliverablesPage() {
           <h2 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">Deliverables</h2>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             Create and edit deliverables; optionally assign to a fragnet or leave unassigned.
+            {refreshing ? (
+              <span className="ml-2 inline-flex items-center gap-1 text-slate-400">
+                <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                Updating…
+              </span>
+            ) : null}
           </p>
         </div>
       </div>
@@ -644,90 +659,9 @@ export default function DeliverablesPage() {
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
                         {mayEdit ? (
-                          <Dialog open={editId === d.id} onOpenChange={(o) => { if (!o) resetForm(); else openEdit(d); }}>
-                            <DialogTrigger asChild>
-                              <Button variant="outline" size="icon" type="button" onClick={() => openEdit(d)}><Pencil className="h-4 w-4" /></Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                              <form onSubmit={handleUpdate} className="min-w-0">
-                                <DialogHeader><DialogTitle>Edit Deliverable</DialogTitle></DialogHeader>
-                                <div className="grid min-w-0 gap-4 py-4">
-                                  <div className="grid gap-2">
-                                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Fragnet (optional)</label>
-                                    <select
-                                      value={formFragnetId}
-                                      onChange={(e) => setFormFragnetId(e.target.value)}
-                                      className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-950 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                                    >
-                                      <option value="">No fragnet</option>
-                                      {allFragnets.map((f) => (
-                                        <option key={f.id} value={f.id}>
-                                          {f.standardName ? `${f.name} (${f.standardName})` : f.name}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                  <div className="grid gap-2">
-                                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Name</label>
-                                    <Input value={formName} onChange={(e) => setFormName(e.target.value)} required />
-                                  </div>
-                                  <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
-                                    <div className="grid min-w-0 gap-2">
-                                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Best duration</label>
-                                      <Input className="min-w-0" type="number" min={1} value={formBestDuration} onChange={(e) => setFormBestDuration(e.target.value)} />
-                                    </div>
-                                    <div className="grid min-w-0 gap-2">
-                                      <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Likely duration</label>
-                                      <Input className="min-w-0" type="number" min={1} value={formLikelyDuration} onChange={(e) => setFormLikelyDuration(e.target.value)} />
-                                    </div>
-                                  </div>
-                                  {mayEditP6Codes && codeTypes.length > 0 ? (
-                                    <div className="space-y-3 rounded-md border border-slate-200 p-3 dark:border-slate-700">
-                                      <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Primavera activity codes</div>
-                                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                                        Optional: one value per type. Export uses these on the deliverable TASK row; activities in the same block inherit unless they set their own value for that type.
-                                      </p>
-                                      {codeTypes.map((t) => (
-                                        <div key={t.id} className="grid gap-1">
-                                          <label className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{t.name}</label>
-                                          <select
-                                            value={formP6Codes[t.id] ?? "__NONE__"}
-                                            onChange={(e) => setFormP6Codes((prev) => ({ ...prev, [t.id]: e.target.value }))}
-                                            className={cn(
-                                              "flex h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100",
-                                              "focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
-                                            )}
-                                          >
-                                            <option value="__NONE__">— None —</option>
-                                            {(t.codes ?? []).map((c) => (
-                                              <option key={c.id} value={c.id}>
-                                                {c.shortName || c.name}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  ) : null}
-                                  <ResourceAssignmentsEditor
-                                    entries={rateCardEntries}
-                                    value={formResourceDrafts}
-                                    onChange={setFormResourceDrafts}
-                                    disabled={submitting}
-                                    durationDays={Math.max(0.01, Number(formBestDuration) || 1)}
-                                  />
-
-                                  {selectedProjectId && editId ? (
-                                    <DeliverableBenchmarkPanel projectId={selectedProjectId} deliverableId={editId} />
-                                  ) : null}
-                                </div>
-                                <DialogFooter>
-                                  <Button type="button" variant="outline" onClick={() => setEditId(null)}>Cancel</Button>
-                                  <Button type="submit" disabled={submitting}>{submitting && <Loader2 className="h-4 w-4 animate-spin" />} Save</Button>
-                                </DialogFooter>
-                              </form>
-                            </DialogContent>
-                          </Dialog>
+                          <Button variant="outline" size="icon" type="button" onClick={() => openEdit(d)}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
                         ) : null}
                         {mayDelete ? (
                           <Button variant="outline" size="icon" onClick={() => handleDelete(d.id)} disabled={deletingId === d.id}>
@@ -743,6 +677,114 @@ export default function DeliverablesPage() {
           )}
         </CardContent>
       </Card>
+
+      {mayEdit ? (
+        <Dialog open={editId != null} onOpenChange={(o) => { if (!o) resetForm(); }}>
+          <DialogContent className="max-h-[min(90vh,900px)]">
+            <form onSubmit={handleUpdate} className="min-w-0">
+              <DialogHeader>
+                <DialogTitle>Edit Deliverable</DialogTitle>
+              </DialogHeader>
+              <div className="grid min-w-0 gap-4 py-4">
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Fragnet (optional)</label>
+                  <select
+                    value={formFragnetId}
+                    onChange={(e) => setFormFragnetId(e.target.value)}
+                    className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-950 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                  >
+                    <option value="">No fragnet</option>
+                    {allFragnets.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.standardName ? `${f.name} (${f.standardName})` : f.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Name</label>
+                  <Input value={formName} onChange={(e) => setFormName(e.target.value)} required />
+                </div>
+                <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="grid min-w-0 gap-2">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Best duration</label>
+                    <Input
+                      className="min-w-0"
+                      type="number"
+                      min={1}
+                      value={formBestDuration}
+                      onChange={(e) => setFormBestDuration(e.target.value)}
+                    />
+                  </div>
+                  <div className="grid min-w-0 gap-2">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Likely duration</label>
+                    <Input
+                      className="min-w-0"
+                      type="number"
+                      min={1}
+                      value={formLikelyDuration}
+                      onChange={(e) => setFormLikelyDuration(e.target.value)}
+                    />
+                  </div>
+                </div>
+                {mayEditP6Codes && codeTypes.length > 0 ? (
+                  <div className="space-y-3 rounded-md border border-slate-200 p-3 dark:border-slate-700">
+                    <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Primavera activity codes</div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Optional: one value per type. Export uses these on the deliverable TASK row; activities in the same block inherit unless they set their own value for that type.
+                    </p>
+                    {codeTypes.map((t) => (
+                      <div key={t.id} className="grid gap-1">
+                        <label className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                          {t.name}
+                        </label>
+                        <select
+                          value={formP6Codes[t.id] ?? "__NONE__"}
+                          onChange={(e) => setFormP6Codes((prev) => ({ ...prev, [t.id]: e.target.value }))}
+                          className={cn(
+                            "flex h-9 rounded-md border border-slate-200 bg-white px-3 py-1 text-sm dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100",
+                            "focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+                          )}
+                        >
+                          <option value="__NONE__">— None —</option>
+                          {(t.codes ?? []).map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.shortName || c.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                <ResourceAssignmentsEditor
+                  entries={rateCardEntries}
+                  value={formResourceDrafts}
+                  onChange={setFormResourceDrafts}
+                  disabled={submitting}
+                  durationDays={Math.max(0.01, Number(formBestDuration) || 1)}
+                />
+                {selectedProjectId && editId ? (
+                  <DeliverableBenchmarkPanel
+                    projectId={selectedProjectId}
+                    deliverableId={editId}
+                    enabled={editId != null}
+                    refreshKey={intelligenceRefreshKey}
+                  />
+                ) : null}
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => resetForm()}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={submitting}>
+                  {submitting && <Loader2 className="h-4 w-4 animate-spin" />} Save
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </div>
   );
 }

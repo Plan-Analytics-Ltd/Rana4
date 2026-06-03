@@ -24,6 +24,8 @@ export type RecalculateScheduleOptions = {
   startDate?: Date;
   scenario?: ScheduleDurationScenario;
   persist?: boolean;
+  /** When true, reconcile FS chains for all deliverables before CPM (explicit recalc only). */
+  repairDeliverableLinkages?: boolean;
 };
 
 function durationOf(
@@ -149,6 +151,13 @@ export async function recalculateProjectSchedule(
     : project.scheduleStartDate
       ? defaultScheduleStart(project.scheduleStartDate)
       : defaultScheduleStart();
+
+  if (opts.repairDeliverableLinkages) {
+    const { syncProjectDeliverableActivityLinkages } = await import(
+      "../deliverableActivityChain.service.js"
+    );
+    await syncProjectDeliverableActivityLinkages(projectId, companyId);
+  }
 
   const activities = await prisma.activity.findMany({
     where: { projectId, companyId },

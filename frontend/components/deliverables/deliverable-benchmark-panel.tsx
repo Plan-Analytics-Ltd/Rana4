@@ -4,12 +4,22 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { intelligenceApi, getApiErrorMessage, type IntelligenceFinding } from "@/lib/api";
+import {
+  intelligenceApi,
+  getApiErrorMessage,
+  type IntelligenceFinding,
+  type IntelligenceDriver,
+} from "@/lib/api";
 import { DeliverableFindingsSection } from "@/components/deliverables/deliverable-findings-section";
+import { DeliverableDriversSection } from "@/components/deliverables/deliverable-drivers-section";
 
 type Props = {
   projectId: string;
   deliverableId: string;
+  /** When false, skips network requests (e.g. dialog closed). */
+  enabled?: boolean;
+  /** Bump after saves to force a fresh load when re-opened. */
+  refreshKey?: number;
 };
 
 type Status = "NORMAL" | "SLIGHTLY_HIGH" | "HIGH" | "RED_FLAG" | "EXTREME_OUTLIER";
@@ -21,26 +31,39 @@ function statusVariant(s: Status): "default" | "secondary" | "destructive" | "ou
   return "outline";
 }
 
-export function DeliverableBenchmarkPanel({ projectId, deliverableId }: Props) {
+export function DeliverableBenchmarkPanel({
+  projectId,
+  deliverableId,
+  enabled = true,
+  refreshKey = 0,
+}: Props) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<any>(null);
   const [findings, setFindings] = useState<IntelligenceFinding[]>([]);
+  const [drivers, setDrivers] = useState<IntelligenceDriver[]>([]);
 
   useEffect(() => {
+    if (!enabled || !projectId || !deliverableId) {
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
     (async () => {
       setLoading(true);
       setErr(null);
       try {
-        const [benchRes, findingsRes] = await Promise.all([
+        const [benchRes, findingsRes, driversRes] = await Promise.all([
           intelligenceApi.getDeliverableBenchmark(projectId, deliverableId),
           intelligenceApi.getDeliverableFindings(projectId, deliverableId),
+          intelligenceApi.getDeliverableDrivers(projectId, deliverableId),
         ]);
         if (!cancelled) {
           setData(benchRes.data);
           setFindings(findingsRes.data.findings ?? []);
+          setDrivers(driversRes.data.drivers ?? []);
         }
       } catch (e: unknown) {
         if (!cancelled) setErr(getApiErrorMessage(e) || "Failed to load benchmark");
@@ -51,7 +74,7 @@ export function DeliverableBenchmarkPanel({ projectId, deliverableId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [projectId, deliverableId]);
+  }, [projectId, deliverableId, enabled, refreshKey]);
 
   const benchmark = data?.benchmark;
   const outlier = data?.outlier;
@@ -179,6 +202,7 @@ export function DeliverableBenchmarkPanel({ projectId, deliverableId }: Props) {
             ) : null}
 
             <DeliverableFindingsSection findings={findings} />
+            <DeliverableDriversSection drivers={drivers} />
           </>
         )}
       </CardContent>

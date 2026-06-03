@@ -31,6 +31,11 @@ import {
   syncDeliverableToFirstActivityFsLink,
   syncFragnetDeliverableToFirstActivityFsLinks,
 } from "../services/deliverableFirstActivityLink.service.js";
+import {
+  applyActivityDeleteSideEffects,
+  noteActivityDeleteLinkageTarget,
+} from "../services/activityDeleteSideEffects.service.js";
+import type { ProjectRole } from "../permissions/projectPermissions.js";
 const activityInclude = {
   activityCodeAssignments: { include: { type: true as const, code: true as const } },
   ...activityDeliverableInclude,
@@ -337,6 +342,7 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
           companyId: req.user.companyId,
           projectId: resolved.projectId,
           fragnetId: resolved.fragnetId,
+          standardId: resolved.standardId,
           primaryDeliverableId: resolved.deliverableId,
           name: nameTrimmed,
           bestDuration,
@@ -426,7 +432,10 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
       companyId: req.user.companyId,
     });
     if (resolved.deliverableId) {
-      await syncDeliverableToFirstActivityFsLink(resolved.deliverableId, req.user.companyId);
+      const { syncDeliverableActivityLinkage } = await import(
+        "../services/deliverableActivityChain.service.js"
+      );
+      await syncDeliverableActivityLinkage(resolved.deliverableId, req.user.companyId);
     }
     await recalculateProjectScheduleAfterMutation(resolved.projectId, req.user.companyId);
     res.status(201).json(serializeLinkedDeliverables(activityWithCodes));
@@ -813,6 +822,119 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
   }
 }
 
+export async function bulkRemove(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const body = req.body as { ids?: unknown };
+    const rawIds = Array.isArray(body?.ids) ? body.ids : [];
+    const activityIds = [...new Set(rawIds.filter((id): id is string => typeof id === "string" && id.length > 0))];
+    if (activityIds.length === 0) {
+      res.status(400).json({ error: "ids must be a non-empty array of activity ids" });
+      return;
+    }
+
+    const activities = await prisma.activity.findMany({
+      where: { id: { in: activityIds }, companyId: req.user.companyId },
+      select: {
+        id: true,
+        projectId: true,
+        status: true,
+        fragnetId: true,
+        deliverableId: true,
+        isSharedAcrossDeliverables: true,
+      },
+    });
+
+    const byId = new Map(activities.map((a) => [a.id, a]));
+    const failed: { id: string; error: string }[] = [];
+    for (const id of activityIds) {
+      if (!byId.has(id)) failed.push({ id, error: "Activity not found" });
+    }
+
+    const projectIds = new Set(activities.map((a) => a.projectId));
+    if (projectIds.size > 1) {
+      res.status(400).json({
+        error: "All activities must belong to the same project",
+        deleted: [] as string[],
+        failed: activityIds.map((id) => ({
+          id,
+          error: "Bulk delete requires activities from a single project",
+        })),
+      });
+      return;
+    }
+
+    if (projectIds.size === 0) {
+      res.json({ deleted: [], failed });
+      return;
+    }
+
+    const projectId = [...projectIds][0]!;
+    const membership = await requireProjectAccess(projectId, req.user);
+    const role = membership.role as ProjectRole;
+
+    const deleted: string[] = [];
+    const fragnetIds = new Set<string>();
+    const deliverableIds = new Set<string>();
+
+    for (const id of activityIds) {
+      const existing = byId.get(id);
+      if (!existing) continue;
+
+      try {
+        const dependencyCount = await prisma.relationship.count({
+          where: {
+            companyId: req.user.companyId,
+            OR: [{ predecessorActivityId: id }, { successorActivityId: id }],
+          },
+        });
+        requirePermission(role, "activity", "delete", {
+          status: existing.status,
+          hasDependencies: dependencyCount > 0,
+        });
+        await prisma.activity.delete({ where: { id } });
+        deleted.push(id);
+        noteActivityDeleteLinkageTarget(existing, fragnetIds, deliverableIds);
+        await auditLog({
+          userId: req.user.id,
+          companyId: req.user.companyId,
+          projectId,
+          action: "DELETE_ACTIVITY",
+          entity: "Activity",
+          entityId: id,
+        });
+      } catch (err) {
+        const status =
+          err && typeof err === "object" && "status" in err ? Number((err as { status?: number }).status) : undefined;
+        const message =
+          status === 409 || status === 403
+            ? (err as Error).message || "Action not allowed"
+            : isPrismaForeignKeyViolation(err)
+              ? "Invalid cross-company reference"
+              : "Failed to delete activity";
+        failed.push({ id, error: message });
+      }
+    }
+
+    if (deleted.length > 0) {
+      await applyActivityDeleteSideEffects({
+        companyId: req.user.companyId,
+        projectId,
+        fragnetIds,
+        deliverableIds,
+      });
+    }
+
+    res.json({ deleted, failed });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to bulk delete activities" });
+  }
+}
+
 export async function remove(req: AuthRequest, res: Response): Promise<void> {
   try {
     if (!req.user) {
@@ -855,12 +977,6 @@ export async function remove(req: AuthRequest, res: Response): Promise<void> {
     });
     await prisma.activity.delete({ where: { id } });
 
-    if (!existing.isSharedAcrossDeliverables && existing.fragnetId) {
-      await syncFragnetDeliverableToFirstActivityFsLinks(existing.fragnetId, req.user.companyId);
-    } else if (!existing.isSharedAcrossDeliverables && existing.deliverableId) {
-      await syncDeliverableToFirstActivityFsLink(existing.deliverableId, req.user.companyId);
-    }
-
     await auditLog({
       userId: req.user.id,
       companyId: req.user.companyId,
@@ -869,7 +985,16 @@ export async function remove(req: AuthRequest, res: Response): Promise<void> {
       entity: "Activity",
       entityId: id,
     });
-    await recalculateProjectScheduleAfterMutation(existing.projectId, req.user.companyId);
+
+    const fragnetIds = new Set<string>();
+    const deliverableIds = new Set<string>();
+    noteActivityDeleteLinkageTarget(existing, fragnetIds, deliverableIds);
+    await applyActivityDeleteSideEffects({
+      companyId: req.user.companyId,
+      projectId: existing.projectId,
+      fragnetIds,
+      deliverableIds,
+    });
     res.status(204).send();
   } catch (err) {
     const status = err && typeof err === "object" && "status" in err ? Number((err as any).status) : undefined;

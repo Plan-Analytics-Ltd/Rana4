@@ -48,6 +48,10 @@ router.get(
   "/:projectId/intelligence/findings/:deliverableId",
   projectIntelligenceController.getDeliverableFindingsForDeliverable
 );
+router.get(
+  "/:projectId/intelligence/drivers/:deliverableId",
+  projectIntelligenceController.getDeliverableDriversForDeliverable
+);
 router.get("/:projectId/programme-export", programmeIntelligenceController.exportProgrammeJson);
 router.get("/:id/full-data", projectsController.getFullData);
 router.get("/:id/suggested-activity-code", projectsController.getSuggestedActivityCode);
