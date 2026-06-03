@@ -116,8 +116,8 @@ async function getCurrentDeliverableDurationDays(projectId: string, companyId: s
   for (const a of activities) {
     const s = a.plannedStartDate ?? a.earlyStart ?? null;
     const f = a.plannedFinishDate ?? a.earlyFinish ?? null;
-    if (s) minStart = !minStart || s < minStart ? s : minStart;
-    if (f) maxFinish = !maxFinish || f > maxFinish ? f : maxFinish;
+    if (s && (!minStart || s.getTime() < minStart.getTime())) minStart = s;
+    if (f && (!maxFinish || f.getTime() > maxFinish.getTime())) maxFinish = f;
   }
 
   if (!minStart || !maxFinish) return null;

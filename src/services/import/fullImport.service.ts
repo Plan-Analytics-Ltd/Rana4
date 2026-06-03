@@ -361,6 +361,7 @@ export async function importFullTemplate(
     const fakeDeliverables: Deliverable[] = bundle.deliverables.map((d, i) => ({
       id: `dry-del-${i + 1}` as any,
       name: d.deliverableName,
+      classification: null,
       bestDuration: d.bestDuration,
       likelyDuration: d.likelyDuration,
       createdAt: new Date(),
