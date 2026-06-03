@@ -10,6 +10,82 @@ export type ActivityAssignmentValidationResult = {
   crossFragnetMismatches: Array<{ id: string; activityFragnetId: string; deliverableFragnetId: string }>;
 };
 
+export type ActivityAssignmentIssue = {
+  code: "ORPHAN_ACTIVITY" | "UNKNOWN_DELIVERABLE" | "CROSS_FRAGNET";
+  message: string;
+  activityId: string;
+};
+
+/** Collect every activity→deliverable problem (no fail-fast). */
+export function collectActivityAssignmentIssues(
+  standard: {
+    id: string;
+    fragnets: Array<{
+      id: string;
+      deliverables: Array<{ id: string; fragnetId: string | null }>;
+      activities: Array<{ id: string; deliverableId: string | null; fragnetId: string }>;
+    }>;
+  }
+): { result: ActivityAssignmentValidationResult; issues: ActivityAssignmentIssue[] } {
+  const deliverables = standard.fragnets.flatMap((f) => f.deliverables);
+  const deliverableById = new Map(deliverables.map((d) => [d.id, d]));
+  const activities = standard.fragnets.flatMap((f) => f.activities);
+
+  const orphanActivities: ActivityAssignmentValidationResult["orphanActivities"] = [];
+  const unknownDeliverableActivities: ActivityAssignmentValidationResult["unknownDeliverableActivities"] = [];
+  const crossFragnetMismatches: ActivityAssignmentValidationResult["crossFragnetMismatches"] = [];
+  const issues: ActivityAssignmentIssue[] = [];
+
+  for (const a of activities) {
+    const did = a.deliverableId ? String(a.deliverableId).trim() : "";
+    if (!did) {
+      orphanActivities.push({ id: a.id, deliverableId: a.deliverableId ?? null });
+      issues.push({
+        code: "ORPHAN_ACTIVITY",
+        message: `Activity ${a.id} is not linked to a deliverable`,
+        activityId: a.id,
+      });
+      continue;
+    }
+    const d = deliverableById.get(did);
+    if (!d) {
+      unknownDeliverableActivities.push({ id: a.id, deliverableId: did });
+      issues.push({
+        code: "UNKNOWN_DELIVERABLE",
+        message: `Activity ${a.id} references unknown deliverable ${did}`,
+        activityId: a.id,
+      });
+      continue;
+    }
+    const deliverableFragnetId = d.fragnetId ?? a.fragnetId;
+    if (deliverableFragnetId && String(deliverableFragnetId) !== String(a.fragnetId ?? "")) {
+      crossFragnetMismatches.push({
+        id: a.id,
+        activityFragnetId: a.fragnetId,
+        deliverableFragnetId: String(d.fragnetId ?? ""),
+      });
+      issues.push({
+        code: "CROSS_FRAGNET",
+        message: `Activity ${a.id} deliverable is in a different fragnet (activity.fragnetId=${a.fragnetId}, deliverable.fragnetId=${d.fragnetId ?? ""})`,
+        activityId: a.id,
+      });
+    }
+  }
+
+  return {
+    result: {
+      standardId: standard.id,
+      fragnetCount: standard.fragnets.length,
+      deliverableCount: deliverables.length,
+      activityCount: activities.length,
+      orphanActivities,
+      unknownDeliverableActivities,
+      crossFragnetMismatches,
+    },
+    issues,
+  };
+}
+
 /**
  * Strict validation for STANDARD export:
  * - Every activity must have a deliverableId
@@ -37,57 +113,8 @@ export async function validateActivityAssignments(standardId: string): Promise<A
 
   if (!standard) throw new Error("validateActivityAssignments: Standard not found");
 
-  const deliverables = standard.fragnets.flatMap((f) => f.deliverables);
-  const deliverableById = new Map(deliverables.map((d) => [d.id, d]));
-
-  const activities = standard.fragnets.flatMap((f) => f.activities);
-
-  const orphanActivities: Array<{ id: string; deliverableId: string | null }> = [];
-  const unknownDeliverableActivities: Array<{ id: string; deliverableId: string }> = [];
-  const crossFragnetMismatches: Array<{ id: string; activityFragnetId: string; deliverableFragnetId: string }> = [];
-
-  for (const a of activities) {
-    const did = a.deliverableId ? String(a.deliverableId).trim() : "";
-    if (!did) {
-      orphanActivities.push({ id: a.id, deliverableId: a.deliverableId ?? null });
-      continue;
-    }
-    const d = deliverableById.get(did);
-    if (!d) {
-      unknownDeliverableActivities.push({ id: a.id, deliverableId: did });
-      continue;
-    }
-    if (String(d.fragnetId ?? "") !== String(a.fragnetId ?? "")) {
-      crossFragnetMismatches.push({
-        id: a.id,
-        activityFragnetId: a.fragnetId,
-        deliverableFragnetId: String(d.fragnetId ?? ""),
-      });
-    }
-  }
-
-  if (orphanActivities.length > 0) {
-    throw new Error(`Activity ${orphanActivities[0]!.id} is not linked to a deliverable`);
-  }
-  if (unknownDeliverableActivities.length > 0) {
-    const x = unknownDeliverableActivities[0]!;
-    throw new Error(`Activity ${x.id} references unknown deliverable ${x.deliverableId}`);
-  }
-  if (crossFragnetMismatches.length > 0) {
-    const x = crossFragnetMismatches[0]!;
-    throw new Error(
-      `Activity ${x.id} deliverable is in a different fragnet (activity.fragnetId=${x.activityFragnetId}, deliverable.fragnetId=${x.deliverableFragnetId})`
-    );
-  }
-
-  return {
-    standardId: standard.id,
-    fragnetCount: standard.fragnets.length,
-    deliverableCount: deliverables.length,
-    activityCount: activities.length,
-    orphanActivities,
-    unknownDeliverableActivities,
-    crossFragnetMismatches,
-  };
+  const { result, issues } = collectActivityAssignmentIssues(standard);
+  if (issues.length > 0) throw new Error(issues[0]!.message);
+  return result;
 }
 

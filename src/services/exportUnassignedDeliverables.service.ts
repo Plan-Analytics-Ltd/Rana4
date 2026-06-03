@@ -41,6 +41,7 @@ export async function buildUnassignedFragnetForExport(
   const activities = await Promise.all(
     rows.flatMap((d) => d.activities).map(async (a) => ({
       id: a.id,
+      activityCode: a.activityCode,
       deliverableId: a.deliverableId,
       name: a.name,
       bestDuration: a.bestDuration,

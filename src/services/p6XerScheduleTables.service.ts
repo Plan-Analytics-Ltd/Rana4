@@ -1,10 +1,7 @@
 import type { P6Resource } from "./p6ResourceMap.service.js";
 import type { AssignedResourceStored } from "./rateCard.js";
 import { P6_SCHEDULE_HOURS_PER_DAY, type P6PendingSemanticTaskRow, type P6TaskPredExportRow } from "./export.service.js";
-import {
-  p6DeterministicTaskPredId,
-  p6DeterministicTaskRsrcId,
-} from "./p6DeterministicId.service.js";
+import { p6DeterministicTaskRsrcId } from "./p6DeterministicId.service.js";
 
 /** xer-parser TASKRSRC column order. */
 export const TASKRSRC_XER_FIELDS = [
@@ -261,6 +258,10 @@ export function buildP6TaskRsrcAndTaskPredSections(params: {
   validateP6ScheduleAppend({ taskCodeToTaskId, taskPredRows: taskPredExportRows, taskRsrcRows: taskRsrcMeta });
 
   const taskPredLines: string[] = [];
+  /** Sequential ids (export row order) — avoids hash collisions filling the narrow pred band. */
+  const P6_TASK_PRED_BAND_START = 1_278_000_000;
+  const P6_TASK_PRED_BAND_LIMIT = 80_000_000;
+  let nextTaskPredId = P6_TASK_PRED_BAND_START;
   for (const p of taskPredExportRows) {
     const predTaskId = taskCodeToTaskId.get(p.predecessorTaskCode);
     const succTaskId = taskCodeToTaskId.get(p.successorTaskCode);
@@ -271,7 +272,11 @@ export function buildP6TaskRsrcAndTaskPredSections(params: {
     }
     const pred_type = mapSpreadsheetRelationshipToP6PredType(p.relationshipType);
     const lag_hr_cnt = Number.isFinite(p.lagHr) ? p.lagHr : 0;
-    const task_pred_id = p6DeterministicTaskPredId(scope, predTaskId, succTaskId, pred_type, lag_hr_cnt);
+    const task_pred_id = nextTaskPredId;
+    nextTaskPredId += 1;
+    if (nextTaskPredId >= P6_TASK_PRED_BAND_START + P6_TASK_PRED_BAND_LIMIT) {
+      throw new Error("XER TASKPRED: export exceeds supported task_pred_id range");
+    }
     taskPredLines.push(
       taskPredXerRow({
         task_pred_id,

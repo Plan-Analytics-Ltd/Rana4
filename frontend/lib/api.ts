@@ -6,17 +6,35 @@ export function isAxiosError(err: unknown): err is AxiosError {
   return axios.isAxiosError(err);
 }
 
+function formatExportErrorPayload(data: {
+  error?: unknown;
+  message?: unknown;
+  detail?: unknown;
+  issues?: Array<{ message?: string; code?: string }>;
+}): string {
+  const parts: string[] = [];
+  if (typeof data.error === "string" && data.error.trim()) parts.push(data.error.trim());
+  if (typeof data.detail === "string" && data.detail.trim()) parts.push(data.detail.trim());
+  if (typeof data.message === "string" && data.message.trim()) parts.push(data.message.trim());
+  if (Array.isArray(data.issues) && data.issues.length > 0) {
+    const issueText = data.issues
+      .slice(0, 3)
+      .map((i) => i.message ?? i.code)
+      .filter(Boolean)
+      .join("; ");
+    if (issueText) parts.push(issueText);
+  }
+  return parts.join(" — ") || "Export failed";
+}
+
 export function getApiErrorMessage(err: unknown): string {
   if (!isAxiosError(err)) {
     return err instanceof Error && err.message ? err.message : "Something went wrong";
   }
   const data = err.response?.data;
   const status = err.response?.status;
-  if (data && typeof data === "object") {
-    if ("error" in data && typeof (data as { error: unknown }).error === "string")
-      return (data as { error: string }).error;
-    if ("message" in data && typeof (data as { message: unknown }).message === "string")
-      return (data as { message: string }).message;
+  if (data && typeof data === "object" && !(data instanceof Blob)) {
+    return formatExportErrorPayload(data as Parameters<typeof formatExportErrorPayload>[0]);
   }
   if (status === 403) return "You don’t have permission to perform this action.";
   if (err.code === "ERR_NETWORK" || !err.response)
@@ -24,6 +42,22 @@ export function getApiErrorMessage(err: unknown): string {
   if (status === 404) return "Not found.";
   if (status && status >= 500) return "Server error. Try again later.";
   return "Something went wrong.";
+}
+
+/** Parse JSON error bodies when axios used `responseType: "blob"` (export downloads). */
+export async function getApiErrorMessageAsync(err: unknown): Promise<string> {
+  if (isAxiosError(err) && err.response?.data instanceof Blob) {
+    try {
+      const text = await err.response.data.text();
+      const j = JSON.parse(text) as Parameters<typeof formatExportErrorPayload>[0];
+      const msg = formatExportErrorPayload(j);
+      if (msg !== "Export failed") return msg;
+      if (text.trim()) return text.trim().slice(0, 400);
+    } catch {
+      /* fall through */
+    }
+  }
+  return getApiErrorMessage(err);
 }
 
 /**
@@ -41,8 +75,14 @@ export async function assertBlobIsZipDownload(response: AxiosResponse<Blob>): Pr
     let message = "Request failed";
     let code: string | undefined;
     try {
-      const j = JSON.parse(text) as { error?: string; message?: string; code?: string };
-      message = (typeof j.error === "string" && j.error) || (typeof j.message === "string" && j.message) || message;
+      const j = JSON.parse(text) as Parameters<typeof formatExportErrorPayload>[0] & { code?: string };
+      message = formatExportErrorPayload(j);
+      if (message === "Export failed") {
+        message =
+          (typeof j.error === "string" && j.error) ||
+          (typeof j.message === "string" && j.message) ||
+          message;
+      }
       code = typeof j.code === "string" ? j.code : undefined;
     } catch {
       if (text.trim()) message = text.trim().slice(0, 300);
@@ -929,6 +969,38 @@ export const exportApi = {
     api.get<{ ok: boolean; result?: { activityCount: number; orphanActivities: any[]; unknownDeliverableActivities: any[]; crossFragnetMismatches: any[] }; error?: string }>(
       `/export/standard/${standardId}/validate-activities`
     ),
+
+  /** Dry-run: same pipeline as ZIP export (WBS, XLSX, XER validation) without downloading. */
+  preflightStandard: (
+    standardId: string,
+    body: { scenario: "best" | "likely"; projectName: string; projectId: string }
+  ) => api.post<ExportPreflightResponse>(`/export/standard/${standardId}/preflight`, body),
+
+  preflightFragnet: (
+    fragnetId: string,
+    body: { scenario: "best" | "likely"; projectName: string; projectId: string }
+  ) => api.post<ExportPreflightResponse>(`/export/fragnet/${fragnetId}/preflight`, body),
+};
+
+export type ExportPreflightIssue = {
+  phase: string;
+  severity: "error" | "warning";
+  code: string;
+  message: string;
+  fragnetId?: string;
+};
+
+export type ExportPreflightResponse = {
+  ok: boolean;
+  issues: ExportPreflightIssue[];
+  errorCount: number;
+  warningCount: number;
+  assignment?: {
+    activityCount: number;
+    orphanActivities: { id: string }[];
+    unknownDeliverableActivities: { id: string }[];
+    crossFragnetMismatches: { id: string }[];
+  };
 };
 
 /** Programme intelligence — snapshots, planned vs actual, portfolio learning */

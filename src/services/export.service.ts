@@ -50,6 +50,8 @@ export type DeliverableForExport = {
 
 export type ActivityForExport = {
   id: string;
+  /** Database activity code (A1001, …) — used in export instead of burning a new sequential export id per row. */
+  activityCode?: string;
   /** Present for fragnet activities (required for DB); used when aligning export rows to deliverables. */
   deliverableId?: string;
   name: string;
@@ -109,6 +111,78 @@ function appendDeliverableRelationshipPreds(
       null,
     ]);
   }
+}
+
+function exportCodeSequenceNumber(code: string): number | null {
+  const m = /^A(\d+)$/i.exec(String(code).trim());
+  if (!m) return null;
+  const n = Number.parseInt(m[1]!, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Keep the sequential deliverable allocator past activity codes taken from the database (e.g. A1001). */
+function bumpExportCounterPastCode(code: string, nextExportNum: { value: number }): void {
+  const n = exportCodeSequenceNumber(code);
+  if (n !== null && n >= nextExportNum.value) nextExportNum.value = n + 1;
+}
+
+function allocateNextExportCode(
+  kind: "deliverable" | "activity",
+  usedExportIds: Set<string>,
+  nextExportNum: { value: number }
+): string {
+  while (true) {
+    const candidate = `A${nextExportNum.value}`;
+    nextExportNum.value += 1;
+    if (!usedExportIds.has(candidate)) {
+      usedExportIds.add(candidate);
+      return candidate;
+    }
+  }
+}
+
+/**
+ * Prefer the activity's real code from the database. Only allocate a new A#### when missing or duplicate
+ * (e.g. same code reused on another fragnet); then suffix with activity id so codes stay in the A1xxx range.
+ */
+function assignExportTaskCode(
+  preferred: string | undefined,
+  uniqueSuffix: string,
+  usedExportIds: Set<string>,
+  nextExportNum: { value: number }
+): string {
+  const base = String(preferred ?? "").trim();
+  if (!base) return allocateNextExportCode("activity", usedExportIds, nextExportNum);
+  let candidate = base;
+  if (usedExportIds.has(candidate)) {
+    candidate = `${base}~${uniqueSuffix.slice(0, 8)}`;
+  }
+  let n = 2;
+  while (usedExportIds.has(candidate)) {
+    candidate = `${base}-${n}`;
+    n += 1;
+  }
+  usedExportIds.add(candidate);
+  bumpExportCounterPastCode(candidate, nextExportNum);
+  return candidate;
+}
+
+/** Drop duplicate predecessor/successor edges (same auto + DB linkage can repeat). */
+function dedupeTaskPredDataRows(rows: (string | number | null)[][]): (string | number | null)[][] {
+  const seen = new Set<string>();
+  const out: (string | number | null)[][] = [];
+  for (const row of rows) {
+    const key = [
+      String(row[0] ?? "").trim(),
+      String(row[1] ?? "").trim(),
+      String(row[2] ?? "").trim(),
+      String(row[5] ?? "0").trim(),
+    ].join("\x1d");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
 }
 
 function appendDeliverableActivityRelationshipPreds(
@@ -615,21 +689,10 @@ export async function generateFragnetXlsx(
   const durationField = scenario === "best" ? "bestDuration" : "likelyDuration";
   const pendingSemanticRows: P6PendingSemanticTaskRow[] = [];
   const taskPredDataRows: (string | number | null)[][] = [];
-  let nextId = 1000;
+  const nextExportNum = { value: 1000 };
   const usedExportIds = new Set<string>();
-  const allocateId = (kind: "deliverable" | "activity"): string => {
-    const candidate = idFor(nextId);
-    if (usedExportIds.has(candidate)) {
-      const suggestions = suggestAvailableIds(nextId, usedExportIds, 8);
-      throw new Error(
-        `Export: cannot allocate ${kind} ID ${candidate} because it is already in use by a deliverable. ` +
-          `Choose one of the following available IDs instead: ${suggestions.join(", ")}`
-      );
-    }
-    usedExportIds.add(candidate);
-    nextId += 1;
-    return candidate;
-  };
+  const allocateDeliverableExportCode = () =>
+    allocateNextExportCode("deliverable", usedExportIds, nextExportNum);
   const sortedActivities = sortByCreatedAt(activities);
   const rootWbs = generatedWbs.project_wbs;
   const deliverableWbsById = deliverableWbsLookupFromGenerated(generatedWbs);
@@ -741,7 +804,7 @@ export async function generateFragnetXlsx(
       usedExportIds.add(exportId);
       activityMap.set(a.id, exportId);
     });
-    nextId = 1000 + sortedActivities.length;
+    nextExportNum.value = Math.max(nextExportNum.value, 1000 + sortedActivities.length);
     const rootWbsIdForTask = rootWbsCode;
     sortedActivities.forEach((a) => {
       pushActivityRow(
@@ -789,7 +852,7 @@ export async function generateFragnetXlsx(
         );
       }
 
-      const deliverableExportId = allocateId("deliverable");
+      const deliverableExportId = allocateDeliverableExportCode();
       deliverableExportIdByDbId.set(d.id, deliverableExportId);
       pushActivityRow(
         deliverableExportId,
@@ -810,7 +873,10 @@ export async function generateFragnetXlsx(
 
       const activityMapInBlock = new Map<string, string>();
       activitiesInDeliverable.forEach((a) => {
-        activityMapInBlock.set(a.id, allocateId("activity"));
+        activityMapInBlock.set(
+          a.id,
+          assignExportTaskCode(a.activityCode, a.id, usedExportIds, nextExportNum)
+        );
       });
       activitiesInDeliverable.forEach((a) => {
         pushActivityRow(
@@ -880,8 +946,9 @@ export async function generateFragnetXlsx(
     taskRows: taskDataRows.length,
   });
 
+  const dedupedTaskPredRows = dedupeTaskPredDataRows(taskPredDataRows);
   const taskAoa = [taskDbHeaders, taskUserHeaders, ...taskDataRows];
-  const taskPredAoa = [TASKPRED_DB_HEADERS, TASKPRED_USER_HEADERS, ...taskPredDataRows];
+  const taskPredAoa = [TASKPRED_DB_HEADERS, TASKPRED_USER_HEADERS, ...dedupedTaskPredRows];
 
   const workbook = XLSX.utils.book_new();
   const taskSheet = XLSX.utils.aoa_to_sheet(taskAoa);
@@ -907,8 +974,7 @@ export async function generateFragnetXlsx(
 
   assertUniqueTaskCodesInSheet(taskDataRows);
   assertEveryTaskHasWbsPath(taskDataRows);
-
-  const taskPredExportRows: P6TaskPredExportRow[] = taskPredDataRows.map((row) => ({
+  const taskPredExportRows: P6TaskPredExportRow[] = dedupedTaskPredRows.map((row) => ({
     predecessorTaskCode: String(row[0] ?? ""),
     successorTaskCode: String(row[1] ?? ""),
     relationshipType: String(row[2] ?? "FS"),
@@ -955,21 +1021,10 @@ export async function generateStandardXlsx(
   const durationField = scenario === "best" ? "bestDuration" : "likelyDuration";
   const pendingSemanticRows: P6PendingSemanticTaskRow[] = [];
   const taskPredDataRows: (string | number | null)[][] = [];
-  let nextId = 1000;
+  const nextExportNum = { value: 1000 };
   const usedExportIds = new Set<string>();
-  const allocateId = (kind: "deliverable" | "activity"): string => {
-    const candidate = idFor(nextId);
-    if (usedExportIds.has(candidate)) {
-      const suggestions = suggestAvailableIds(nextId, usedExportIds, 8);
-      throw new Error(
-        `Export: cannot allocate ${kind} ID ${candidate} because it is already in use by a deliverable. ` +
-          `Choose one of the following available IDs instead: ${suggestions.join(", ")}`
-      );
-    }
-    usedExportIds.add(candidate);
-    nextId += 1;
-    return candidate;
-  };
+  const allocateDeliverableExportCode = () =>
+    allocateNextExportCode("deliverable", usedExportIds, nextExportNum);
 
   const deliverableWbsById = deliverableWbsLookupFromGenerated(generatedWbs);
   const wbsCodeById = buildXerAlignedWbsCodeMap(generatedWbs, projectNameForWbsCode);
@@ -1100,7 +1155,7 @@ export async function generateStandardXlsx(
         );
       }
 
-      const deliverableExportId = allocateId("deliverable");
+      const deliverableExportId = allocateDeliverableExportCode();
       deliverableExportIdByDbId.set(deliverable.id, deliverableExportId);
       pushActivityRow(
         deliverableExportId,
@@ -1132,7 +1187,7 @@ export async function generateStandardXlsx(
 
       const activityMapInBlock = new Map<string, string>();
       sortedActivities.forEach((a) => {
-        const exportId = allocateId("activity");
+        const exportId = assignExportTaskCode(a.activityCode, a.id, usedExportIds, nextExportNum);
         activityMapInBlock.set(a.id, exportId);
 
         // Relationships are stored against ORIGINAL activity ids (those in `fragnet.relationships`).
@@ -1215,8 +1270,9 @@ export async function generateStandardXlsx(
     taskRows: taskDataRows.length,
   });
 
+  const dedupedTaskPredRows = dedupeTaskPredDataRows(taskPredDataRows);
   const taskAoa = [taskDbHeaders, taskUserHeaders, ...taskDataRows];
-  const taskPredAoa = [TASKPRED_DB_HEADERS, TASKPRED_USER_HEADERS, ...taskPredDataRows];
+  const taskPredAoa = [TASKPRED_DB_HEADERS, TASKPRED_USER_HEADERS, ...dedupedTaskPredRows];
 
   const workbook = XLSX.utils.book_new();
   const taskSheet = XLSX.utils.aoa_to_sheet(taskAoa);
@@ -1245,8 +1301,7 @@ export async function generateStandardXlsx(
 
   assertUniqueTaskCodesInSheet(taskDataRows);
   assertEveryTaskHasWbsPath(taskDataRows);
-
-  const taskPredExportRows: P6TaskPredExportRow[] = taskPredDataRows.map((row) => ({
+  const taskPredExportRows: P6TaskPredExportRow[] = dedupedTaskPredRows.map((row) => ({
     predecessorTaskCode: String(row[0] ?? ""),
     successorTaskCode: String(row[1] ?? ""),
     relationshipType: String(row[2] ?? "FS"),

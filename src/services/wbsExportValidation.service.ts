@@ -22,9 +22,13 @@ export function validateFragnetForWbsExport(fragnet: FragnetExportValidationInpu
   const deliverableIdsOnFragnet = new Set(
     fragnet.deliverables.filter((d) => d.fragnetId === fragnet.id).map((d) => d.id)
   );
+  for (const a of fragnet.activities) {
+    const did = String(a.deliverableId ?? "").trim();
+    if (did) deliverableIdsOnFragnet.add(did);
+  }
 
   for (const d of fragnet.deliverables) {
-    if (d.fragnetId !== fragnet.id) {
+    if (d.fragnetId != null && d.fragnetId !== fragnet.id) {
       issues.push({
         code: "DELIVERABLE_NOT_ON_STAGE",
         message: `Deliverable ${d.id} is not assigned to this stage (fragnet ${fragnet.id})`,

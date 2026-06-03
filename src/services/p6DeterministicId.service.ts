@@ -28,8 +28,18 @@ export function p6DeterministicActvCodeId(exportKey: string): number {
   return BAND_ACTV_CODE + (u31("P6_ACTVCODE", exportKey) % BAND_SPAN);
 }
 
-export function p6DeterministicTaskId(scope: string, taskCode: string): number {
-  return BAND_TASK + (u31("P6_TASK", `${scope}\x1d${taskCode}`) % BAND_SPAN);
+/** Stable XER task identity: spreadsheet task_code plus optional row identity (avoids hash collisions). */
+export function p6XerTaskStableKey(args: {
+  taskCode: string;
+  ownAssignmentKey?: string | null;
+}): string {
+  const code = String(args.taskCode ?? "").trim();
+  const rowKey = String(args.ownAssignmentKey ?? "").trim();
+  return rowKey ? `${code}\x1d${rowKey}` : code;
+}
+
+export function p6DeterministicTaskId(scope: string, taskStableKey: string): number {
+  return BAND_TASK + (u31("P6_TASK", `${scope}\x1d${taskStableKey}`) % BAND_SPAN);
 }
 
 export function p6DeterministicRsrcId(scope: string, resourceType: string, resourceName: string): number {

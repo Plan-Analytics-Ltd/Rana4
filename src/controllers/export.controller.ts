@@ -19,6 +19,7 @@ import { generateHumanReadableWBS } from "../services/wbsHumanReadable.service.j
 import { generateXERWithWBS } from "../services/xerTemplateInject.service.js";
 import { generateWbsFromFragnets } from "../services/wbsFromFragnets.service.js";
 import { buildUnassignedFragnetForExport } from "../services/exportUnassignedDeliverables.service.js";
+import { repairDeliverableFragnetIdsForProject } from "../services/deliverableActivityChain.service.js";
 import { validateActivityAssignments } from "../services/activityAssignmentValidation.service.js";
 import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
@@ -118,6 +119,7 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
       "../services/fragnetActivityTemplate.service.js"
     );
     await materializeTemplatesForAllDeliverables(fragnetId, companyId);
+    await repairDeliverableFragnetIdsForProject(fragnet.projectId, companyId);
 
     fragnet =
       (await prisma.fragnet.findFirst({
@@ -154,6 +156,7 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
     const activitiesForExport = await Promise.all(
       fragnet.activities.map(async (a) => ({
         id: a.id,
+        activityCode: a.activityCode,
         deliverableId: a.deliverableId,
         name: a.name,
         bestDuration: a.bestDuration,
@@ -386,6 +389,7 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
       "../services/fragnetActivityTemplate.service.js"
     );
     await materializeProjectDeliverablesInOrder(standard.projectId, companyId);
+    await repairDeliverableFragnetIdsForProject(standard.projectId, companyId);
 
     const standardReloaded = await prisma.standard.findFirst({
       where: { id: standardId, companyId },
@@ -465,6 +469,7 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
         const activities = await Promise.all(
           f.activities.map(async (a) => ({
             id: a.id,
+            activityCode: a.activityCode,
             deliverableId: a.deliverableId,
             name: a.name,
             bestDuration: a.bestDuration,
@@ -602,6 +607,92 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
     console.error(err);
     const status = exportHttpStatus(err);
     res.status(status).json(exportErrorBody(err, "Failed to export standard"));
+  }
+}
+
+export async function preflightStandardExport(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const companyId = req.user?.companyId;
+    if (!companyId || !req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const { standardId } = req.params;
+    const body = req.body as { scenario?: string; projectName?: string; projectId?: string };
+    const scenario = body.scenario;
+    const projectName = body.projectName;
+    const projectId = body.projectId;
+    if (!scenario || !VALID_SCENARIOS.includes(scenario as ExportScenario)) {
+      res.status(400).json({ error: "scenario must be 'best' or 'likely'" });
+      return;
+    }
+    if (!String(projectName ?? "").trim() || !String(projectId ?? "").trim()) {
+      res.status(400).json({ error: "projectName and projectId are required" });
+      return;
+    }
+    const standard = await prisma.standard.findFirst({ where: { id: standardId, companyId } });
+    if (!standard) {
+      res.status(404).json({ error: "Standard not found" });
+      return;
+    }
+    const membership = await requireProjectAccess(standard.projectId, req.user);
+    requirePermission(membership.role, "fragnet", "read");
+
+    const { runStandardExportPreflight } = await import("../services/exportPreflight.service.js");
+    const result = await runStandardExportPreflight({
+      companyId,
+      standardId,
+      scenario: scenario as ExportScenario,
+      projectId: String(projectId).trim(),
+      projectName: String(projectName).trim(),
+    });
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: (err as Error).message || "Preflight failed" });
+  }
+}
+
+export async function preflightFragnetExport(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    const companyId = req.user?.companyId;
+    if (!companyId || !req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const { fragnetId } = req.params;
+    const body = req.body as { scenario?: string; projectName?: string; projectId?: string };
+    const scenario = body.scenario;
+    const projectName = body.projectName;
+    const projectId = body.projectId;
+    if (!scenario || !VALID_SCENARIOS.includes(scenario as ExportScenario)) {
+      res.status(400).json({ error: "scenario must be 'best' or 'likely'" });
+      return;
+    }
+    if (!String(projectName ?? "").trim() || !String(projectId ?? "").trim()) {
+      res.status(400).json({ error: "projectName and projectId are required" });
+      return;
+    }
+    const fragnet = await prisma.fragnet.findFirst({ where: { id: fragnetId, companyId } });
+    if (!fragnet) {
+      res.status(404).json({ error: "Fragnet not found" });
+      return;
+    }
+    const membership = await requireProjectAccess(fragnet.projectId, req.user);
+    requirePermission(membership.role, "fragnet", "read");
+
+    const { runFragnetExportPreflight } = await import("../services/exportPreflight.service.js");
+    const result = await runFragnetExportPreflight({
+      companyId,
+      fragnetId,
+      scenario: scenario as ExportScenario,
+      projectId: String(projectId).trim(),
+      projectName: String(projectName).trim(),
+    });
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: (err as Error).message || "Preflight failed" });
   }
 }
 

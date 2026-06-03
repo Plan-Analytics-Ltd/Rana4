@@ -14,9 +14,12 @@ import {
   type Standard,
   type Fragnet,
   type RateCardEntry,
+  type ExportPreflightIssue,
   getApiErrorMessage,
+  getApiErrorMessageAsync,
   assertBlobIsZipDownload,
 } from "@/lib/api";
+import type { ValidationIssue } from "@/lib/schedule-validation";
 import { cn } from "@/lib/utils";
 import { useProject } from "@/contexts/project-context";
 import { expandProjectDataForExportView } from "@/lib/schedule-effective";
@@ -40,8 +43,9 @@ export default function ExportPage() {
   const [scenario, setScenario] = useState<Scenario>("best");
   const [projectId, setProjectId] = useState<string>("");
   const [projectName, setProjectName] = useState<string>("");
-  const [validateMapping, setValidateMapping] = useState(false);
-  const [validationSummary, setValidationSummary] = useState<string>("");
+  const [preflightIssues, setPreflightIssues] = useState<ExportPreflightIssue[]>([]);
+  const [preflightSummary, setPreflightSummary] = useState<string>("");
+  const [loadingPreflight, setLoadingPreflight] = useState(false);
   const [loadingStandards, setLoadingStandards] = useState(true);
   const [loadingFragnets, setLoadingFragnets] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -140,6 +144,86 @@ export default function ExportPage() {
 
   const readiness = useMemo(() => readinessScore(healthIssues), [healthIssues]);
 
+  const preflightValidationIssues = useMemo((): ValidationIssue[] => {
+    return preflightIssues.map((issue, idx) => ({
+      id: `preflight-${idx}-${issue.code}`,
+      severity: issue.severity === "warning" ? "warning" : "critical",
+      code: issue.code,
+      message: `[${issue.phase}] ${issue.message}`,
+      entityType: issue.fragnetId ? "fragnet" : undefined,
+      entityId: issue.fragnetId,
+    }));
+  }, [preflightIssues]);
+
+  const combinedHealthIssues = useMemo(
+    () => [...healthIssues, ...preflightValidationIssues],
+    [healthIssues, preflightValidationIssues]
+  );
+
+  const combinedReadiness = useMemo(() => readinessScore(combinedHealthIssues), [combinedHealthIssues]);
+
+  const canRunPreflight =
+    projectId.trim() !== "" &&
+    projectName.trim() !== "" &&
+    ((mode === "STANDARD" && selectedStandardId) || (mode === "FRAGNET" && selectedFragnetId));
+
+  const runExportPreflight = useCallback(async () => {
+    if (!canRunPreflight) {
+      setPreflightIssues([]);
+      setPreflightSummary("");
+      return;
+    }
+    setLoadingPreflight(true);
+    try {
+      const body = {
+        scenario,
+        projectId: projectId.trim(),
+        projectName: projectName.trim(),
+      };
+      const { data } =
+        mode === "STANDARD"
+          ? await exportApi.preflightStandard(selectedStandardId, body)
+          : await exportApi.preflightFragnet(selectedFragnetId, body);
+      setPreflightIssues(data.issues ?? []);
+      const assign = data.assignment;
+      const assignLine = assign
+        ? `Activities: ${assign.activityCount}. Orphans: ${assign.orphanActivities.length}. Unknown deliverables: ${assign.unknownDeliverableActivities.length}. Cross-fragnet: ${assign.crossFragnetMismatches.length}.`
+        : "";
+      setPreflightSummary(
+        data.ok
+          ? assignLine
+            ? `Export pipeline OK. ${assignLine}`
+            : "Export pipeline OK — no blocking issues found."
+          : `${data.errorCount} blocking issue(s)${data.warningCount ? `, ${data.warningCount} warning(s)` : ""}. ${assignLine}`.trim()
+      );
+    } catch (err: unknown) {
+      setPreflightIssues([]);
+      setPreflightSummary(getApiErrorMessage(err) || "Preflight check failed");
+    } finally {
+      setLoadingPreflight(false);
+    }
+  }, [
+    canRunPreflight,
+    mode,
+    selectedStandardId,
+    selectedFragnetId,
+    scenario,
+    projectId,
+    projectName,
+  ]);
+
+  useEffect(() => {
+    if (!canRunPreflight) {
+      setPreflightIssues([]);
+      setPreflightSummary("");
+      return;
+    }
+    const t = window.setTimeout(() => {
+      void runExportPreflight();
+    }, 600);
+    return () => window.clearTimeout(t);
+  }, [canRunPreflight, runExportPreflight]);
+
   const handleExport = async () => {
     if (mode === "FRAGNET" && !selectedFragnetId) {
       toast.error("Select a fragnet first");
@@ -163,7 +247,7 @@ export default function ExportPage() {
       toast.error("Select a workspace project first");
       return;
     }
-    if (readiness.critical > 0 && !forceExport) {
+    if (combinedReadiness.critical > 0 && !forceExport) {
       toast.error("Resolve critical validation issues or enable export anyway");
       return;
     }
@@ -178,33 +262,6 @@ export default function ExportPage() {
 
     setExporting(true);
     try {
-      if (mode === "STANDARD" && validateMapping) {
-        const v = await exportApi.validateStandardActivities(selectedStandardId);
-        if (!v.data.ok) {
-          toast.error(v.data.error || "Activity mapping validation failed");
-          appendExportHistory({
-            id: entryId,
-            at: new Date().toISOString(),
-            ranaProjectId: selectedProjectId,
-            mode,
-            targetName,
-            scenario,
-            p6ProjectId: pid,
-            p6ProjectName: pname,
-            status: "failure",
-            durationMs: Math.round(performance.now() - started),
-            error: v.data.error || "Mapping validation failed",
-            validationErrors: readiness.critical,
-            validationWarnings: readiness.warning,
-          });
-          refreshHistory();
-          return;
-        }
-        const r = v.data.result!;
-        setValidationSummary(
-          `Activities: ${r.activityCount}. Orphans: ${r.orphanActivities.length}. Unknown deliverables: ${r.unknownDeliverableActivities.length}. Cross-fragnet: ${r.crossFragnetMismatches.length}.`
-        );
-      }
       const response =
         mode === "FRAGNET"
           ? await exportApi.fragnet(selectedFragnetId, {
@@ -247,13 +304,13 @@ export default function ExportPage() {
         status: "success",
         durationMs: Math.round(performance.now() - started),
         filename,
-        validationErrors: readiness.critical,
-        validationWarnings: readiness.warning,
+        validationErrors: combinedReadiness.critical,
+        validationWarnings: combinedReadiness.warning,
       });
       refreshHistory();
       toast.success("Export downloaded (ZIP: Excel + XER)");
     } catch (err: unknown) {
-      const msg = getApiErrorMessage(err) || "Failed to export";
+      const msg = (await getApiErrorMessageAsync(err)) || "Failed to export";
       toast.error(msg);
       appendExportHistory({
         id: entryId,
@@ -267,8 +324,8 @@ export default function ExportPage() {
         status: "failure",
         durationMs: Math.round(performance.now() - started),
         error: msg,
-        validationErrors: readiness.critical,
-        validationWarnings: readiness.warning,
+        validationErrors: combinedReadiness.critical,
+        validationWarnings: combinedReadiness.warning,
       });
       refreshHistory();
     } finally {
@@ -284,14 +341,15 @@ export default function ExportPage() {
     !projectId.trim() ||
     !projectName.trim() ||
     exporting ||
-    (readiness.critical > 0 && !forceExport);
+    (combinedReadiness.critical > 0 && !forceExport) ||
+    loadingPreflight;
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">Export Center</h2>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Pre-export health checks, validation visibility, and export history. Downloads include Excel workbook and P6 XER in a ZIP.
+          Schedule health plus a full export dry-run (WBS, Excel, XER validation) — issues appear here before you download. Downloads are Excel + P6 XER in a ZIP.
         </p>
       </div>
 
@@ -308,19 +366,30 @@ export default function ExportPage() {
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
-              {loadingHealth ? (
+              {loadingHealth || loadingPreflight ? (
                 <div className="flex items-center gap-2 text-sm text-slate-500">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Analyzing project…
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {loadingPreflight ? "Running export dry-run…" : "Analyzing project…"}
                 </div>
               ) : !selectedProjectId ? (
                 <p className="text-sm text-slate-500">Select a project from the header to run health checks.</p>
               ) : (
                 <>
-                  <ReadinessDisplay readiness={readiness} />
+                  <ReadinessDisplay readiness={combinedReadiness} />
                   <p className="text-sm text-slate-500">
                     Scenario: {scenario === "best" ? "Best duration" : "Likely duration"}
                   </p>
-                  {readiness.critical > 0 && (
+                  {preflightSummary && (
+                    <p
+                      className={cn(
+                        "text-sm",
+                        preflightIssues.length > 0 ? "text-red-600 dark:text-red-400" : "text-emerald-700 dark:text-emerald-300"
+                      )}
+                    >
+                      {preflightSummary}
+                    </p>
+                  )}
+                  {combinedReadiness.critical > 0 && (
                     <label className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-900/50 dark:bg-amber-950/20">
                       <input
                         type="checkbox"
@@ -336,9 +405,13 @@ export default function ExportPage() {
                   )}
                   <ValidationPanel
                     className="min-h-0"
-                    issues={healthIssues}
+                    issues={combinedHealthIssues}
                     title="Pre-export validation"
-                    emptyMessage="Schedule looks ready for export."
+                    emptyMessage={
+                      canRunPreflight
+                        ? "Schedule and export pipeline look ready."
+                        : "Enter P6 project ID and name to run the full export dry-run."
+                    }
                   />
                 </>
               )}
@@ -375,19 +448,6 @@ export default function ExportPage() {
                       <option value="STANDARD">Export Full Standard</option>
                     </select>
                   </div>
-
-                  {mode === "STANDARD" && (
-                    <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-                      <input
-                        type="checkbox"
-                        checked={validateMapping}
-                        onChange={(e) => setValidateMapping(e.target.checked)}
-                        className="h-4 w-4 rounded border-slate-300"
-                      />
-                      Validate activity mapping (server)
-                    </label>
-                  )}
-                  {validationSummary && <p className="text-sm text-slate-500">{validationSummary}</p>}
 
                   <div className="grid gap-2">
                     <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Standard</label>
@@ -449,10 +509,25 @@ export default function ExportPage() {
                       className="flex h-9 max-w-sm rounded-md border border-slate-200 bg-white px-3 py-1 text-sm dark:border-slate-600 dark:bg-slate-800"
                     />
                   </div>
-                  <Button onClick={handleExport} disabled={exportDisabled}>
-                    {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                    {exporting ? "Exporting…" : "Download ZIP (XLSX + XER)"}
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void runExportPreflight()}
+                      disabled={!canRunPreflight || loadingPreflight}
+                    >
+                      {loadingPreflight ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <ShieldCheck className="h-4 w-4" />
+                      )}
+                      {loadingPreflight ? "Checking…" : "Re-run export check"}
+                    </Button>
+                    <Button onClick={handleExport} disabled={exportDisabled}>
+                      {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                      {exporting ? "Exporting…" : "Download ZIP (XLSX + XER)"}
+                    </Button>
+                  </div>
                 </>
               )}
             </CardContent>

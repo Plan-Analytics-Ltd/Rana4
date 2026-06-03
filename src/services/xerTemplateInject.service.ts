@@ -10,8 +10,11 @@ import { mergeInheritedAndOwnActivityAssignments } from "./activityCodeAssignmen
 import {
   p6DeterministicActvCodeId,
   p6DeterministicActvTypeId,
-  p6DeterministicTaskId,
+  p6XerTaskStableKey,
 } from "./p6DeterministicId.service.js";
+
+const P6_TASK_ID_BAND_START = 1_450_000_000;
+const P6_TASK_ID_BAND_LIMIT = 80_000_000;
 import type { P6PendingSemanticTaskRow, P6TaskPredExportRow } from "./export.service.js";
 import { buildP6TaskRsrcAndTaskPredSections } from "./p6XerScheduleTables.service.js";
 import { assertValidGeneratedXer } from "./p6XerExportValidation.service.js";
@@ -119,6 +122,8 @@ export type GenerateXerWithWbsOptions = {
   xerDeterministicScope?: string | null;
   /** Predecessor/successor activity IDs (task_code) and lag hours for `TASKPRED`. */
   taskPredExportRows?: P6TaskPredExportRow[] | null;
+  /** When false, caller runs {@link collectXerValidationIssues} (e.g. export preflight reporting all issues). */
+  assertValidOnComplete?: boolean;
 };
 
 function projIdFromProjectSection(lines: string[]): string {
@@ -430,6 +435,20 @@ function appendP6ActivityTaskTables(params: {
 
   const taskActvRowStrings: string[] = [];
   const taskDataRowStrings: string[] = [];
+  const emittedTaskCodes = new Set<string>();
+  const stableKeyToTaskNum = new Map<string, number>();
+  let nextP6TaskNum = P6_TASK_ID_BAND_START;
+  const taskNumForStableKey = (stableKey: string): number => {
+    const existing = stableKeyToTaskNum.get(stableKey);
+    if (existing !== undefined) return existing;
+    const n = nextP6TaskNum;
+    nextP6TaskNum += 1;
+    if (nextP6TaskNum >= P6_TASK_ID_BAND_START + P6_TASK_ID_BAND_LIMIT) {
+      throw new Error("XER TASK: export exceeds supported task_id range");
+    }
+    stableKeyToTaskNum.set(stableKey, n);
+    return n;
+  };
   if (pending.length > 0) {
     for (const row of pending) {
       const taskCode = String(row.baseCells[0] ?? "").trim();
@@ -437,8 +456,11 @@ function appendP6ActivityTaskTables(params: {
       const taskName = String(row.baseCells[4] ?? "").trim();
       const dur = Number(row.baseCells[9]);
       if (!taskCode || !wbsPath || !taskName || !Number.isFinite(dur)) continue;
+      if (emittedTaskCodes.has(taskCode)) continue;
+      emittedTaskCodes.add(taskCode);
       const wbsIdNum = wbsNumericIdFromSpreadsheetPath(wbsPath, params.wbs, params.projectShortNameForWbsPaths);
-      const taskNum = p6DeterministicTaskId(scope, taskCode);
+      const stableKey = p6XerTaskStableKey({ taskCode, ownAssignmentKey: row.ownAssignmentKey });
+      const taskNum = taskNumForStableKey(stableKey);
       taskCodeToTaskId.set(taskCode, taskNum);
       taskDataRowStrings.push(
         taskXerRowFromSemantic({
@@ -793,7 +815,9 @@ export async function generateXERWithWBS(
   );
 
   const xerOut = outLines.join(eol);
-  assertValidGeneratedXer(xerOut);
+  if (opts?.assertValidOnComplete !== false) {
+    assertValidGeneratedXer(xerOut);
+  }
   return xerOut;
 }
 

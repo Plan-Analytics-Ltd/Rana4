@@ -39,6 +39,8 @@ function colValues(table: XerTable, name: string): string[] {
   return table.rows.map((r) => String(r[idx] ?? "").trim());
 }
 
+const MAX_DUPLICATE_ID_REPORTS = 25;
+
 function assertNoDuplicateIds(tableName: string, table: XerTable, idField: string, issues: P6XerValidationIssue[]): void {
   const idx = fieldIndex(table, idField);
   if (idx < 0) {
@@ -46,12 +48,16 @@ function assertNoDuplicateIds(tableName: string, table: XerTable, idField: strin
     return;
   }
   const seen = new Set<string>();
+  let reported = 0;
   for (const r of table.rows) {
     const v = String(r[idx] ?? "").trim();
     if (!v) continue;
     if (seen.has(v)) {
-      issues.push({ code: "DUPLICATE_ID", message: `${tableName}: duplicate ${idField}=${v}` });
-      return;
+      if (reported < MAX_DUPLICATE_ID_REPORTS) {
+        issues.push({ code: "DUPLICATE_ID", message: `${tableName}: duplicate ${idField}=${v}` });
+        reported += 1;
+      }
+      continue;
     }
     seen.add(v);
   }

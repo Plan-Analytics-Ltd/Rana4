@@ -181,6 +181,36 @@ export async function syncProjectDeliverableActivityLinkages(
   }
 }
 
+/** Backfill deliverable.fragnet_id from activities so export/WBS validation can resolve stages. */
+export async function repairDeliverableFragnetIdsForProject(
+  projectId: string,
+  companyId: string
+): Promise<{ updated: number }> {
+  const deliverables = await prisma.deliverable.findMany({
+    where: { projectId, companyId, fragnetId: null },
+    select: { id: true },
+  });
+  let updated = 0;
+  for (const d of deliverables) {
+    const fromActivity = await prisma.activity.findFirst({
+      where: {
+        companyId,
+        deliverableId: d.id,
+        isSharedAcrossDeliverables: false,
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { fragnetId: true },
+    });
+    if (!fromActivity?.fragnetId) continue;
+    await prisma.deliverable.update({
+      where: { id: d.id },
+      data: { fragnetId: fromActivity.fragnetId },
+    });
+    updated += 1;
+  }
+  return { updated };
+}
+
 export async function syncDeliverableActivityLinkage(
   deliverableId: string,
   companyId: string
