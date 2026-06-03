@@ -6,6 +6,7 @@ const router = Router();
 
 router.use(requireAuth);
 router.post("/", activitiesController.create);
+router.get("/project/:projectId/project-level", activitiesController.getProjectLevelContext);
 router.get("/fragnet/:fragnetId", activitiesController.getByFragnetId);
 router.get("/:id", activitiesController.getById);
 router.get("/:id/versions", activitiesController.getVersions);

@@ -2,6 +2,11 @@ import type { Activity } from "@prisma/client";
 import { prisma } from "../utils/prisma.js";
 import type { DeliverableWithActivities } from "./deliverableActivityLink.service.js";
 import {
+  EXPORT_UNASSIGNED_STAGE_ID,
+  EXPORT_UNASSIGNED_STAGE_NAME,
+  loadProjectUnassignedDeliverables,
+} from "./exportUnassignedDeliverables.service.js";
+import {
   assertGeneratedWbsInvariants,
   buildDeterministicWbsLookups,
   sanitizeWbsName,
@@ -46,7 +51,7 @@ function sortByCreatedAtThenId<T extends { createdAt: Date; id: string }>(items:
  * Project (root id=1) → Stage / Fragnet → Deliverable → Activities (mapped via deliverableIdToWbsId).
  *
  * IMPORTANT: WBS ids are generated integers (no UUIDs).
- * Every project deliverable must have `fragnetId` set — no name-based inference or synthetic buckets.
+ * Deliverables without a fragnet are grouped under a synthetic "Unassigned deliverables" stage.
  */
 export async function generateWbsFromFragnets(standardId: string): Promise<GeneratedWbs> {
   const sid = String(standardId ?? "").trim();
@@ -68,16 +73,6 @@ export async function generateWbsFromFragnets(standardId: string): Promise<Gener
   });
 
   if (!standard) throw new Error("generateWbsFromFragnets: Standard not found");
-
-  const orphan = await prisma.deliverable.findFirst({
-    where: { projectId: standard.projectId, companyId: standard.companyId, fragnetId: null },
-    select: { id: true, name: true },
-  });
-  if (orphan) {
-    throw new Error(
-      `WBS generation blocked: deliverable "${orphan.name}" (${orphan.id}) has no stage (fragnet). Assign every deliverable to a stage before export.`
-    );
-  }
 
   const fragnets: FragnetWithDeliverables[] = standard.fragnets.map((f) => ({
     id: f.id,
@@ -120,6 +115,44 @@ export async function generateWbsFromFragnets(standardId: string): Promise<Gener
         wbs_name: src,
         activities: d.activities,
         stageFragnetId: fragnet.id,
+        stageDisplayName: stageDisplay,
+        deliverableSourceName: src,
+      };
+      deliverable_wbs_list.push(slice);
+      wbs_nodes.push({
+        kind: "DELIVERABLE",
+        wbs_id: deliverableWbsId,
+        parent_wbs_id: fragnetWbsId,
+        wbs_short_name: slice.wbs_short_name,
+        wbs_name: slice.wbs_name,
+      });
+      deliverableIdToWbsId.set(d.id, deliverableWbsId);
+    }
+  }
+
+  const unassigned = await loadProjectUnassignedDeliverables(standard.projectId, standard.companyId);
+  if (unassigned.length > 0) {
+    const fragnetWbsId = ++currentWbsId;
+    const stageDisplay = EXPORT_UNASSIGNED_STAGE_NAME;
+    wbs_nodes.push({
+      kind: "FRAGNET",
+      wbs_id: fragnetWbsId,
+      parent_wbs_id: 1,
+      wbs_short_name: String(fragnetWbsId),
+      wbs_name: stageDisplay,
+      fragnetId: EXPORT_UNASSIGNED_STAGE_ID,
+    });
+
+    for (const d of sortByCreatedAtThenId(unassigned)) {
+      const deliverableWbsId = ++currentWbsId;
+      const src = sanitizeWbsName(d.name) || d.name;
+      const slice = {
+        deliverable_id: d.id,
+        wbs_id: deliverableWbsId,
+        wbs_short_name: String(deliverableWbsId),
+        wbs_name: src,
+        activities: d.activities,
+        stageFragnetId: EXPORT_UNASSIGNED_STAGE_ID,
         stageDisplayName: stageDisplay,
         deliverableSourceName: src,
       };

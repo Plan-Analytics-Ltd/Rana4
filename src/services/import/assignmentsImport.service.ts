@@ -11,6 +11,7 @@ import type { AssignedResourceStored } from "../rateCard.js";
 import { getRateCardEntries, parseAndValidateAssignedResources } from "../rateCard.js";
 import type { ParsedAssignmentRow } from "./assignments.parser.js";
 import { parseAssignmentsSheet } from "./assignments.parser.js";
+import { importDeliverableKey } from "./importKeys.js";
 
 /** Raw assignment payload accepted by parseAndValidateAssignedResources (no rate/unit from Excel). */
 export type AssignmentResourceInput = {
@@ -55,10 +56,17 @@ export function buildAssignmentsImportContext(parts: {
 
   const deliverableByFragnetAndName = new Map<string, Deliverable>();
   for (const d of parts.deliverables) {
-    if (d.fragnetId === null) continue;
+    if (d.fragnetId === null) {
+      const key = importDeliverableKey(null, d.name);
+      if (deliverableByFragnetAndName.has(key)) {
+        throw new Error(`Assignments import: duplicate unassigned deliverable "${d.name}"`);
+      }
+      deliverableByFragnetAndName.set(key, d);
+      continue;
+    }
     const frag = parts.fragnets.find((x) => x.id === d.fragnetId);
     if (!frag) continue;
-    const key = lkFragDel(frag.name, d.name);
+    const key = importDeliverableKey(frag.name, d.name);
     if (deliverableByFragnetAndName.has(key)) {
       throw new Error(`Assignments import: duplicate deliverable "${d.name}" under fragnet "${frag.name}"`);
     }
@@ -128,12 +136,6 @@ export function groupAssignmentInputs(parsedRows: ParsedAssignmentRow[], ctx: As
     const excelHint =
       row.sourceExcelRow !== undefined ? `(Excel row ${row.sourceExcelRow})` : `(parsed row ${i + 1})`;
 
-    const fragName = row.fragnetName.trim();
-    const frag = ctx.fragnetByName.get(fragName);
-    if (!frag) {
-      throw new Error(`Assignments import ${excelHint}: fragnet not found: ${JSON.stringify(row.fragnetName)}`);
-    }
-
     const payload: AssignmentResourceInput = {
       resourceType: row.resourceType.trim(),
       resourceName: row.resourceName.trim(),
@@ -141,15 +143,26 @@ export function groupAssignmentInputs(parsedRows: ParsedAssignmentRow[], ctx: As
     };
 
     if (row.level === "DELIVERABLE") {
-      const dKey = lkFragDel(frag.name, row.deliverableName);
+      const dKey = importDeliverableKey(row.fragnetName || null, row.deliverableName);
       const del = ctx.deliverableByFragnetAndName.get(dKey);
       if (!del) {
+        const scope = row.fragnetName.trim()
+          ? `fragnet ${JSON.stringify(row.fragnetName)}`
+          : "unassigned (leave fragnet_name blank on Deliverables sheet)";
         throw new Error(
-          `Assignments import ${excelHint}: deliverable not found for fragnet ${JSON.stringify(frag.name)} / ${JSON.stringify(row.deliverableName)}`
+          `Assignments import ${excelHint}: deliverable not found for ${scope} / ${JSON.stringify(row.deliverableName)}`
         );
       }
       pushDel(del.id, payload);
     } else {
+      const fragName = row.fragnetName.trim();
+      if (!fragName) {
+        throw new Error(`Assignments import ${excelHint}: fragnet_name is required for ACTIVITY assignments`);
+      }
+      const frag = ctx.fragnetByName.get(fragName);
+      if (!frag) {
+        throw new Error(`Assignments import ${excelHint}: fragnet not found: ${JSON.stringify(row.fragnetName)}`);
+      }
       const code = row.activityCode?.trim();
       if (!code) {
         throw new Error(`Assignments import ${excelHint}: activity_code missing for ACTIVITY row`);

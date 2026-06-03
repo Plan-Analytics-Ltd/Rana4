@@ -45,9 +45,9 @@ export function AppHeader() {
   const pageTitle = pageTitles[pathname] ?? breadcrumbs[breadcrumbs.length - 1]?.label ?? "Rana4";
 
   return (
-    <header className="sticky top-0 z-10 flex h-14 items-center gap-4 border-b border-slate-200 bg-white/95 px-6 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/95">
-      <div className="flex flex-1 items-center gap-4">
-        <nav className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400" aria-label="Breadcrumb">
+    <header className="sticky top-0 z-10 flex min-w-0 items-center gap-4 overflow-hidden border-b border-slate-200 bg-white/95 px-6 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/95">
+      <div className="flex min-w-0 flex-1 items-center gap-4 overflow-hidden">
+        <nav className="flex min-w-0 items-center gap-1 overflow-hidden text-xs text-slate-500 dark:text-slate-400" aria-label="Breadcrumb">
           {breadcrumbs.map((crumb, i) => (
             <span key={crumb.href} className="flex items-center gap-1">
               {i > 0 && <ChevronRight className="h-3.5 w-3 shrink-0 text-slate-300 dark:text-slate-600" aria-hidden />}
@@ -62,7 +62,7 @@ export function AppHeader() {
           ))}
         </nav>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         {projectsLoading ? (
           <div className="h-8 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-500 shadow-sm flex items-center dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
             Loading projects…

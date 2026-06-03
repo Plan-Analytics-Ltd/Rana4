@@ -103,6 +103,8 @@ export async function generateImportTemplate(): Promise<Buffer> {
   deliverables.addRow(["deliverable_name", "fragnet_name", "best_duration", "likely_duration", "external_project_id"]);
   deliverables.addRow(["IFC Drawings", "IFC", 10, 15, "EXT-001"]);
   deliverables.addRow(["Specifications", "IFC", 8, 12, "EXT-001"]);
+  deliverables.addRow(["Project-wide package", "", 5, 8, ""]);
+  // fragnet_name blank → unassigned deliverable (same as Deliverables UI "no fragnet")
   styleDataSheetHeader(deliverables, 5);
   autosizeColumns(deliverables, 5);
 

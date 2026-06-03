@@ -45,6 +45,9 @@ import {
 } from "@/components/resource-assignments-editor";
 import { hasPermission } from "@/lib/project-permissions";
 import { cn } from "@/lib/utils";
+import { ActivityBulkActionsBar } from "@/components/activities/ActivityBulkActionsBar";
+import { filterUserVisibleFragnets, filterUserVisibleStandards } from "@/lib/project-level-ui";
+import { DeliverableBenchmarkPanel } from "@/components/deliverables/deliverable-benchmark-panel";
 
 type FragnetOption = { id: string; name: string; standardName?: string };
 
@@ -66,6 +69,8 @@ export default function DeliverablesPage() {
   const [formLikelyDuration, setFormLikelyDuration] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [rateCardEntries, setRateCardEntries] = useState<RateCardEntry[] | null>(null);
   const [formResourceDrafts, setFormResourceDrafts] = useState<ResourceAssignmentDraft[]>([]);
   const [codeTypes, setCodeTypes] = useState<ActivityCodeType[]>([]);
@@ -97,19 +102,21 @@ export default function DeliverablesPage() {
         standardsApi.list(selectedProjectId),
         deliverablesApi.list(selectedProjectId),
       ]);
-      const standards: Standard[] = standardsRes.data;
+      const standards: Standard[] = filterUserVisibleStandards(standardsRes.data);
       const deliverablesList: Deliverable[] = deliverablesRes.data;
       setDeliverables(deliverablesList);
 
       const fragnetLists = await Promise.all(
         standards.map((s) => fragnetsApi.listByStandard(s.id))
       );
-      const fragnetsWithStandard: FragnetOption[] = fragnetLists.flatMap((res, i) =>
+      const fragnetsWithStandard: FragnetOption[] = filterUserVisibleFragnets(
+        fragnetLists.flatMap((res, i) =>
         res.data.map((f: Fragnet) => ({
           id: f.id,
           name: f.name,
           standardName: standards[i]?.name,
         }))
+      )
       );
       setAllFragnets(fragnetsWithStandard);
       const nameById: Record<string, string> = {};
@@ -129,6 +136,7 @@ export default function DeliverablesPage() {
 
   useEffect(() => {
     loadInitialData();
+    setSelectedIds(new Set());
   }, [loadInitialData, selectedProjectId]);
 
   useEffect(() => {
@@ -251,6 +259,11 @@ export default function DeliverablesPage() {
     try {
       await deliverablesApi.delete(id);
       toast.success("Deliverable deleted");
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
       await fetchDeliverables();
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err) || "Failed to delete deliverable");
@@ -296,6 +309,59 @@ export default function DeliverablesPage() {
 
   const filteredDeliverables = deliverables.filter(matchesQuery);
   const unassignedDeliverables = filteredDeliverables.filter((d) => d.fragnetId == null);
+  const assignedDeliverables = filteredDeliverables.filter((d) => d.fragnetId != null);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllInList = (list: Deliverable[]) => {
+    const ids = list.map((d) => d.id);
+    const allSelected = ids.length > 0 && ids.every((id) => selectedIds.has(id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) ids.forEach((id) => next.delete(id));
+      else ids.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = [...selectedIds];
+    if (!confirm(`Delete ${ids.length} deliverable${ids.length === 1 ? "" : "s"}? Deliverables with activities cannot be deleted until those activities are removed.`)) {
+      return;
+    }
+    setBulkBusy(true);
+    let deleted = 0;
+    const failed: string[] = [];
+    try {
+      for (const id of ids) {
+        try {
+          await deliverablesApi.delete(id);
+          deleted += 1;
+        } catch (err: unknown) {
+          const name = deliverables.find((d) => d.id === id)?.name ?? id;
+          failed.push(`${name}: ${getApiErrorMessage(err)}`);
+        }
+      }
+      setSelectedIds(new Set());
+      await fetchDeliverables();
+      if (deleted > 0) {
+        toast.success(`Deleted ${deleted} deliverable${deleted === 1 ? "" : "s"}`);
+      }
+      if (failed.length > 0) {
+        toast.error(failed.length === ids.length ? failed[0]! : `${failed.length} failed:\n${failed.slice(0, 3).join("\n")}${failed.length > 3 ? "…" : ""}`);
+      }
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const openCreateUnassigned = () => {
     setFormFragnetId("");
     setFormResourceDrafts([]);
@@ -313,6 +379,16 @@ export default function DeliverablesPage() {
           </p>
         </div>
       </div>
+
+      {mayDelete && filteredDeliverables.length > 0 && (
+        <ActivityBulkActionsBar
+          selectedCount={selectedIds.size}
+          onClear={() => setSelectedIds(new Set())}
+          onBulkDelete={handleBulkDelete}
+          busy={bulkBusy}
+          canDelete={mayDelete}
+        />
+      )}
 
       <Card>
         <CardHeader className="flex flex-row items-start justify-between space-y-0">
@@ -340,6 +416,19 @@ export default function DeliverablesPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  {mayDelete ? (
+                    <TableHead className="w-10">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all unassigned"
+                        checked={
+                          unassignedDeliverables.length > 0 &&
+                          unassignedDeliverables.every((d) => selectedIds.has(d.id))
+                        }
+                        onChange={() => toggleSelectAllInList(unassignedDeliverables)}
+                      />
+                    </TableHead>
+                  ) : null}
                   <TableHead>Name</TableHead>
                   <TableHead>Best</TableHead>
                   <TableHead>Likely</TableHead>
@@ -351,6 +440,16 @@ export default function DeliverablesPage() {
               <TableBody>
                 {unassignedDeliverables.map((d) => (
                   <TableRow key={d.id}>
+                    {mayDelete ? (
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${d.name}`}
+                          checked={selectedIds.has(d.id)}
+                          onChange={() => toggleSelect(d.id)}
+                        />
+                      </TableCell>
+                    ) : null}
                     <TableCell className="font-medium">{d.name}</TableCell>
                     <TableCell>{d.bestDuration}</TableCell>
                     <TableCell>{d.likelyDuration}</TableCell>
@@ -491,10 +590,27 @@ export default function DeliverablesPage() {
             <p className="py-8 text-center text-slate-500 dark:text-slate-400">
               No deliverables match &quot;{query.trim()}&quot;. Try searching by ID, name, or P6 codes.
             </p>
+          ) : assignedDeliverables.length === 0 ? (
+            <p className="py-8 text-center text-slate-500 dark:text-slate-400">
+              No fragnet-assigned deliverables match your search. See unassigned deliverables above.
+            </p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
+                  {mayDelete ? (
+                    <TableHead className="w-10">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all assigned"
+                        checked={
+                          assignedDeliverables.length > 0 &&
+                          assignedDeliverables.every((d) => selectedIds.has(d.id))
+                        }
+                        onChange={() => toggleSelectAllInList(assignedDeliverables)}
+                      />
+                    </TableHead>
+                  ) : null}
                   <TableHead>Name</TableHead>
                   <TableHead>Best</TableHead>
                   <TableHead>Likely</TableHead>
@@ -505,8 +621,18 @@ export default function DeliverablesPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredDeliverables.map((d) => (
+                {assignedDeliverables.map((d) => (
                   <TableRow key={d.id}>
+                    {mayDelete ? (
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${d.name}`}
+                          checked={selectedIds.has(d.id)}
+                          onChange={() => toggleSelect(d.id)}
+                        />
+                      </TableCell>
+                    ) : null}
                     <TableCell className="font-medium">{d.name}</TableCell>
                     <TableCell>{d.bestDuration}</TableCell>
                     <TableCell>{d.likelyDuration}</TableCell>
@@ -590,6 +716,10 @@ export default function DeliverablesPage() {
                                     disabled={submitting}
                                     durationDays={Math.max(0.01, Number(formBestDuration) || 1)}
                                   />
+
+                                  {selectedProjectId && editId ? (
+                                    <DeliverableBenchmarkPanel projectId={selectedProjectId} deliverableId={editId} />
+                                  ) : null}
                                 </div>
                                 <DialogFooter>
                                   <Button type="button" variant="outline" onClick={() => setEditId(null)}>Cancel</Button>

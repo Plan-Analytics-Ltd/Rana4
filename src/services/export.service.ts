@@ -66,12 +66,81 @@ type RelationshipForExport = {
   lag: number;
 };
 
+export type DeliverableRelationshipForExport = {
+  predecessorDeliverableId: string;
+  successorDeliverableId: string;
+  relationshipType: string;
+  lag: number;
+};
+
+export type DeliverableActivityRelationshipForExport = {
+  predecessorDeliverableId: string;
+  successorActivityId: string;
+  relationshipType: string;
+  lag: number;
+};
+
 export type StandardFragnetForExport = {
   id: string;
   deliverables: DeliverableForExport[];
   activities: ActivityForExport[];
   relationships: RelationshipForExport[];
+  deliverableRelationships?: DeliverableRelationshipForExport[];
+  deliverableActivityRelationships?: DeliverableActivityRelationshipForExport[];
 };
+
+function appendDeliverableRelationshipPreds(
+  deliverableRelationships: DeliverableRelationshipForExport[],
+  deliverableExportIdByDbId: Map<string, string>,
+  taskPredDataRows: (string | number | null)[][],
+  projectId: string
+): void {
+  for (const dr of deliverableRelationships) {
+    const pred = deliverableExportIdByDbId.get(dr.predecessorDeliverableId);
+    const succ = deliverableExportIdByDbId.get(dr.successorDeliverableId);
+    if (!pred || !succ) continue;
+    taskPredDataRows.push([
+      pred,
+      succ,
+      dr.relationshipType,
+      projectId,
+      projectId,
+      Math.round(Number(dr.lag) * P6_SCHEDULE_HOURS_PER_DAY) || 0,
+      null,
+    ]);
+  }
+}
+
+function appendDeliverableActivityRelationshipPreds(
+  deliverableActivityRelationships: DeliverableActivityRelationshipForExport[],
+  deliverableId: string,
+  deliverableExportId: string,
+  activityMapInBlock: Map<string, string>,
+  taskPredDataRows: (string | number | null)[][],
+  projectId: string
+): void {
+  for (const r of deliverableActivityRelationships) {
+    if (r.predecessorDeliverableId !== deliverableId) continue;
+    const succ = activityMapInBlock.get(r.successorActivityId);
+    if (!succ) continue;
+    taskPredDataRows.push([
+      deliverableExportId,
+      succ,
+      r.relationshipType,
+      projectId,
+      projectId,
+      Math.round(Number(r.lag) * P6_SCHEDULE_HOURS_PER_DAY) || 0,
+      null,
+    ]);
+  }
+}
+
+function hasCustomDeliverableActivityLinks(
+  deliverableId: string,
+  deliverableActivityRelationships: DeliverableActivityRelationshipForExport[]
+): boolean {
+  return deliverableActivityRelationships.some((r) => r.predecessorDeliverableId === deliverableId);
+}
 
 /** Deterministic sort: created_at asc, then id asc. */
 function sortByCreatedAt<T extends { createdAt: Date; id: string }>(items: T[]): T[] {
@@ -523,7 +592,9 @@ export async function generateFragnetXlsx(
   projectId: string,
   projectNameForWbsCode: string,
   rateCardEntries: RateCardEntry[] = [],
-  opts?: FragnetExportOptions | null
+  opts?: FragnetExportOptions | null,
+  deliverableRelationships: DeliverableRelationshipForExport[] = [],
+  deliverableActivityRelationships: DeliverableActivityRelationshipForExport[] = []
 ): Promise<{ buffer: Buffer; pendingSemanticRows: P6PendingSemanticTaskRow[]; taskPredExportRows: P6TaskPredExportRow[] }> {
   const idFor = (n: number) => `A${n}`;
   const suggestAvailableIds = (startN: number, used: Set<string>, count = 8): string[] => {
@@ -700,6 +771,7 @@ export async function generateFragnetXlsx(
   } else {
     // Block-based duplication per deliverable — only activities that belong to each deliverable.
     const sortedDeliverables = sortByCreatedAt(deliverables);
+    const deliverableExportIdByDbId = new Map<string, string>();
 
     for (const d of sortedDeliverables) {
       const blockWbs = deliverableWbsById.get(d.id);
@@ -718,6 +790,7 @@ export async function generateFragnetXlsx(
       }
 
       const deliverableExportId = allocateId("deliverable");
+      deliverableExportIdByDbId.set(d.id, deliverableExportId);
       pushActivityRow(
         deliverableExportId,
         d.name,
@@ -767,13 +840,29 @@ export async function generateFragnetXlsx(
         }
       });
 
-      if (entryActivity) {
+      const customDelAct = hasCustomDeliverableActivityLinks(d.id, deliverableActivityRelationships);
+      if (!customDelAct && entryActivity) {
         const firstActivityExportId = activityMapInBlock.get(entryActivity.id);
         if (firstActivityExportId) {
           taskPredDataRows.push([deliverableExportId, firstActivityExportId, "FS", projectId, projectId, 0, null]);
         }
       }
+      appendDeliverableActivityRelationshipPreds(
+        deliverableActivityRelationships,
+        d.id,
+        deliverableExportId,
+        activityMapInBlock,
+        taskPredDataRows,
+        projectId
+      );
     }
+
+    appendDeliverableRelationshipPreds(
+      deliverableRelationships,
+      deliverableExportIdByDbId,
+      taskPredDataRows,
+      projectId
+    );
   }
 
   const { dbHeaders: taskDbHeaders, userHeaders: taskUserHeaders, typeIdsOrdered } = buildTaskSheetHeaders(activityCatalog);
@@ -984,6 +1073,7 @@ export async function generateStandardXlsx(
   // Assign activities correctly (per deliverable, per fragnet).
   // CRITICAL: activities must ONLY appear under their own deliverable (no sharing across deliverables/fragnets).
   for (const fragnet of fragnets) {
+    const deliverableExportIdByDbId = new Map<string, string>();
     const genericActivities = fragnet.activities.filter((a) => {
       const t = (a as any).type;
       if (t === "GENERIC") return true;
@@ -1011,6 +1101,7 @@ export async function generateStandardXlsx(
       }
 
       const deliverableExportId = allocateId("deliverable");
+      deliverableExportIdByDbId.set(deliverable.id, deliverableExportId);
       pushActivityRow(
         deliverableExportId,
         deliverable.name,
@@ -1081,15 +1172,32 @@ export async function generateStandardXlsx(
         }
       });
 
-      // Link deliverable row to the first activity in the block (FS, 0).
-      // Use entryActivity (no predecessor within this deliverable's activity set) as "first".
-      if (entryActivity) {
+      const customDelAct = hasCustomDeliverableActivityLinks(
+        deliverable.id,
+        fragnet.deliverableActivityRelationships ?? []
+      );
+      if (!customDelAct && entryActivity) {
         const firstActivityExportId = activityMapInBlock.get(entryActivity.id);
         if (firstActivityExportId) {
           taskPredDataRows.push([deliverableExportId, firstActivityExportId, "FS", projectId, projectId, 0, null]);
         }
       }
+      appendDeliverableActivityRelationshipPreds(
+        fragnet.deliverableActivityRelationships ?? [],
+        deliverable.id,
+        deliverableExportId,
+        activityMapInBlock,
+        taskPredDataRows,
+        projectId
+      );
     }
+
+    appendDeliverableRelationshipPreds(
+      fragnet.deliverableRelationships ?? [],
+      deliverableExportIdByDbId,
+      taskPredDataRows,
+      projectId
+    );
   }
 
   const { dbHeaders: taskDbHeaders, userHeaders: taskUserHeaders, typeIdsOrdered } = buildTaskSheetHeaders(activityCatalog);

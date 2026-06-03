@@ -16,6 +16,7 @@
     "test:wbs-stage7": "tsx scripts/wbs-stage7-smoke.ts",
     "test:p6-resources": "tsc && node scripts/p6-resource-map-smoke.mjs",
     "test:xer-regression": "npm run build && node scripts/xer-regression-suite.mjs",
+    "test:cpm-scheduler": "npm run build && node --test scripts/cpm-scheduler.test.mjs",
     "test:tenant-isolation": "tsc && node --test scripts/tenant-isolation.test.mjs",
     "test:project-access": "tsc && node --test scripts/project-access.test.mjs",
     "test:security": "npm run build && node --test \"tests/**/*.test.mjs\"",

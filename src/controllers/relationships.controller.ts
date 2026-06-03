@@ -6,6 +6,7 @@ import { auditLog } from "../services/audit.service.js";
 import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
 import { auditUpdateIfChanged } from "../services/auditDiff.service.js";
+import { recalculateProjectScheduleAfterMutation } from "../services/scheduleAutoRecalc.service.js";
 
 const RELATIONSHIP_TYPES = ["FS", "SS", "FF", "SF"] as const;
 
@@ -70,8 +71,14 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
     requirePermission(membership.role, "relationship", "create");
 
     const [predecessor, successor] = await Promise.all([
-      prisma.activity.findFirst({ where: { id: predecessorActivityId, companyId: req.user.companyId } }),
-      prisma.activity.findFirst({ where: { id: successorActivityId, companyId: req.user.companyId } }),
+      prisma.activity.findFirst({
+        where: { id: predecessorActivityId, companyId: req.user.companyId },
+        select: { id: true, fragnetId: true, projectId: true },
+      }),
+      prisma.activity.findFirst({
+        where: { id: successorActivityId, companyId: req.user.companyId },
+        select: { id: true, fragnetId: true, projectId: true },
+      }),
     ]);
 
     if (!predecessor) {
@@ -82,18 +89,15 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
       res.status(400).json({ error: "Successor activity not found" });
       return;
     }
-    if (predecessor.fragnetId !== fragnetId) {
-      res.status(400).json({ error: "Predecessor activity does not belong to this fragnet" });
+    if (predecessor.projectId !== fragnet.projectId || successor.projectId !== fragnet.projectId) {
+      res.status(400).json({ error: "Both activities must belong to the same project" });
       return;
     }
-    if (successor.fragnetId !== fragnetId) {
-      res.status(400).json({ error: "Successor activity does not belong to this fragnet" });
-      return;
-    }
+    const resolvedFragnetId = predecessor.fragnetId;
 
     const existingRel = await prisma.relationship.findFirst({
       where: {
-        fragnetId,
+        projectId: fragnet.projectId,
         predecessorActivityId: predecessor.id,
         successorActivityId: successor.id,
       },
@@ -105,7 +109,7 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
 
     const relationship = await prisma.relationship.create({
       data: {
-        fragnetId: fragnet.id,
+        fragnetId: resolvedFragnetId,
         predecessorActivityId: predecessor.id,
         successorActivityId: successor.id,
         relationshipType,
@@ -122,6 +126,7 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
       entity: "Relationship",
       entityId: relationship.id,
     });
+    await recalculateProjectScheduleAfterMutation(fragnet.projectId, req.user.companyId);
     res.status(201).json(relationship);
   } catch (err) {
     if (isPrismaForeignKeyViolation(err)) {
@@ -179,6 +184,7 @@ export async function remove(req: AuthRequest, res: Response): Promise<void> {
       entity: "Relationship",
       entityId: id,
     });
+    await recalculateProjectScheduleAfterMutation(existing.projectId, req.user.companyId);
     res.status(204).send();
   } catch (err) {
     if (isPrismaForeignKeyViolation(err)) {
@@ -234,6 +240,7 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
       fields: ["relationshipType", "lag"],
     });
 
+    await recalculateProjectScheduleAfterMutation(existing.projectId, req.user.companyId);
     res.json(updated);
   } catch (err) {
     if (isPrismaForeignKeyViolation(err)) {

@@ -6,6 +6,7 @@ import { auditLog } from "../services/audit.service.js";
 import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
 import { auditUpdateIfChanged } from "../services/auditDiff.service.js";
+import { PROJECT_LEVEL_FRAGNET_NAME } from "../services/projectLevelActivityContext.service.js";
 
 export async function create(req: AuthRequest, res: Response): Promise<void> {
   try {
@@ -77,7 +78,7 @@ export async function getByStandardId(req: AuthRequest, res: Response): Promise<
       return;
     }
     await requireProjectAccess(standard.projectId, req.user);
-    res.json(standard.fragnets);
+    res.json(standard.fragnets.filter((fragnet) => fragnet.name !== PROJECT_LEVEL_FRAGNET_NAME));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch fragnets" });

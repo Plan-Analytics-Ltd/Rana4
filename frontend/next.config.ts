@@ -8,6 +8,10 @@ const __dirname = path.dirname(__filename);
 const nextConfig: NextConfig = {
   // Monorepo: repo root also has a package-lock.json; without this, Next may infer the wrong workspace root.
   outputFileTracingRoot: path.join(__dirname),
+  // Reduces stale RSC client-manifest errors (SegmentViewNode) during dev on Windows.
+  experimental: {
+    serverComponentsHmrCache: false,
+  },
 };
 
 export default nextConfig;

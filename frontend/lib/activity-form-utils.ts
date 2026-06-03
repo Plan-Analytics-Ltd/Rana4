@@ -7,12 +7,13 @@ export const ACTIVITY_FORM_SCOPE_COPY: Record<
   { basicDescription: string; codePlaceholder: string }
 > = {
   default: {
-    basicDescription: "Standard activity definition reused by every deliverable in this fragnet.",
+    basicDescription: "Workflow step applied to each deliverable (managed under Fragnets).",
     codePlaceholder: "e.g. INT_CHECK",
   },
   deliverable: {
-    basicDescription: "Custom activity for one deliverable only.",
-    codePlaceholder: "e.g. A100",
+    basicDescription:
+      "New IDs continue after the last activity in the project schedule (all fragnets and deliverables in the database). Each ID must be unique.",
+    codePlaceholder: "e.g. A1001",
   },
 };
 
@@ -83,10 +84,20 @@ export function validateActivityDefinitionFields(input: {
   bestDuration: string;
   likelyDuration: string;
   deliverableId?: string;
+  linkedDeliverableIds?: string[];
+  isSharedAcrossDeliverables?: boolean;
   scope: ActivityFormScope;
+  requireDeliverable?: boolean;
 }): string | null {
-  if (input.scope === "deliverable" && !input.deliverableId) {
+  const requireDeliverable = input.requireDeliverable ?? input.scope === "deliverable";
+  if (requireDeliverable && !input.deliverableId) {
     return "Select a deliverable";
+  }
+  if (input.isSharedAcrossDeliverables && requireDeliverable) {
+    const linkedCount = new Set([input.deliverableId, ...(input.linkedDeliverableIds ?? [])].filter(Boolean)).size;
+    if (linkedCount < 2) {
+      return "Select at least two deliverables for a shared activity";
+    }
   }
   if (!input.activityCode.trim() || !input.name.trim()) {
     return "Activity code and name are required";

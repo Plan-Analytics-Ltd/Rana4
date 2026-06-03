@@ -82,4 +82,3 @@ export async function changeApprovalState(input: {
 
   return { updated, from, to };
 }
-

@@ -10,6 +10,8 @@ import { requirePermission } from "../permissions/projectPermissions.js";
 import { auditUpdateIfChanged } from "../services/auditDiff.service.js";
 import { replaceActivityCodeAssignmentsForDeliverable } from "../services/activityCodeAssignments.service.js";
 import { materializeTemplatesForDeliverable } from "../services/fragnetActivityTemplate.service.js";
+import type { DeliverableClassification } from "@prisma/client";
+import { classifyDeliverableName } from "../services/intelligence/deliverableClassification.service.js";
 
 /**
  * Prisma `DeliverableInclude` must list `activityCodeAssignments` (schema + `npx prisma generate`).
@@ -109,6 +111,7 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
       projectId: projectIdStr,
       externalProjectId: externalProjectIdTrimmed,
       name: String(name).trim(),
+      classification: classifyDeliverableName(String(name).trim()),
       bestDuration,
       likelyDuration,
       assignedResources: assignedParsed.assignments as Prisma.InputJsonValue,
@@ -245,6 +248,7 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
       fragnetId: fragnetIdRaw,
       externalProjectId: externalProjectIdRaw,
       name,
+      classification,
       bestDuration: bestDurationRaw,
       likelyDuration: likelyDurationRaw,
       assignedResources: assignedResourcesRaw,
@@ -253,6 +257,7 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
       fragnetId?: string;
       externalProjectId?: string | null;
       name?: string;
+      classification?: DeliverableClassification | null;
       bestDuration?: number;
       likelyDuration?: number;
       assignedResources?: unknown;
@@ -321,6 +326,7 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
       ...(fragnetIdTrimmed !== undefined && { fragnetId: fragnetIdTrimmed }),
       ...(externalProjectIdTrimmed !== undefined && { externalProjectId: externalProjectIdTrimmed }),
       ...(name !== undefined && { name: String(name).trim() }),
+      ...(classification !== undefined && { classification: classification == null ? null : classification }),
       ...(bestDurationRaw !== undefined && { bestDuration: parseDuration(bestDurationRaw)! }),
       ...(likelyDurationRaw !== undefined && { likelyDuration: parseDuration(likelyDurationRaw)! }),
       ...(assignedUpdate !== undefined && { assignedResources: assignedUpdate }),
@@ -361,7 +367,15 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
       entityId: id,
       before: existing as any,
       after: deliverableOut as any,
-      fields: ["name", "fragnetId", "bestDuration", "likelyDuration", "assignedResources", "externalProjectId"],
+      fields: [
+        "name",
+        "fragnetId",
+        "classification",
+        "bestDuration",
+        "likelyDuration",
+        "assignedResources",
+        "externalProjectId",
+      ],
     });
     res.json(deliverableOut);
   } catch (err) {

@@ -24,7 +24,13 @@ import {
 } from "@/components/ui/table";
 import { RelationshipTypeBadge } from "@/components/schedule/relationship-type-badge";
 import { fieldClass } from "@/components/schedule/form-section";
-import type { Activity, Relationship, RelationshipType } from "@/lib/api";
+import type {
+  Activity,
+  ActivityToDeliverableRelationship,
+  DeliverableActivityRelationship,
+  Relationship,
+  RelationshipType,
+} from "@/lib/api";
 import { analyzeFragnetRelationshipGraph } from "@/lib/schedule-relationship-health";
 import { validateFragnetRelationships } from "@/lib/schedule-validation";
 import { cn } from "@/lib/utils";
@@ -34,6 +40,9 @@ const REL_TYPES: RelationshipType[] = ["FS", "SS", "FF", "SF"];
 export function ActivityRelationshipsPanel(props: {
   activities: Activity[];
   relationships: Relationship[];
+  deliverableActivityRelationships?: DeliverableActivityRelationship[];
+  activityToDeliverableRelationships?: ActivityToDeliverableRelationship[];
+  deliverableLabel?: (id: string) => string;
   loading: boolean;
   mayEdit: boolean;
   mayDelete: boolean;
@@ -55,6 +64,9 @@ export function ActivityRelationshipsPanel(props: {
   const {
     activities,
     relationships,
+    deliverableActivityRelationships = [],
+    activityToDeliverableRelationships = [],
+    deliverableLabel = (id) => id.slice(0, 8),
     loading,
     mayEdit,
     mayDelete,
@@ -110,6 +122,51 @@ export function ActivityRelationshipsPanel(props: {
     });
   }, [relationships, relFilter, filterActivityId, activityLabel]);
 
+  const filteredDeliverableRels = useMemo(() => {
+    let list = deliverableActivityRelationships;
+    if (filterActivityId) {
+      list = list.filter((r) => r.successorActivityId === filterActivityId);
+    }
+    const q = relFilter.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((r) => {
+      const pred = deliverableLabel(r.predecessorDeliverableId).toLowerCase();
+      const succ = activityLabel(r.successorActivityId).toLowerCase();
+      return pred.includes(q) || succ.includes(q) || r.relationshipType.toLowerCase().includes(q);
+    });
+  }, [
+    deliverableActivityRelationships,
+    relFilter,
+    filterActivityId,
+    deliverableLabel,
+    activityLabel,
+  ]);
+
+  const filteredActivityToDeliverableRels = useMemo(() => {
+    let list = activityToDeliverableRelationships;
+    if (filterActivityId) {
+      list = list.filter((r) => r.predecessorActivityId === filterActivityId);
+    }
+    const q = relFilter.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((r) => {
+      const pred = activityLabel(r.predecessorActivityId).toLowerCase();
+      const succ = deliverableLabel(r.successorDeliverableId).toLowerCase();
+      return pred.includes(q) || succ.includes(q) || r.relationshipType.toLowerCase().includes(q);
+    });
+  }, [
+    activityToDeliverableRelationships,
+    relFilter,
+    filterActivityId,
+    activityLabel,
+    deliverableLabel,
+  ]);
+
+  const totalLinkCount =
+    filteredDeliverableRels.length +
+    filteredActivityToDeliverableRels.length +
+    filteredRels.length;
+
   const resetCreate = () => {
     setPredId("");
     setSuccId("");
@@ -157,7 +214,20 @@ export function ActivityRelationshipsPanel(props: {
             <Link2 className="h-5 w-5" /> Relationships
           </CardTitle>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            {relationships.length} link{relationships.length !== 1 ? "s" : ""}
+            {filteredDeliverableRels.length > 0 && (
+              <span>
+                {filteredDeliverableRels.length} deliverable→activity
+                {(filteredActivityToDeliverableRels.length > 0 || filteredRels.length > 0) ? " · " : ""}
+              </span>
+            )}
+            {filteredActivityToDeliverableRels.length > 0 && (
+              <span>
+                {filteredActivityToDeliverableRels.length} shared→deliverable
+                {filteredRels.length > 0 ? " · " : ""}
+              </span>
+            )}
+            {filteredRels.length > 0 && <span>{filteredRels.length} activity→activity</span>}
+            {totalLinkCount === 0 && "0 links"}
             {health.activityCount > 0 && (
               <span className="ml-2">
                 · Health <span className="font-medium text-slate-700 dark:text-slate-300">{health.healthScore}/100</span>
@@ -252,7 +322,7 @@ export function ActivityRelationshipsPanel(props: {
           <div className="flex justify-center py-8">
             <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
           </div>
-        ) : filteredRels.length === 0 ? (
+        ) : totalLinkCount === 0 ? (
           <p className="py-6 text-center text-sm text-slate-500">No relationships match.</p>
         ) : (
           <div className="overflow-x-auto rounded-md border border-slate-200 dark:border-slate-700">
@@ -268,6 +338,40 @@ export function ActivityRelationshipsPanel(props: {
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {filteredDeliverableRels.map((r) => (
+                  <TableRow key={`del-act-${r.id}`} className="bg-slate-50/80 dark:bg-slate-900/40">
+                    <TableCell className="font-medium">
+                      <span className="text-xs font-normal text-slate-500 dark:text-slate-400">Deliverable · </span>
+                      {deliverableLabel(r.predecessorDeliverableId)}
+                    </TableCell>
+                    <TableCell className="text-slate-400">→</TableCell>
+                    <TableCell>{activityLabel(r.successorActivityId)}</TableCell>
+                    <TableCell>
+                      <RelationshipTypeBadge type={r.relationshipType} />
+                    </TableCell>
+                    <TableCell>
+                      <span className="tabular-nums">{r.lag}d</span>
+                    </TableCell>
+                    <TableCell />
+                  </TableRow>
+                ))}
+                {filteredActivityToDeliverableRels.map((r) => (
+                  <TableRow key={`act-del-${r.id}`} className="bg-cyan-50/50 dark:bg-cyan-950/20">
+                    <TableCell className="font-medium">{activityLabel(r.predecessorActivityId)}</TableCell>
+                    <TableCell className="text-slate-400">→</TableCell>
+                    <TableCell>
+                      <span className="text-xs font-normal text-slate-500 dark:text-slate-400">Deliverable · </span>
+                      {deliverableLabel(r.successorDeliverableId)}
+                    </TableCell>
+                    <TableCell>
+                      <RelationshipTypeBadge type={r.relationshipType} />
+                    </TableCell>
+                    <TableCell>
+                      <span className="tabular-nums">{r.lag}d</span>
+                    </TableCell>
+                    <TableCell />
+                  </TableRow>
+                ))}
                 {filteredRels.map((r) => (
                   <TableRow
                     key={r.id}

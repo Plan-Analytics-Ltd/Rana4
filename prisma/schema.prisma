@@ -81,6 +81,7 @@ model Company {
   name               String
   joinCode           String              @unique @map("join_code") @db.VarChar(32)
   activities         Activity[]
+  activityDeliverables ActivityDeliverable[]
   activityCodeTypes  ActivityCodeType[]
   activityCodes      ActivityCode[]
   activityCodeAssignments ActivityCodeAssignment[]
@@ -91,17 +92,36 @@ model Company {
   fragnetTemplateRelationships FragnetTemplateRelationship[]
   p6ExternalIds      P6ExternalId[]
   projects           Project[]
-  relationships      Relationship[]
+  programmeSnapshots ProgrammeSnapshot[]
+  intelligenceFindings IntelligenceFinding[]
+  relationships                     Relationship[]
+  deliverableRelationships          DeliverableRelationship[]
+  deliverableActivityRelationships  DeliverableActivityRelationship[]
+  activityToDeliverableRelationships ActivityToDeliverableRelationship[]
   standards          Standard[]
   users              User[]
 
   @@map("companies")
 }
 
+enum ScheduleConstraintType {
+  AS_SOON_AS_POSSIBLE
+  START_NO_EARLIER_THAN
+  START_NO_LATER_THAN
+  FINISH_NO_EARLIER_THAN
+  FINISH_NO_LATER_THAN
+  MUST_START_ON
+  MUST_FINISH_ON
+}
+
 model Project {
   id        String   @id @default(cuid())
   name      String   @db.VarChar(255)
   companyId String   @map("company_id")
+  /// Soft-archive flag for portfolio analytics filters. Null = active.
+  archivedAt DateTime? @map("archived_at")
+  /// Anchor for CPM forward pass (calendar working day).
+  scheduleStartDate DateTime? @map("schedule_start_date") @db.Date
   company   Company  @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "projects_company_fk")
 
   members        ProjectMember[]
@@ -112,9 +132,15 @@ model Project {
   fragnetTemplateRelationships FragnetTemplateRelationship[]
   deliverables   Deliverable[]
   activities     Activity[]
-  relationships  Relationship[]
+  activityDeliverables ActivityDeliverable[]
+  relationships                     Relationship[]
+  deliverableRelationships          DeliverableRelationship[]
+  deliverableActivityRelationships  DeliverableActivityRelationship[]
+  activityToDeliverableRelationships ActivityToDeliverableRelationship[]
   auditLogs      AuditLog[]
   p6ExternalIds  P6ExternalId[]
+  intelligenceProfile ProjectIntelligenceProfile?
+  programmeSnapshots  ProgrammeSnapshot[]
 
   @@unique([id, companyId])
   @@index([companyId])
@@ -222,7 +248,10 @@ model Fragnet {
   company               Company                     @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fragnets_company_fk")
   standard              Standard                    @relation(fields: [standardId, companyId], references: [id, companyId], onDelete: Cascade)
   project               Project                     @relation(fields: [projectId, companyId], references: [id, companyId], onDelete: NoAction)
-  relationships         Relationship[]
+  relationships                     Relationship[]
+  deliverableRelationships          DeliverableRelationship[]
+  deliverableActivityRelationships  DeliverableActivityRelationship[]
+  activityToDeliverableRelationships ActivityToDeliverableRelationship[]
 
   @@unique([id, companyId])
   @@index([projectId])
@@ -239,6 +268,7 @@ model FragnetActivityTemplate {
   name              String                      @db.VarChar(255)
   bestDuration      Int                         @map("best_duration")
   likelyDuration    Int                         @map("likely_duration")
+  isSharedAcrossDeliverables Boolean            @default(false) @map("is_shared_across_deliverables")
   orderIndex        Int                         @default(0) @map("order_index")
   assignedResources Json                        @default("[]") @map("assigned_resources")
   createdAt         DateTime                    @default(now()) @map("created_at")
@@ -293,24 +323,61 @@ model Activity {
   deliverableId        String                  @map("deliverable_id")
   projectId            String                  @map("project_id")
   companyId            String                  @map("company_id")
+  isSharedAcrossDeliverables Boolean           @default(false) @map("is_shared_across_deliverables")
   isInherited          Boolean                 @default(false) @map("is_inherited")
   templateActivityId   String?                 @map("template_activity_id")
   detachedFromTemplate Boolean                 @default(false) @map("detached_from_template")
+  plannedStartDate     DateTime?               @map("planned_start_date") @db.Date
+  plannedFinishDate    DateTime?               @map("planned_finish_date") @db.Date
+  earlyStart           DateTime?               @map("early_start") @db.Date
+  earlyFinish          DateTime?               @map("early_finish") @db.Date
+  lateStart            DateTime?               @map("late_start") @db.Date
+  lateFinish           DateTime?               @map("late_finish") @db.Date
+  totalFloat           Int?                    @map("total_float")
+  freeFloat            Int?                    @map("free_float")
+  isCritical           Boolean                 @default(false) @map("is_critical")
+  drivingRelationshipId String?                @map("driving_relationship_id")
+  calendarId           String?                 @map("calendar_id")
+  constraintType       ScheduleConstraintType? @map("constraint_type")
+  constraintDate       DateTime?               @map("constraint_date") @db.Date
   activityCodeAssignments ActivityCodeAssignment[]
   assuranceNote        AssuranceNote?          @relation(fields: [assuranceNoteId, companyId], references: [id, companyId])
   company              Company                 @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "activities_company_fk")
   deliverable          Deliverable             @relation(fields: [deliverableId, companyId], references: [id, companyId])
+  deliverableLinks     ActivityDeliverable[]
   fragnet              Fragnet                 @relation(fields: [fragnetId, companyId], references: [id, companyId], onDelete: Cascade)
   project              Project                 @relation(fields: [projectId, companyId], references: [id, companyId], onDelete: NoAction)
   template             FragnetActivityTemplate? @relation(fields: [templateActivityId, companyId], references: [id, companyId], onDelete: SetNull)
   predecessorIn        Relationship[]          @relation("Predecessor")
   successorIn          Relationship[]          @relation("Successor")
+  deliverablePredecessorIn DeliverableActivityRelationship[] @relation("DeliverableActivitySucc")
+  deliverableSuccessorIn   ActivityToDeliverableRelationship[] @relation("ActivityToDeliverablePred")
 
   @@unique([id, companyId])
   @@unique([companyId, fragnetId, activityCode])
   @@index([projectId])
   @@index([templateActivityId])
   @@map("activities")
+}
+
+model ActivityDeliverable {
+  id            String      @id @default(uuid())
+  activityId    String      @map("activity_id")
+  deliverableId String      @map("deliverable_id")
+  projectId     String      @map("project_id")
+  companyId     String      @map("company_id")
+  isPrimary     Boolean     @default(false) @map("is_primary")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  activity      Activity    @relation(fields: [activityId, companyId], references: [id, companyId], onDelete: Cascade)
+  company       Company     @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "activity_deliverables_company_fk")
+  deliverable   Deliverable @relation(fields: [deliverableId, companyId], references: [id, companyId], onDelete: Cascade)
+  project       Project     @relation(fields: [projectId, companyId], references: [id, companyId], onDelete: NoAction)
+
+  @@unique([activityId, deliverableId])
+  @@index([deliverableId])
+  @@index([projectId])
+  @@map("activity_deliverables")
 }
 
 /// P6 Activity Code Type (ACTVTYPE) — company-wide catalog.
@@ -414,9 +481,75 @@ model Relationship {
   @@map("relationships")
 }
 
+/// Cross-deliverable logic (deliverable rows act as P6 summary tasks on export).
+model DeliverableRelationship {
+  id                       String           @id @default(uuid())
+  fragnetId                String           @map("fragnet_id")
+  predecessorDeliverableId String           @map("predecessor_deliverable_id")
+  successorDeliverableId   String           @map("successor_deliverable_id")
+  relationshipType         RelationshipType @map("relationship_type")
+  lag                      Int              @default(0)
+  projectId                String           @map("project_id")
+  companyId                String           @map("company_id")
+  company                  Company          @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "deliverable_relationships_company_fk")
+  fragnet                  Fragnet          @relation(fields: [fragnetId, companyId], references: [id, companyId], onDelete: Cascade)
+  predecessorDeliverable   Deliverable      @relation("DeliverablePred", fields: [predecessorDeliverableId, companyId], references: [id, companyId], onDelete: Cascade)
+  successorDeliverable     Deliverable      @relation("DeliverableSucc", fields: [successorDeliverableId, companyId], references: [id, companyId], onDelete: Cascade)
+  project                  Project          @relation(fields: [projectId, companyId], references: [id, companyId], onDelete: NoAction)
+
+  @@index([projectId])
+  @@index([fragnetId])
+  @@map("deliverable_relationships")
+}
+
+/// Deliverable summary task → activity (P6 export: deliverable TASK row → activity TASK row).
+model DeliverableActivityRelationship {
+  id                       String           @id @default(uuid())
+  fragnetId                String           @map("fragnet_id")
+  predecessorDeliverableId String           @map("predecessor_deliverable_id")
+  successorActivityId      String           @map("successor_activity_id")
+  relationshipType         RelationshipType @map("relationship_type")
+  lag                      Int              @default(0)
+  projectId                String           @map("project_id")
+  companyId                String           @map("company_id")
+  company                  Company          @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "deliverable_activity_relationships_company_fk")
+  fragnet                  Fragnet          @relation(fields: [fragnetId, companyId], references: [id, companyId], onDelete: Cascade)
+  predecessorDeliverable   Deliverable      @relation("DeliverableActivityPred", fields: [predecessorDeliverableId, companyId], references: [id, companyId], onDelete: Cascade)
+  successorActivity        Activity         @relation("DeliverableActivitySucc", fields: [successorActivityId, companyId], references: [id, companyId], onDelete: Cascade)
+  project                  Project          @relation(fields: [projectId, companyId], references: [id, companyId], onDelete: NoAction)
+
+  @@unique([fragnetId, predecessorDeliverableId, successorActivityId, relationshipType])
+  @@index([projectId])
+  @@index([fragnetId])
+  @@map("deliverable_activity_relationships")
+}
+
+/// Shared (or other) activity → deliverable summary (activity drives linked deliverable blocks).
+model ActivityToDeliverableRelationship {
+  id                     String           @id @default(uuid())
+  fragnetId              String           @map("fragnet_id")
+  predecessorActivityId  String           @map("predecessor_activity_id")
+  successorDeliverableId String           @map("successor_deliverable_id")
+  relationshipType       RelationshipType @map("relationship_type")
+  lag                    Int              @default(0)
+  projectId              String           @map("project_id")
+  companyId              String           @map("company_id")
+  company                Company          @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "activity_to_deliverable_relationships_company_fk")
+  fragnet                Fragnet          @relation(fields: [fragnetId, companyId], references: [id, companyId], onDelete: Cascade)
+  predecessorActivity    Activity         @relation("ActivityToDeliverablePred", fields: [predecessorActivityId, companyId], references: [id, companyId], onDelete: Cascade)
+  successorDeliverable   Deliverable      @relation("ActivityToDeliverableSucc", fields: [successorDeliverableId, companyId], references: [id, companyId], onDelete: Cascade)
+  project                Project          @relation(fields: [projectId, companyId], references: [id, companyId], onDelete: NoAction)
+
+  @@unique([fragnetId, predecessorActivityId, successorDeliverableId, relationshipType])
+  @@index([projectId])
+  @@index([fragnetId])
+  @@map("activity_to_deliverable_relationships")
+}
+
 model Deliverable {
   id                String     @id @default(uuid())
   name              String     @db.VarChar(255)
+  classification    DeliverableClassification?
   bestDuration      Int        @map("best_duration")
   likelyDuration    Int        @map("likely_duration")
   createdAt         DateTime   @default(now()) @map("created_at")
@@ -429,7 +562,12 @@ model Deliverable {
   externalProjectId String?    @map("external_project_id") @db.VarChar(255)
   companyId         String     @map("company_id")
   activities        Activity[]
+  activityLinks     ActivityDeliverable[]
   activityCodeAssignments ActivityCodeAssignment[]
+  predecessorIn              DeliverableRelationship[]         @relation("DeliverablePred")
+  successorIn                DeliverableRelationship[]         @relation("DeliverableSucc")
+  activitySuccessorIn        DeliverableActivityRelationship[] @relation("DeliverableActivityPred")
+  activityPredecessorIn      ActivityToDeliverableRelationship[] @relation("ActivityToDeliverableSucc")
   company           Company    @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "deliverables_company_fk")
   fragnet           Fragnet?   @relation(fields: [fragnetId, companyId], references: [id, companyId], onDelete: Cascade)
   project           Project    @relation(fields: [projectId, companyId], references: [id, companyId], onDelete: NoAction)
@@ -444,4 +582,226 @@ enum RelationshipType {
   SS
   FF
   SF
+}
+
+/// Source of an imported programme snapshot (historical intelligence layer).
+enum ProgrammeSnapshotSourceType {
+  RANA4_EXPORT
+  XER_IMPORT
+  LIVE_UPDATE
+  AS_BUILT
+  BASELINE_GENERATED
+}
+
+/// Role of a snapshot in planned-vs-actual and portfolio learning.
+enum ProgrammeSnapshotRole {
+  BASELINE
+  LIVE_IMPORT
+  AS_BUILT
+  COMPARISON
+}
+
+/// Canonical programme state (for classification + similarity).
+enum ProgrammeState {
+  BASELINE
+  APPROVED_BASELINE
+  LIVE_UPDATE
+  RECOVERY_PROGRAMME
+  AS_BUILT
+  FINAL_AS_BUILT
+}
+
+/// Normalized deliverable category (business intent).
+enum DeliverableClassification {
+  DESIGN
+  REVIEW
+  CLIENT_APPROVAL
+  TECHNICAL_ASSURANCE
+  COORDINATION
+  PROCUREMENT
+  CONSTRUCTION
+  COMMISSIONING
+  HANDOVER
+  REGULATORY_APPROVAL
+  QUALITY_ASSURANCE
+  INFORMATION_ISSUE
+  OTHER
+}
+
+/// Normalized project metadata for benchmarking and future AI recommendations.
+model ProjectIntelligenceProfile {
+  id        String   @id @default(cuid())
+  projectId String   @unique @map("project_id")
+  companyId String   @map("company_id")
+  /// e.g. healthcare, education, commercial (broader than projectType)
+  sector                String? @db.VarChar(64)
+  /// e.g. healthcare, education, commercial
+  projectType           String? @map("project_type") @db.VarChar(64)
+  procurementRoute      String? @map("procurement_route") @db.VarChar(64)
+  /// Primary RIBA stage at programme generation
+  primaryRibaStage      String? @map("primary_riba_stage") @db.VarChar(32)
+  /// Canonical stage label (may differ from RIBA)
+  stage                 String? @db.VarChar(64)
+  region                String? @db.VarChar(64)
+  clientType            String? @map("client_type") @db.VarChar(64)
+  /// Complexity category (e.g. LOW/MEDIUM/HIGH) — separate from numeric score.
+  complexity            String? @db.VarChar(64)
+  /// 0–1 normalized complexity score for portfolio comparison
+  complexityScore       Float?  @map("complexity_score")
+  /// disciplineCategories, approvalRouteCategories, healthcareDepartments, deliverableClassifications, etc.
+  classificationTags    Json    @default("{}") @map("classification_tags")
+  /// Canonical list-style tags for similarity matching.
+  classificationTagsList Json   @default("[]") @map("classification_tags_list")
+  disciplineTags        Json    @default("[]") @map("discipline_tags")
+  /// Derived metrics: activity count, critical path length, MEP density, etc.
+  complexityMetrics     Json    @default("{}") @map("complexity_metrics")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([companyId, projectType])
+  @@map("project_intelligence_profiles")
+}
+
+/// Immutable point-in-time programme state. Never overwrites live schedule.
+model ProgrammeSnapshot {
+  id              String                      @id @default(cuid())
+  projectId       String                      @map("project_id")
+  companyId       String                      @map("company_id")
+  importedAt      DateTime                    @default(now()) @map("imported_at")
+  sourceType      ProgrammeSnapshotSourceType @map("source_type")
+  snapshotRole    ProgrammeSnapshotRole?      @map("snapshot_role")
+  programmeState  ProgrammeState?             @map("programme_state")
+  scheduleDate    DateTime?                   @map("schedule_date") @db.Date
+  createdByUserId String?                     @map("created_by_user_id")
+  /// Import confidence for snapshot metadata classification
+  importConfidenceLevel String?               @map("import_confidence_level") @db.VarChar(16)
+  importConfidenceScore Float?                @map("import_confidence_score")
+  snapshotVersion Int                         @default(1) @map("snapshot_version")
+  label           String?                     @db.VarChar(255)
+  sourceFileName  String?                     @map("source_file_name") @db.VarChar(512)
+  /// Project-level scheduling metrics at capture time
+  metrics         Json                        @default("{}")
+  /// Import match stats, warnings, unmatched activity codes
+  importSummary   Json                        @default("{}") @map("import_summary")
+  /// Project metadata captured/edited per snapshot (nullable for backwards compatibility)
+  sector          String?                     @db.VarChar(64)
+  projectType     String?                     @map("project_type") @db.VarChar(64)
+  procurementRoute String?                    @map("procurement_route") @db.VarChar(64)
+  stage           String?                     @db.VarChar(64)
+  region          String?                     @db.VarChar(64)
+  clientType      String?                     @map("client_type") @db.VarChar(64)
+  complexity      String?                     @db.VarChar(64)
+  disciplineTags  Json                        @default("[]") @map("discipline_tags")
+  projectTags     Json                        @default("[]") @map("project_tags")
+  classificationTagsList Json                 @default("[]") @map("classification_tags_list")
+
+  project              Project                 @relation(fields: [projectId, companyId], references: [id, companyId], onDelete: Cascade)
+  company              Company                 @relation(fields: [companyId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "programme_snapshots_company_fk")
+  activitySnapshots    ActivitySnapshot[]
+  deliverableSnapshots DeliverableSnapshot[]
+  relationshipSnapshots RelationshipSnapshot[]
+
+  @@index([projectId, importedAt])
+  @@index([companyId, importedAt])
+  @@index([companyId, sourceType])
+  @@map("programme_snapshots")
+}
+
+model ActivitySnapshot {
+  id                 String   @id @default(cuid())
+  snapshotId         String   @map("snapshot_id")
+  /// Matched live activity when identity preserved
+  activityId         String?  @map("activity_id")
+  activityCode       String   @map("activity_code") @db.VarChar(100)
+  deliverableId      String?  @map("deliverable_id")
+  fragnetId          String?  @map("fragnet_id")
+  name               String?  @db.VarChar(255)
+  originalDuration   Int?     @map("original_duration")
+  remainingDuration  Int?     @map("remaining_duration")
+  actualDuration     Int?     @map("actual_duration")
+  percentComplete    Float?   @map("percent_complete")
+  startDate          DateTime? @map("start_date") @db.Date
+  finishDate         DateTime? @map("finish_date") @db.Date
+  earlyStart         DateTime? @map("early_start") @db.Date
+  earlyFinish        DateTime? @map("early_finish") @db.Date
+  lateStart          DateTime? @map("late_start") @db.Date
+  lateFinish         DateTime? @map("late_finish") @db.Date
+  totalFloat         Int?     @map("total_float")
+  freeFloat          Int?     @map("free_float")
+  isCritical         Boolean  @default(false) @map("is_critical")
+  status             String?  @db.VarChar(32)
+  /// Intelligence tags extracted from P6 codes at import
+  classificationTags Json     @default("{}") @map("classification_tags")
+
+  snapshot ProgrammeSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@index([snapshotId])
+  @@index([snapshotId, activityCode])
+  @@index([activityId])
+  @@map("activity_snapshots")
+}
+
+model DeliverableSnapshot {
+  id            String    @id @default(cuid())
+  snapshotId    String    @map("snapshot_id")
+  deliverableId String?   @map("deliverable_id")
+  name          String    @db.VarChar(255)
+  classification DeliverableClassification?
+  plannedStart  DateTime? @map("planned_start") @db.Date
+  plannedFinish DateTime? @map("planned_finish") @db.Date
+  actualStart   DateTime? @map("actual_start") @db.Date
+  actualFinish  DateTime? @map("actual_finish") @db.Date
+  totalFloat    Int?      @map("total_float")
+  status        String?   @db.VarChar(32)
+  classificationTags Json @default("{}") @map("classification_tags")
+
+  snapshot ProgrammeSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@index([snapshotId])
+  @@index([deliverableId])
+  @@map("deliverable_snapshots")
+}
+
+/// Logic captured at import for variance analysis.
+model RelationshipSnapshot {
+  id                    String           @id @default(cuid())
+  snapshotId            String           @map("snapshot_id")
+  predecessorActivityCode String         @map("predecessor_activity_code") @db.VarChar(100)
+  successorActivityCode   String         @map("successor_activity_code") @db.VarChar(100)
+  relationshipType      RelationshipType @map("relationship_type")
+  lag                   Int              @default(0)
+  matchedRelationshipId String?          @map("matched_relationship_id")
+
+  snapshot ProgrammeSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@index([snapshotId])
+  @@map("relationship_snapshots")
+}
+
+/// Structured portfolio learning finding (queryable, AI-ready).
+model IntelligenceFinding {
+  id          String   @id @default(cuid())
+  companyId   String   @map("company_id")
+  findingType String   @map("finding_type") @db.VarChar(64)
+  category    String   @db.VarChar(64)
+  severity    String   @default("info") @db.VarChar(16)
+  title       String   @db.VarChar(512)
+  summary     String   @db.Text
+  /// Evidence: projectIds, snapshotIds, metrics, sample size
+  evidence    Json     @default("{}")
+  /// Tags for filtering: RIBA_STAGE_3, MEP, APPROVAL, etc.
+  tags        Json     @default("[]")
+  sampleSize  Int      @default(0) @map("sample_size")
+  confidence  Float?   @map("confidence")
+  generatedAt DateTime @default(now()) @map("generated_at")
+  validUntil  DateTime? @map("valid_until")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, findingType])
+  @@index([companyId, generatedAt])
+  @@map("intelligence_findings")
 }

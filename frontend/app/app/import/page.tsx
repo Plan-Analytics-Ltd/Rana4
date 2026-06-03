@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useProject } from "@/contexts/project-context";
-import { api, getApiErrorMessage, isAxiosError } from "@/lib/api";
+import { api, getApiErrorMessage, isAxiosError, programmeIntelligenceApi, type ProgrammeImportResult } from "@/lib/api";
 
 type ImportSuccessResponse =
   | {
@@ -46,12 +46,19 @@ export default function ImportPage() {
   const projectId = selectedProjectId;
 
   const [file, setFile] = useState<File | null>(null);
+  const [programmeFile, setProgrammeFile] = useState<File | null>(null);
+  const [programmeRole, setProgrammeRole] = useState<"LIVE_IMPORT" | "AS_BUILT">("LIVE_IMPORT");
   const [dryRun, setDryRun] = useState(true);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ImportSuccessResponse | null>(null);
+  const [programmeResult, setProgrammeResult] = useState<ProgrammeImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const canSubmit = useMemo(() => !!file && !!projectId && !loading, [file, projectId, loading]);
+  const canProgrammeImport = useMemo(
+    () => !!programmeFile && !!projectId && !loading,
+    [programmeFile, projectId, loading]
+  );
 
   const downloadTemplate = async () => {
     setError(null);
@@ -70,6 +77,23 @@ export default function ImportPage() {
       a.click();
       a.remove();
       window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(asErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const uploadProgrammeImport = async () => {
+    setError(null);
+    setProgrammeResult(null);
+    if (!projectId || !programmeFile) return;
+    try {
+      setLoading(true);
+      const res = await programmeIntelligenceApi.importProgramme(projectId, programmeFile, {
+        snapshotRole: programmeRole,
+      });
+      setProgrammeResult(res.data);
     } catch (err) {
       setError(asErrorMessage(err));
     } finally {
@@ -130,7 +154,8 @@ export default function ImportPage() {
           <div>
             <h2 className="text-base font-semibold text-slate-900 dark:text-white">Template</h2>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-              Download the latest Hybrid Import Excel template.
+              Download the latest Hybrid Import Excel template. On the Deliverables sheet, leave{" "}
+              <span className="font-medium">fragnet_name</span> blank to create unassigned deliverables (no fragnet).
             </p>
           </div>
           <Button onClick={downloadTemplate} disabled={loading} className="shrink-0">
@@ -141,6 +166,11 @@ export default function ImportPage() {
 
       <Card className="p-5">
         <h2 className="text-base font-semibold text-slate-900 dark:text-white">Upload</h2>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+          Deliverables without a fragnet: leave <span className="font-medium">fragnet_name</span> empty on the
+          Deliverables sheet. They appear under unassigned deliverables after import. Activity rows still require a
+          fragnet and a deliverable on that fragnet.
+        </p>
         <div className="mt-4 space-y-4">
           <div className="space-y-2">
             <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Excel file (.xlsx)</label>
@@ -175,6 +205,60 @@ export default function ImportPage() {
             {!file && projectId && <span className="text-sm text-slate-500">Choose an .xlsx file to continue.</span>}
           </div>
         </div>
+      </Card>
+
+      <Card className="p-5">
+        <h2 className="text-base font-semibold text-slate-900 dark:text-white">Programme schedule import</h2>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+          Import live or as-built schedules (XER or Rana4 JSON). Creates a historical snapshot — your live programme is not overwritten.
+        </p>
+        <div className="mt-4 space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              Schedule file (.xer or .json)
+            </label>
+            <Input
+              type="file"
+              accept=".xer,.json,application/json"
+              onChange={(e) => {
+                setError(null);
+                setProgrammeResult(null);
+                setProgrammeFile(e.target.files?.[0] ?? null);
+              }}
+              disabled={loading}
+            />
+          </div>
+          <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+            Snapshot type
+            <select
+              value={programmeRole}
+              onChange={(e) => setProgrammeRole(e.target.value as "LIVE_IMPORT" | "AS_BUILT")}
+              className="mt-1 block w-full max-w-xs rounded border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
+              disabled={loading}
+            >
+              <option value="LIVE_IMPORT">Live update</option>
+              <option value="AS_BUILT">As-built</option>
+            </select>
+          </label>
+          <Button onClick={uploadProgrammeImport} disabled={!canProgrammeImport}>
+            {loading ? "Importing…" : "Import programme snapshot"}
+          </Button>
+        </div>
+        {programmeResult && (
+          <div className="mt-4 rounded-md border border-cyan-200 bg-cyan-50 p-3 text-sm text-cyan-900 dark:border-cyan-900/50 dark:bg-cyan-950/30 dark:text-cyan-200">
+            <div className="font-semibold">Snapshot saved (v{programmeResult.summary.snapshotVersion})</div>
+            <div className="mt-1">
+              Matched {programmeResult.matchResult.matchedActivities} activities by activity code.
+              {programmeResult.matchResult.unmatchedActivityCodes.length > 0 && (
+                <span>
+                  {" "}
+                  Unmatched: {programmeResult.matchResult.unmatchedActivityCodes.slice(0, 8).join(", ")}
+                  {programmeResult.matchResult.unmatchedActivityCodes.length > 8 ? "…" : ""}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
       </Card>
 
       {(error || result) && (

@@ -9,6 +9,7 @@ import {
   createTemplateRelationship,
   listTemplatesForFragnet,
   materializeTemplatesForAllDeliverables,
+  realignFragnetActivityCodes,
   syncTemplatesToDeliverables,
 } from "../services/fragnetActivityTemplate.service.js";
 import { replaceActivityCodeAssignmentsForTemplate } from "../services/activityCodeAssignments.service.js";
@@ -60,6 +61,7 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
       name?: string;
       bestDuration?: number;
       likelyDuration?: number;
+      isSharedAcrossDeliverables?: boolean;
       orderIndex?: number;
       assignedResources?: unknown;
       activityCodeByTypeId?: Record<string, string | null>;
@@ -89,6 +91,7 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
       name: body.name,
       bestDuration,
       likelyDuration,
+      isSharedAcrossDeliverables: Boolean(body.isSharedAcrossDeliverables),
       orderIndex: body.orderIndex,
       assignedResources: body.assignedResources,
       activityCodeByTypeId: body.activityCodeByTypeId,
@@ -120,6 +123,7 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
       name?: string;
       bestDuration?: number;
       likelyDuration?: number;
+      isSharedAcrossDeliverables?: boolean;
       orderIndex?: number;
       assignedResources?: unknown;
       activityCodeByTypeId?: Record<string, string | null>;
@@ -140,6 +144,24 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
       res.status(404).json({ error: "Template not found" });
       return;
     }
+    if (
+      body.isSharedAcrossDeliverables !== undefined &&
+      Boolean(body.isSharedAcrossDeliverables) !== Boolean(existing.isSharedAcrossDeliverables)
+    ) {
+      const materializedCount = await prisma.activity.count({
+        where: {
+          companyId: req.user.companyId,
+          templateActivityId: templateId,
+        },
+      });
+      if (materializedCount > 0) {
+        res.status(409).json({
+          error:
+            "Cannot change shared mode after activities have already been materialized for this template yet.",
+        });
+        return;
+      }
+    }
 
     const data: Prisma.FragnetActivityTemplateUpdateInput = {};
     if (body.name !== undefined) data.name = String(body.name).trim();
@@ -159,6 +181,9 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
         return;
       }
       data.likelyDuration = l;
+    }
+    if (body.isSharedAcrossDeliverables !== undefined) {
+      data.isSharedAcrossDeliverables = Boolean(body.isSharedAcrossDeliverables);
     }
     if (body.assignedResources !== undefined) {
       const parsed = await parseAndValidateAssignedResources(req.user.companyId, body.assignedResources);
@@ -337,5 +362,29 @@ export async function materialize(req: AuthRequest, res: Response): Promise<void
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to materialize templates" });
+  }
+}
+
+/** Re-prefix activity codes per deliverable (e.g. ARC-A1000) without re-cloning templates. */
+export async function realignCodes(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const { fragnetId } = req.params as { fragnetId: string };
+    const fragnet = await loadFragnet(fragnetId, req.user.companyId);
+    if (!fragnet) {
+      res.status(404).json({ error: "Fragnet not found" });
+      return;
+    }
+    const membership = await requireProjectAccess(fragnet.projectId, req.user);
+    requirePermission(membership.role, "activity", "update");
+
+    const result = await realignFragnetActivityCodes(fragnetId, req.user.companyId);
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to realign activity codes" });
   }
 }

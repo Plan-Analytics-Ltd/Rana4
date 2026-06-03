@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { getBearerToken, verifyToken } from "../utils/auth.js";
-import { prisma } from "../utils/prisma.js";
+import { isPrismaConnectionError, prisma, withPrismaRetry } from "../utils/prisma.js";
 import { runWithAuthContext } from "../utils/requestContext.js";
 import { logAccessDenied } from "../services/audit/immutableAudit.service.js";
 
@@ -30,9 +30,22 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
     return;
   }
 
-  const user = (await (prisma as any).user.findUnique({
-    where: { id: payload.userId },
-  })) as any;
+  let user: Awaited<ReturnType<typeof prisma.user.findUnique>>;
+  try {
+    user = await withPrismaRetry(() =>
+      prisma.user.findUnique({
+        where: { id: payload.userId },
+      })
+    );
+  } catch (err) {
+    if (isPrismaConnectionError(err)) {
+      res.status(503).json({
+        error: "Database temporarily unavailable. Wait a moment and try again.",
+      });
+      return;
+    }
+    throw err;
+  }
   if (!user) {
     void logAccessDenied({
       userId: payload.userId,

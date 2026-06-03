@@ -4,6 +4,17 @@ import type { AuthRequest } from "../middleware/auth.middleware.js";
 import { auditLog } from "../services/audit.service.js";
 import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
+import {
+  compareActivityCodes,
+  parseActivityCode,
+  suggestNextActivityCode,
+  checkActivityCodeAvailability,
+} from "../services/activityCodeSequence.service.js";
+import { runWithAuthContextAsync } from "../utils/requestContext.js";
+import {
+  PROJECT_LEVEL_FRAGNET_NAME,
+  PROJECT_LEVEL_STANDARD_NAME,
+} from "../services/projectLevelActivityContext.service.js";
 
 async function isLastAdmin(projectId: string, companyId: string): Promise<boolean> {
   const count = await prisma.projectMember.count({
@@ -245,7 +256,13 @@ export async function deleteProject(req: AuthRequest, res: Response): Promise<vo
   }
 }
 
-type FullDataActivityRel = { activityCode: string; relationshipType: "FS" | "SS" | "FF" | "SF"; lag: number };
+type FullDataActivityRel = {
+  activityCode: string;
+  /** Set when predecessor is a deliverable (deliverable→activity link). */
+  deliverableName?: string;
+  relationshipType: "FS" | "SS" | "FF" | "SF";
+  lag: number;
+};
 type FullDataActivity = {
   id: string;
   activityCode: string;
@@ -253,15 +270,37 @@ type FullDataActivity = {
   bestDuration: number;
   likelyDuration: number;
   assignedResources: unknown;
+  isSharedAcrossDeliverables?: boolean;
+  isInherited?: boolean;
+  templateActivityId?: string | null;
+  detachedFromTemplate?: boolean;
+  linkedDeliverables?: Array<{ id: string; name: string; isPrimary?: boolean }>;
   relationships: { predecessors: FullDataActivityRel[]; successors: FullDataActivityRel[] };
 };
-type FullDataDeliverable = { id: string; name: string; activities: FullDataActivity[] };
+type FullDataDeliverableRel = {
+  deliverableName: string;
+  /** Set when successor is an activity (deliverable→activity link). */
+  activityCode?: string;
+  relationshipType: string;
+  lag: number;
+};
+type FullDataDeliverable = {
+  id: string;
+  name: string;
+  bestDuration: number;
+  likelyDuration: number;
+  relationships: { predecessors: FullDataDeliverableRel[]; successors: FullDataDeliverableRel[] };
+  activities: FullDataActivity[];
+};
 type FullDataFragnet = {
   id: string;
   name: string;
   activityTemplateCount: number;
   deliverables: FullDataDeliverable[];
 };
+
+const PROJECT_UNASSIGNED_FRAGNET_ID = "__project_unassigned__";
+const PROJECT_UNASSIGNED_FRAGNET_NAME = "Project-level deliverables";
 
 /** GET /projects/:id/full-data — nested view for read-only project viewer UI. */
 export async function getFullData(req: AuthRequest, res: Response): Promise<void> {
@@ -274,44 +313,205 @@ export async function getFullData(req: AuthRequest, res: Response): Promise<void
     const membership = await requireProjectAccess(projectId, req.user, { adminOverride: true });
     requirePermission(membership.role, "project", "read");
 
-    const fragnets = await prisma.fragnet.findMany({
+    const { materializeProjectDeliverablesInOrder } = await import(
+      "../services/fragnetActivityTemplate.service.js"
+    );
+    await runWithAuthContextAsync(
+      { userId: req.user.id, companyId: req.user.companyId },
+      async () => materializeProjectDeliverablesInOrder(projectId, req.user!.companyId)
+    );
+
+    const deliverableSelect: any = {
+      id: true,
+      name: true,
+      classification: true,
+      bestDuration: true,
+      likelyDuration: true,
+    };
+
+    const allFragnets: any[] = await prisma.fragnet.findMany({
       where: { projectId, companyId: req.user.companyId },
       orderBy: { createdAt: "asc" },
       include: {
         deliverables: {
           where: { companyId: req.user.companyId },
           orderBy: { createdAt: "asc" },
-          include: {
-            activities: {
-              where: { companyId: req.user.companyId },
-              orderBy: [{ activityCode: "asc" }, { id: "asc" }],
-              select: {
-                id: true,
-                activityCode: true,
-                name: true,
-                bestDuration: true,
-                likelyDuration: true,
-                assignedResources: true,
-                fragnetId: true,
-                isInherited: true,
-                templateActivityId: true,
-                detachedFromTemplate: true,
-              },
-            },
+          select: deliverableSelect,
+        },
+      },
+    });
+    const projectLevelFragnet = allFragnets.find((fragnet) => String(fragnet.name) === PROJECT_LEVEL_FRAGNET_NAME);
+    const fragnets = allFragnets.filter((fragnet) => String(fragnet.name) !== PROJECT_LEVEL_FRAGNET_NAME);
+    const unassignedDeliverables: any[] = await prisma.deliverable.findMany({
+      where: { projectId, companyId: req.user.companyId, fragnetId: null },
+      orderBy: { createdAt: "asc" },
+      select: deliverableSelect,
+    });
+
+    const projectActivities: any[] = await prisma.activity.findMany({
+      where: { companyId: req.user.companyId, projectId },
+      orderBy: [{ activityCode: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+      select: {
+        id: true,
+        activityCode: true,
+        name: true,
+        bestDuration: true,
+        likelyDuration: true,
+        assignedResources: true,
+        fragnetId: true,
+        deliverableId: true,
+        isSharedAcrossDeliverables: true,
+        isInherited: true,
+        templateActivityId: true,
+        detachedFromTemplate: true,
+        deliverableLinks: {
+          orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
+          select: {
+            isPrimary: true,
+            deliverable: { select: { id: true, name: true } },
           },
         },
       },
     });
 
+    const activitiesByDeliverableId = new Map<string, any[]>();
+    for (const a of projectActivities) {
+      const linkDeliverableIds = (a.deliverableLinks ?? [])
+        .map((l: any) => String(l.deliverable?.id ?? ""))
+        .filter(Boolean);
+
+      // Shared activities: only explicit junction links (never scalar deliverableId fallback).
+      if (a.isSharedAcrossDeliverables) {
+        for (const deliverableId of linkDeliverableIds) {
+          const list = activitiesByDeliverableId.get(deliverableId) ?? [];
+          list.push(a);
+          activitiesByDeliverableId.set(deliverableId, list);
+        }
+        continue;
+      }
+
+      // Non-shared: scalar deliverable owner only (never junction membership).
+      if (a.deliverableId) {
+        const deliverableId = String(a.deliverableId);
+        const list = activitiesByDeliverableId.get(deliverableId) ?? [];
+        list.push(a);
+        activitiesByDeliverableId.set(deliverableId, list);
+      }
+    }
+
     const fragnetIds = fragnets.map((f) => f.id);
+    const relationshipFragnetIds = [
+      ...fragnetIds,
+      ...(projectLevelFragnet ? [String(projectLevelFragnet.id)] : []),
+    ];
+    const deliverableRelationships = await prisma.deliverableRelationship.findMany({
+      where: { companyId: req.user.companyId, projectId, fragnetId: { in: relationshipFragnetIds } },
+      select: {
+        fragnetId: true,
+        predecessorDeliverableId: true,
+        successorDeliverableId: true,
+        relationshipType: true,
+        lag: true,
+      },
+    });
+    const deliverableActivityRelationships = await prisma.deliverableActivityRelationship.findMany({
+      where: { companyId: req.user.companyId, projectId, fragnetId: { in: relationshipFragnetIds } },
+      select: {
+        predecessorDeliverableId: true,
+        successorActivityId: true,
+        relationshipType: true,
+        lag: true,
+      },
+    });
+    const activityToDeliverableRelationships = await prisma.activityToDeliverableRelationship.findMany({
+      where: { companyId: req.user.companyId, projectId, fragnetId: { in: relationshipFragnetIds } },
+      select: {
+        predecessorActivityId: true,
+        successorDeliverableId: true,
+        relationshipType: true,
+        lag: true,
+      },
+    });
     const templateCounts = await prisma.fragnetActivityTemplate.groupBy({
       by: ["fragnetId"],
       where: { companyId: req.user.companyId, fragnetId: { in: fragnetIds } },
       _count: { _all: true },
     });
     const templateCountByFragnet = new Map(templateCounts.map((t) => [t.fragnetId, t._count._all]));
+    const projectLevelDeliverables: any[] = [
+      ...((projectLevelFragnet?.deliverables ?? []) as any[]),
+      ...unassignedDeliverables,
+    ];
+    const baseFragnets: FullDataFragnet[] = [
+      ...fragnets.map((f) => ({
+        id: String(f.id),
+        name: String(f.name),
+        activityTemplateCount: templateCountByFragnet.get(String(f.id)) ?? 0,
+        deliverables: (f.deliverables ?? []).map((d: any) => ({
+          id: String(d.id),
+          name: String(d.name),
+          bestDuration: Number(d.bestDuration ?? 1),
+          likelyDuration: Number(d.likelyDuration ?? 1),
+          relationships: { predecessors: [], successors: [] },
+          activities: (activitiesByDeliverableId.get(String(d.id)) ?? []).map((a: any) => ({
+            id: String(a.id),
+            deliverableId: String(a.deliverableId ?? ""),
+            activityCode: String(a.activityCode),
+            name: String(a.name),
+            bestDuration: Number(a.bestDuration ?? 1),
+            likelyDuration: Number(a.likelyDuration ?? 1),
+            assignedResources: a.assignedResources,
+            isSharedAcrossDeliverables: Boolean(a.isSharedAcrossDeliverables),
+            isInherited: Boolean(a.isInherited),
+            templateActivityId: a.templateActivityId ?? null,
+            detachedFromTemplate: Boolean(a.detachedFromTemplate),
+            linkedDeliverables: (a.deliverableLinks ?? []).map((link: any) => ({
+              id: String(link.deliverable.id),
+              name: String(link.deliverable.name),
+              isPrimary: Boolean(link.isPrimary),
+            })),
+            relationships: { predecessors: [], successors: [] },
+          })),
+        })),
+      })),
+      ...(projectLevelDeliverables.length > 0
+        ? [
+            {
+              id: String(projectLevelFragnet?.id ?? PROJECT_UNASSIGNED_FRAGNET_ID),
+              name: PROJECT_UNASSIGNED_FRAGNET_NAME,
+              activityTemplateCount: 0,
+              deliverables: projectLevelDeliverables.map((d: any) => ({
+                id: String(d.id),
+                name: String(d.name),
+                bestDuration: Number(d.bestDuration ?? 1),
+                likelyDuration: Number(d.likelyDuration ?? 1),
+                relationships: { predecessors: [], successors: [] },
+                activities: (activitiesByDeliverableId.get(String(d.id)) ?? []).map((a: any) => ({
+                  id: String(a.id),
+                  deliverableId: String(a.deliverableId ?? ""),
+                  activityCode: String(a.activityCode),
+                  name: String(a.name),
+                  bestDuration: Number(a.bestDuration ?? 1),
+                  likelyDuration: Number(a.likelyDuration ?? 1),
+                  assignedResources: a.assignedResources,
+                  isSharedAcrossDeliverables: Boolean(a.isSharedAcrossDeliverables),
+                  isInherited: Boolean(a.isInherited),
+                  templateActivityId: a.templateActivityId ?? null,
+                  detachedFromTemplate: Boolean(a.detachedFromTemplate),
+                  linkedDeliverables: (a.deliverableLinks ?? []).map((link: any) => ({
+                    id: String(link.deliverable.id),
+                    name: String(link.deliverable.name),
+                    isPrimary: Boolean(link.isPrimary),
+                  })),
+                  relationships: { predecessors: [], successors: [] },
+                })),
+              })),
+            },
+          ]
+        : []),
+    ];
     const relationships = await prisma.relationship.findMany({
-      where: { companyId: req.user.companyId, projectId, fragnetId: { in: fragnetIds } },
+      where: { companyId: req.user.companyId, projectId, fragnetId: { in: relationshipFragnetIds } },
       select: {
         fragnetId: true,
         predecessorActivityId: true,
@@ -323,7 +523,7 @@ export async function getFullData(req: AuthRequest, res: Response): Promise<void
 
     // Map activityId -> activityCode for relationship display
     const activityIdToCode = new Map<string, string>();
-    for (const f of fragnets) {
+    for (const f of baseFragnets) {
       for (const d of f.deliverables) {
         for (const a of d.activities) {
           activityIdToCode.set(a.id, a.activityCode);
@@ -359,27 +559,139 @@ export async function getFullData(req: AuthRequest, res: Response): Promise<void
       successorsByActivityId.set(r.predecessorActivityId, sArr);
     }
 
+    const deliverableNameById = new Map<string, string>();
+    for (const f of baseFragnets) {
+      for (const d of f.deliverables) {
+        deliverableNameById.set(d.id, d.name);
+      }
+    }
+    const predecessorsByDeliverableId = new Map<string, FullDataDeliverableRel[]>();
+    const successorsByDeliverableId = new Map<string, FullDataDeliverableRel[]>();
+    for (const r of deliverableRelationships) {
+      const predName = deliverableNameById.get(r.predecessorDeliverableId) ?? r.predecessorDeliverableId;
+      const succName = deliverableNameById.get(r.successorDeliverableId) ?? r.successorDeliverableId;
+      const predRel: FullDataDeliverableRel = {
+        deliverableName: predName,
+        relationshipType: r.relationshipType,
+        lag: r.lag,
+      };
+      const succRel: FullDataDeliverableRel = {
+        deliverableName: succName,
+        relationshipType: r.relationshipType,
+        lag: r.lag,
+      };
+      const pArr = predecessorsByDeliverableId.get(r.successorDeliverableId) ?? [];
+      pArr.push(predRel);
+      predecessorsByDeliverableId.set(r.successorDeliverableId, pArr);
+      const sArr = successorsByDeliverableId.get(r.predecessorDeliverableId) ?? [];
+      sArr.push(succRel);
+      successorsByDeliverableId.set(r.predecessorDeliverableId, sArr);
+    }
+
+    for (const r of deliverableActivityRelationships) {
+      const succCode = activityIdToCode.get(r.successorActivityId) ?? r.successorActivityId;
+      const delName =
+        deliverableNameById.get(r.predecessorDeliverableId) ?? r.predecessorDeliverableId;
+      const toActivity: FullDataDeliverableRel = {
+        deliverableName: delName,
+        activityCode: succCode,
+        relationshipType: r.relationshipType,
+        lag: r.lag,
+      };
+      const sArr = successorsByDeliverableId.get(r.predecessorDeliverableId) ?? [];
+      sArr.push(toActivity);
+      successorsByDeliverableId.set(r.predecessorDeliverableId, sArr);
+
+      const fromDeliverable: FullDataActivityRel = {
+        activityCode: "",
+        deliverableName: delName,
+        relationshipType: r.relationshipType as FullDataActivityRel["relationshipType"],
+        lag: r.lag,
+      };
+      const pArr = predecessorsByActivityId.get(r.successorActivityId) ?? [];
+      pArr.push(fromDeliverable);
+      predecessorsByActivityId.set(r.successorActivityId, pArr);
+    }
+
+    for (const r of activityToDeliverableRelationships) {
+      const predCode = activityIdToCode.get(r.predecessorActivityId) ?? r.predecessorActivityId;
+      const delName =
+        deliverableNameById.get(r.successorDeliverableId) ?? r.successorDeliverableId;
+      const toDeliverable: FullDataActivityRel = {
+        activityCode: "",
+        deliverableName: delName,
+        relationshipType: r.relationshipType as FullDataActivityRel["relationshipType"],
+        lag: r.lag,
+      };
+      const sArr = successorsByActivityId.get(r.predecessorActivityId) ?? [];
+      sArr.push(toDeliverable);
+      successorsByActivityId.set(r.predecessorActivityId, sArr);
+
+      const fromActivity: FullDataDeliverableRel = {
+        deliverableName: delName,
+        activityCode: predCode,
+        relationshipType: r.relationshipType,
+        lag: r.lag,
+      };
+      const pArr = predecessorsByDeliverableId.get(r.successorDeliverableId) ?? [];
+      pArr.push(fromActivity);
+      predecessorsByDeliverableId.set(r.successorDeliverableId, pArr);
+    }
+
+    const sortDeliverablesByActivityOrder = <T extends { activities: { activityCode: string }[] }>(
+      items: T[]
+    ): T[] =>
+      [...items]
+        .map((d, index) => {
+          let min = Number.POSITIVE_INFINITY;
+          for (const a of d.activities) {
+            const p = parseActivityCode(a.activityCode);
+            if (p && p.number < min) min = p.number;
+          }
+          return { d, index, min };
+        })
+        .sort((a, b) => (a.min !== b.min ? a.min - b.min : a.index - b.index))
+        .map((x) => x.d);
+
     const out: { fragnets: FullDataFragnet[] } = {
-      fragnets: fragnets.map((f) => ({
+      fragnets: baseFragnets.map((f) => ({
         id: f.id,
         name: f.name,
-        activityTemplateCount: templateCountByFragnet.get(f.id) ?? 0,
-        deliverables: f.deliverables.map((d) => ({
+        activityTemplateCount: f.activityTemplateCount,
+        deliverables: sortDeliverablesByActivityOrder(f.deliverables).map((d) => ({
           id: d.id,
           name: d.name,
-          activities: d.activities.map((a) => ({
+          bestDuration: d.bestDuration,
+          likelyDuration: d.likelyDuration,
+          relationships: {
+            predecessors: (predecessorsByDeliverableId.get(d.id) ?? []).sort((x, y) =>
+              x.deliverableName.localeCompare(y.deliverableName)
+            ),
+            successors: (successorsByDeliverableId.get(d.id) ?? []).sort((x, y) =>
+              x.deliverableName.localeCompare(y.deliverableName)
+            ),
+          },
+          activities: [...d.activities]
+            .sort((a, b) => compareActivityCodes(a.activityCode, b.activityCode))
+            .map((a) => ({
             id: a.id,
             activityCode: a.activityCode,
             name: a.name,
             bestDuration: a.bestDuration,
             likelyDuration: a.likelyDuration,
             assignedResources: a.assignedResources,
+            isSharedAcrossDeliverables: a.isSharedAcrossDeliverables,
             isInherited: a.isInherited,
             templateActivityId: a.templateActivityId,
             detachedFromTemplate: a.detachedFromTemplate,
+            linkedDeliverables: a.linkedDeliverables,
             relationships: {
-              predecessors: (predecessorsByActivityId.get(a.id) ?? []).sort((x, y) => x.activityCode.localeCompare(y.activityCode)),
-              successors: (successorsByActivityId.get(a.id) ?? []).sort((x, y) => x.activityCode.localeCompare(y.activityCode)),
+              predecessors: (predecessorsByActivityId.get(a.id) ?? []).sort((x, y) =>
+                compareActivityCodes(x.activityCode, y.activityCode)
+              ),
+              successors: (successorsByActivityId.get(a.id) ?? []).sort((x, y) =>
+                compareActivityCodes(x.activityCode, y.activityCode)
+              ),
             },
           })),
         })),
@@ -646,6 +958,74 @@ export async function updateMemberRole(req: AuthRequest, res: Response): Promise
     }
     console.error(err);
     res.status(500).json({ error: "Failed to update project member role" });
+  }
+}
+
+export async function getSuggestedActivityCode(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const { id: projectId } = req.params as { id: string };
+    await requireProjectAccess(projectId, req.user);
+    const excludeActivityId =
+      typeof req.query.excludeActivityId === "string" ? req.query.excludeActivityId.trim() : undefined;
+    const code = await runWithAuthContextAsync(
+      { userId: req.user.id, companyId: req.user.companyId },
+      async () =>
+        suggestNextActivityCode(projectId, req.user!.companyId, excludeActivityId || undefined)
+    );
+    res.json({ activityCode: code });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to suggest activity code" });
+  }
+}
+
+export async function getActivityCodeAvailability(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const { id: projectId } = req.params as { id: string };
+    const code = typeof req.query.code === "string" ? req.query.code : "";
+    const fragnetId = typeof req.query.fragnetId === "string" ? req.query.fragnetId.trim() : "";
+    const excludeActivityId =
+      typeof req.query.excludeActivityId === "string" ? req.query.excludeActivityId.trim() : undefined;
+
+    if (!fragnetId) {
+      res.status(400).json({ error: "fragnetId query parameter is required" });
+      return;
+    }
+
+    await requireProjectAccess(projectId, req.user);
+
+    const fragnet = await prisma.fragnet.findFirst({
+      where: { id: fragnetId, projectId, companyId: req.user.companyId },
+      select: { id: true },
+    });
+    if (!fragnet) {
+      res.status(404).json({ error: "Fragnet not found on this project" });
+      return;
+    }
+
+    const result = await runWithAuthContextAsync(
+      { userId: req.user.id, companyId: req.user.companyId },
+      async () =>
+        checkActivityCodeAvailability({
+          projectId,
+          companyId: req.user!.companyId,
+          fragnetId,
+          userCode: code,
+          excludeActivityId: excludeActivityId || undefined,
+        })
+    );
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to check activity code availability" });
   }
 }
 

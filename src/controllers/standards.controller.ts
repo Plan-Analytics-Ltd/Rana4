@@ -7,6 +7,7 @@ import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
 import { auditUpdateIfChanged } from "../services/auditDiff.service.js";
 import { importAssignmentsSheetForStandard } from "../services/import/assignmentsImport.service.js";
+import { PROJECT_LEVEL_STANDARD_NAME } from "../services/projectLevelActivityContext.service.js";
 
 type RequestWithAssignmentFile = AuthRequest & { file?: Express.Multer.File };
 
@@ -67,7 +68,7 @@ export async function getAll(req: AuthRequest, res: Response): Promise<void> {
       where: { companyId: req.user.companyId, projectId },
       orderBy: { createdAt: "desc" },
     });
-    res.json(standards);
+    res.json(standards.filter((standard) => standard.name !== PROJECT_LEVEL_STANDARD_NAME));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch standards" });

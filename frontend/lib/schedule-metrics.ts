@@ -97,6 +97,10 @@ export function rollupCosts(data: ProjectFullData, rateCard: RateCardEntry[], sc
 
   for (const f of data.fragnets) {
     const fb = { ...empty(), name: f.name };
+    for (const a of f.sharedActivities ?? []) {
+      add(project, a);
+      add(fb, a);
+    }
     for (const d of f.deliverables) {
       const db = { ...empty(), name: d.name };
       for (const a of d.activities) {

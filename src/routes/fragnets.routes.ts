@@ -17,6 +17,7 @@ router.post("/:fragnetId/activity-templates/relationships", fragnetActivityTempl
 router.delete("/:fragnetId/activity-templates/relationships/:relId", fragnetActivityTemplatesController.deleteRelationship);
 router.post("/:fragnetId/activity-templates/sync", fragnetActivityTemplatesController.sync);
 router.post("/:fragnetId/activity-templates/materialize", fragnetActivityTemplatesController.materialize);
+router.post("/:fragnetId/activity-templates/realign-codes", fragnetActivityTemplatesController.realignCodes);
 
 router.get("/:id", fragnetsController.getById);
 router.put("/:id", fragnetsController.update);

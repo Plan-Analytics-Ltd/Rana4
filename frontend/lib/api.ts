@@ -229,6 +229,13 @@ export type ProjectMemberRow = {
   name: string | null;
 };
 
+export type ActivityCodeAvailability = {
+  available: boolean;
+  normalizedCode: string | null;
+  message: string;
+  suggestedCode: string | null;
+};
+
 export const projectsApi = {
   listMine: () => api.get<Project[]>("/projects"),
   create: (data: { name: string }) => api.post<Project>("/projects", data),
@@ -246,6 +253,140 @@ export const projectsApi = {
     api.patch(`/projects/${projectId}/members/${userId}`, data),
   removeMember: (projectId: string, userId: string) =>
     api.delete(`/projects/${projectId}/members/${userId}`),
+  recalculateSchedule: (
+    projectId: string,
+    data?: { startDate?: string; scenario?: "best" | "likely"; persist?: boolean }
+  ) =>
+    api.post<ScheduleRecalculateResult>(`/projects/${projectId}/recalculate-schedule`, data ?? {}),
+  getScheduleNetwork: (projectId: string) =>
+    api.get<ScheduleNetworkResponse>(`/projects/${projectId}/schedule-network`),
+  getCriticalPath: (projectId: string) =>
+    api.get<ScheduleCriticalPathResponse>(`/projects/${projectId}/critical-path`),
+  getSuggestedActivityCode: (projectId: string, excludeActivityId?: string) =>
+    api.get<{ activityCode: string }>(`/projects/${encodeURIComponent(projectId)}/suggested-activity-code`, {
+      params: excludeActivityId ? { excludeActivityId } : undefined,
+    }),
+  checkActivityCodeAvailability: (
+    projectId: string,
+    params: { code: string; fragnetId: string; excludeActivityId?: string }
+  ) =>
+    api.get<ActivityCodeAvailability>(
+      `/projects/${encodeURIComponent(projectId)}/activity-code-availability`,
+      { params }
+    ),
+};
+
+export type IntelligenceFinding = {
+  findingType: string;
+  severity: "LOW" | "MEDIUM" | "HIGH";
+  confidence: "LOW" | "MEDIUM" | "HIGH";
+  title: string;
+  summary: string;
+  reasoning: string[];
+  evidence: { label: string; value: string | number }[];
+};
+
+export const intelligenceApi = {
+  getDeliverableBenchmark: (projectId: string, deliverableId: string, opts?: { projectIds?: string[] }) => {
+    const pid = requireProjectId(projectId);
+    const projectIds = (opts?.projectIds ?? []).filter(Boolean);
+    return api.get(`/projects/${encodeURIComponent(pid)}/intelligence/benchmark/${encodeURIComponent(deliverableId)}`, {
+      params: projectIds.length ? { projectIds: projectIds.join(",") } : undefined,
+    });
+  },
+  getDeliverableFindings: (projectId: string, deliverableId: string, opts?: { projectIds?: string[] }) => {
+    const pid = requireProjectId(projectId);
+    const projectIds = (opts?.projectIds ?? []).filter(Boolean);
+    return api.get<{ findings: IntelligenceFinding[] }>(
+      `/projects/${encodeURIComponent(pid)}/intelligence/findings/${encodeURIComponent(deliverableId)}`,
+      {
+        params: projectIds.length ? { projectIds: projectIds.join(",") } : undefined,
+      }
+    );
+  },
+};
+
+export type ScheduleDiagnostic = {
+  code: string;
+  severity: "critical" | "warning" | "advisory" | "info";
+  message: string;
+  entityType?: string;
+  entityId?: string;
+  entityLabel?: string;
+};
+
+export type ScheduleNetworkActivity = {
+  id: string;
+  activityCode: string;
+  earlyStart: string | null;
+  earlyFinish: string | null;
+  lateStart: string | null;
+  lateFinish: string | null;
+  totalFloat: number | null;
+  freeFloat: number | null;
+  isCritical: boolean;
+};
+
+export type ScheduleNetworkRelationship = {
+  id: string;
+  predecessorActivityId: string;
+  successorActivityId: string;
+  relationshipType: RelationshipType;
+  lag: number;
+};
+
+export type ScheduleRecalculateResult = {
+  ok: boolean;
+  projectStart: string | null;
+  projectEnd: string | null;
+  scenario: "best" | "likely";
+  activities: Array<
+    ScheduleNetworkActivity & {
+      durationDays?: number;
+      drivingRelationshipId?: string | null;
+      plannedStartDate?: string | null;
+      plannedFinishDate?: string | null;
+    }
+  >;
+  criticalPathActivityIds: string[];
+  network?: {
+    activityIds: string[];
+    relationshipIds: string[];
+    topologicalOrder: string[];
+    cycleActivityIds: string[][];
+    disconnectedComponents: string[][];
+  };
+  diagnostics: ScheduleDiagnostic[];
+};
+
+export type ScheduleNetworkResponse = {
+  projectStart: string | null;
+  network: {
+    activityIds: string[];
+    relationshipIds: string[];
+    topologicalOrder: string[];
+    cycleActivityIds: string[][];
+    disconnectedComponents: string[][];
+  };
+  relationships: ScheduleNetworkRelationship[];
+  deliverableRelationships: DeliverableRelationship[];
+  deliverableActivityRelationships: DeliverableActivityRelationship[];
+  activityToDeliverableRelationships: ActivityToDeliverableRelationship[];
+  activities: ScheduleNetworkActivity[];
+  diagnostics: ScheduleDiagnostic[];
+};
+
+export type ScheduleCriticalPathResponse = {
+  count: number;
+  activities: Array<{
+    id: string;
+    activityCode: string;
+    name: string;
+    fragnetId: string;
+    earlyStart: string | null;
+    earlyFinish: string | null;
+    totalFloat: number | null;
+  }>;
 };
 
 export type Standard = {
@@ -323,6 +464,7 @@ export const fragnetsApi = {
       name: string;
       bestDuration: number;
       likelyDuration: number;
+      isSharedAcrossDeliverables?: boolean;
       orderIndex?: number;
       assignedResources?: { resourceType: string; resourceName: string; units?: number }[];
       activityCodeByTypeId?: Record<string, string | null>;
@@ -335,6 +477,7 @@ export const fragnetsApi = {
       name: string;
       bestDuration: number;
       likelyDuration: number;
+      isSharedAcrossDeliverables: boolean;
       orderIndex: number;
       assignedResources: { resourceType: string; resourceName: string; units?: number }[];
       activityCodeByTypeId?: Record<string, string | null>;
@@ -356,9 +499,14 @@ export const fragnetsApi = {
       `/fragnets/${fragnetId}/activity-templates/sync`
     ),
   materializeActivityTemplates: (fragnetId: string) =>
-    api.post<{ deliverables: number; activities: number; relationships: number }>(
-      `/fragnets/${fragnetId}/activity-templates/materialize`
-    ),
+    api.post<{
+      deliverables: number;
+      activities: number;
+      relationships: number;
+      codesRealigned?: number;
+    }>(`/fragnets/${fragnetId}/activity-templates/materialize`),
+  realignActivityCodes: (fragnetId: string) =>
+    api.post<{ updated: number }>(`/fragnets/${fragnetId}/activity-templates/realign-codes`),
 };
 
 export type ActivityCodeValue = {
@@ -396,6 +544,7 @@ export type Activity = {
   id: string;
   fragnetId: string;
   deliverableId?: string;
+  linkedDeliverables?: Array<{ id: string; name: string; fragnetId?: string | null; projectId?: string; isPrimary?: boolean }>;
   activityCode: string;
   name: string;
   status: "DRAFT" | "PENDING_APPROVAL" | "ACTIVE" | "LOCKED";
@@ -404,9 +553,20 @@ export type Activity = {
   assuranceNoteId: string | null;
   assignedResources?: AssignedResource[];
   activityCodeAssignments?: ActivityCodeAssignmentRow[];
+  isSharedAcrossDeliverables?: boolean;
   isInherited?: boolean;
   templateActivityId?: string | null;
   detachedFromTemplate?: boolean;
+  plannedStartDate?: string | null;
+  plannedFinishDate?: string | null;
+  earlyStart?: string | null;
+  earlyFinish?: string | null;
+  lateStart?: string | null;
+  lateFinish?: string | null;
+  totalFloat?: number | null;
+  freeFloat?: number | null;
+  isCritical?: boolean;
+  drivingRelationshipId?: string | null;
   createdAt: string;
 };
 
@@ -417,6 +577,7 @@ export type FragnetActivityTemplate = {
   name: string;
   bestDuration: number;
   likelyDuration: number;
+  isSharedAcrossDeliverables?: boolean;
   orderIndex: number;
   assignedResources?: AssignedResource[];
   activityCodeAssignments?: ActivityCodeAssignmentRow[];
@@ -437,28 +598,37 @@ export type FragnetActivityTemplate = {
 };
 
 export const activitiesApi = {
+  getProjectLevelContext: (projectId: string) =>
+    api.get<{ standardId: string | null; fragnetId: string | null; deliverables: Deliverable[]; activities: Activity[] }>(
+      `/activities/project/${encodeURIComponent(projectId)}/project-level`
+    ),
   listByFragnet: (fragnetId: string) =>
     api.get<Activity[]>(`/activities/fragnet/${fragnetId}`),
   get: (id: string) => api.get<Activity>(`/activities/${id}`),
   create: (data: {
-    fragnetId: string;
-    deliverableId: string;
+    projectId?: string;
+    fragnetId?: string;
+    deliverableId?: string;
+    deliverableIds?: string[];
     activityCode: string;
     name: string;
     bestDuration: number;
     likelyDuration: number;
     assuranceNoteId?: string | null;
     assignedResources?: { resourceType: string; resourceName: string; units?: number }[];
+    isSharedAcrossDeliverables?: boolean;
     activityCodeByTypeId?: Record<string, string | null>;
   }) => api.post<Activity>("/activities", data),
   update: (id: string, data: {
     activityCode?: string;
     name?: string;
     deliverableId?: string;
+    deliverableIds?: string[];
     bestDuration?: number;
     likelyDuration?: number;
     assuranceNoteId?: string | null;
     assignedResources?: { resourceType: string; resourceName: string; units?: number }[];
+    isSharedAcrossDeliverables?: boolean;
     activityCodeByTypeId?: Record<string, string | null>;
   }) => api.put<Activity>(`/activities/${id}`, data),
   updateStatus: (id: string, status: Activity["status"]) =>
@@ -532,6 +702,68 @@ export type Relationship = {
   lag: number;
 };
 
+export type DeliverableRelationship = {
+  id: string;
+  fragnetId: string;
+  predecessorDeliverableId: string;
+  successorDeliverableId: string;
+  relationshipType: RelationshipType;
+  lag: number;
+};
+
+export type DeliverableActivityRelationship = {
+  id: string;
+  fragnetId: string;
+  predecessorDeliverableId: string;
+  successorActivityId: string;
+  relationshipType: RelationshipType;
+  lag: number;
+};
+
+export type ActivityToDeliverableRelationship = {
+  id: string;
+  fragnetId: string;
+  predecessorActivityId: string;
+  successorDeliverableId: string;
+  relationshipType: RelationshipType;
+  lag: number;
+};
+
+export const deliverableRelationshipsApi = {
+  listByFragnet: (fragnetId: string) =>
+    api.get<DeliverableRelationship[]>(`/deliverable-relationships/fragnet/${fragnetId}`),
+  create: (data: {
+    fragnetId?: string;
+    predecessorDeliverableId: string;
+    successorDeliverableId: string;
+    relationshipType: RelationshipType;
+    lag?: number;
+  }) => api.post<DeliverableRelationship>("/deliverable-relationships", data),
+  delete: (id: string) => api.delete(`/deliverable-relationships/${id}`),
+};
+
+export const activityToDeliverableRelationshipsApi = {
+  listByFragnet: (fragnetId: string) =>
+    api.get<ActivityToDeliverableRelationship[]>(
+      `/activity-to-deliverable-relationships/fragnet/${fragnetId}`
+    ),
+};
+
+export const deliverableActivityRelationshipsApi = {
+  listByFragnet: (fragnetId: string) =>
+    api.get<DeliverableActivityRelationship[]>(
+      `/deliverable-activity-relationships/fragnet/${fragnetId}`
+    ),
+  create: (data: {
+    fragnetId?: string;
+    predecessorDeliverableId: string;
+    successorActivityId: string;
+    relationshipType: RelationshipType;
+    lag?: number;
+  }) => api.post<DeliverableActivityRelationship>("/deliverable-activity-relationships", data),
+  delete: (id: string) => api.delete(`/deliverable-activity-relationships/${id}`),
+};
+
 export const relationshipsApi = {
   listByFragnet: (fragnetId: string) =>
     api.get<Relationship[]>(`/relationships/fragnet/${fragnetId}`),
@@ -553,6 +785,7 @@ export type Deliverable = {
   id: string;
   fragnetId: string | null;
   name: string;
+  classification?: string | null;
   bestDuration: number;
   likelyDuration: number;
   assignedResources?: AssignedResource[];
@@ -673,4 +906,103 @@ export const exportApi = {
     api.get<{ ok: boolean; result?: { activityCount: number; orphanActivities: any[]; unknownDeliverableActivities: any[]; crossFragnetMismatches: any[] }; error?: string }>(
       `/export/standard/${standardId}/validate-activities`
     ),
+};
+
+/** Programme intelligence — snapshots, planned vs actual, portfolio learning */
+export type ProgrammeSnapshotSummary = {
+  id: string;
+  projectId: string;
+  importedAt: string;
+  sourceType: string;
+  snapshotRole: string | null;
+  scheduleDate: string | null;
+  label: string | null;
+  snapshotVersion: number;
+  metrics: Record<string, unknown>;
+  importSummary: Record<string, unknown>;
+  activityCount: number;
+  deliverableCount: number;
+};
+
+export type ProgrammeImportResult = {
+  snapshotId: string;
+  summary: ProgrammeSnapshotSummary;
+  matchResult: {
+    matchedActivities: number;
+    unmatchedActivityCodes: string[];
+    matchedDeliverables: number;
+    unmatchedDeliverableNames: string[];
+    matchedRelationships: number;
+    unmatchedRelationships: number;
+  };
+};
+
+export type PlannedVsActualReport = {
+  baselineSnapshotId: string;
+  comparisonSnapshotId: string;
+  generatedAt: string;
+  activityVariances: Array<{
+    activityCode: string;
+    durationVarianceDays: number | null;
+    finishVarianceDays: number | null;
+    floatErosionDays: number | null;
+    becameCritical: boolean;
+  }>;
+  projectSummary: {
+    criticalPathInstability: number;
+    activitiesWithDurationVariance: number;
+    activitiesWithFloatErosion: number;
+    highRiskAreas: string[];
+  };
+};
+
+export type LessonFinding = {
+  id: string;
+  title: string;
+  summary: string;
+  severity: string;
+  sampleSize: number;
+};
+
+export const programmeIntelligenceApi = {
+  listSnapshots: (projectId: string) =>
+    api.get<{ snapshots: ProgrammeSnapshotSummary[] }>(
+      `/projects/${encodeURIComponent(projectId)}/programme-snapshots`
+    ),
+  importProgramme: (projectId: string, file: File, opts?: { snapshotRole?: string; label?: string }) => {
+    const form = new FormData();
+    form.append("file", file);
+    if (opts?.snapshotRole) form.append("snapshotRole", opts.snapshotRole);
+    if (opts?.label) form.append("label", opts.label);
+    return api.post<ProgrammeImportResult>(
+      `/projects/${encodeURIComponent(projectId)}/programme-import`,
+      form
+    );
+  },
+  createBaseline: (projectId: string, label?: string) =>
+    api.post<{ snapshotId: string; summary: ProgrammeSnapshotSummary }>(
+      `/projects/${encodeURIComponent(projectId)}/programme-snapshots/baseline`,
+      { label: label ?? "Generated baseline" }
+    ),
+  plannedVsActual: (
+    projectId: string,
+    params: { baselineSnapshotId: string; comparisonSnapshotId?: string; compareToLive?: boolean }
+  ) =>
+    api.get<PlannedVsActualReport>(
+      `/projects/${encodeURIComponent(projectId)}/planned-vs-actual`,
+      { params }
+    ),
+  exportProgrammeJson: (projectId: string) =>
+    api.get<Blob>(`/projects/${encodeURIComponent(projectId)}/programme-export`, {
+      responseType: "blob",
+    }),
+  portfolioBenchmarks: (params?: { projectType?: string; ribaStage?: string }) =>
+    api.get<{ metrics: Array<{ key: string; label: string; average: number; sampleSize: number; unit: string }> }>(
+      "/intelligence/portfolio-benchmarks",
+      { params }
+    ),
+  lessonsLearned: (refresh?: boolean) =>
+    api.get<{ findings: LessonFinding[] }>("/intelligence/lessons-learned", {
+      params: refresh ? { refresh: "true" } : undefined,
+    }),
 };

@@ -8,6 +8,7 @@ import {
   FileText,
   GitBranch,
   ListTodo,
+  CalendarRange,
   Tags,
   Package,
   Download,
@@ -28,6 +29,7 @@ import { hasPermission } from "@/lib/project-permissions";
 const platformNav = [
   { href: "/app", label: "Dashboard", icon: LayoutDashboard },
   { href: "/app/project", label: "Project Viewer", icon: Package },
+  { href: "/app/schedule", label: "Schedule", icon: CalendarRange },
   { href: "/app/standards", label: "Standards", icon: FileText },
   { href: "/app/fragnets", label: "Fragnets", icon: GitBranch },
   { href: "/app/activities", label: "Activities", icon: ListTodo },

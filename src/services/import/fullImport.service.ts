@@ -13,6 +13,7 @@ import {
   processAssignmentsImport,
 } from "./assignmentsImport.service.js";
 import type { ParsedRelationshipRow } from "./relationships.parser.js";
+import { importDeliverableKey } from "./importKeys.js";
 
 export type ImportResult = {
   success: true;
@@ -249,24 +250,29 @@ function validateStructure(bundle: ParsedBundle): void {
     fragSet.add(key);
   }
 
-  // Deliverables: fragnet must exist; no duplicate deliverable per fragnet
+  // Deliverables: optional fragnet (null = unassigned); no duplicate per fragnet scope
   const fragNameSet = new Set<string>(bundle.fragnets.map((f) => normalize(f.fragnetName)));
   const delSet = new Set<string>();
   for (const d of bundle.deliverables) {
-    const fk = normalize(d.fragnetName);
-    if (!fragNameSet.has(fk)) {
-      throw new Error(
-        `Deliverables sheet row ${d.sourceExcelRow ?? "?"}: fragnet_name not found in Fragnets sheet: ${JSON.stringify(
-          d.fragnetName
-        )}`
-      );
+    if (d.fragnetName) {
+      const fk = normalize(d.fragnetName);
+      if (!fragNameSet.has(fk)) {
+        throw new Error(
+          `Deliverables sheet row ${d.sourceExcelRow ?? "?"}: fragnet_name not found in Fragnets sheet: ${JSON.stringify(
+            d.fragnetName
+          )}`
+        );
+      }
     }
-    const key = `${fk}||${normalize(d.deliverableName)}`;
+    const key = importDeliverableKey(d.fragnetName, d.deliverableName);
     if (delSet.has(key)) {
+      const scope = d.fragnetName
+        ? `fragnet ${JSON.stringify(d.fragnetName)}`
+        : "unassigned (no fragnet)";
       throw new Error(
-        `Deliverables sheet row ${d.sourceExcelRow ?? "?"}: duplicate deliverable_name for fragnet ${JSON.stringify(
-          d.fragnetName
-        )}: ${JSON.stringify(d.deliverableName)}`
+        `Deliverables sheet row ${d.sourceExcelRow ?? "?"}: duplicate deliverable_name for ${scope}: ${JSON.stringify(
+          d.deliverableName
+        )}`
       );
     }
     delSet.add(key);
@@ -283,8 +289,14 @@ function validateStructure(bundle: ParsedBundle): void {
         )}`
       );
     }
-    const dk = `${fk}||${normalize(a.deliverableName)}`;
+    const dk = importDeliverableKey(a.fragnetName, a.deliverableName);
     if (!delSet.has(dk)) {
+      const unassignedKey = importDeliverableKey(null, a.deliverableName);
+      if (delSet.has(unassignedKey)) {
+        throw new Error(
+          `Activities sheet row ${a.sourceExcelRow ?? "?"}: deliverable ${JSON.stringify(a.deliverableName)} is unassigned (no fragnet). Activities must reference deliverables on the same fragnet — assign the deliverable to fragnet ${JSON.stringify(a.fragnetName)} on the Deliverables sheet, or omit activity rows for unassigned deliverables.`
+        );
+      }
       throw new Error(
         `Activities sheet row ${a.sourceExcelRow ?? "?"}: deliverable_name not found for fragnet ${JSON.stringify(
           a.fragnetName
@@ -352,7 +364,9 @@ export async function importFullTemplate(
       bestDuration: d.bestDuration,
       likelyDuration: d.likelyDuration,
       createdAt: new Date(),
-      fragnetId: fakeFragnets.find((f) => normalize(f.name) === normalize(d.fragnetName))?.id ?? null,
+      fragnetId: d.fragnetName
+        ? fakeFragnets.find((f) => normalize(f.name) === normalize(d.fragnetName!))?.id ?? null
+        : null,
       assignedResources: [] as any,
       projectId: projectIdStr,
       externalProjectId: d.externalProjectId ?? null,
@@ -472,23 +486,25 @@ export async function importFullTemplate(
 
     const deliverableByFragAndName = new Map<string, Deliverable>();
     for (const d of bundle.deliverables) {
-      const frag = fragnetByName.get(normalize(d.fragnetName));
-      if (!frag) {
-        throw new Error(`Import: missing fragnet for deliverable ${JSON.stringify(d.deliverableName)}: ${JSON.stringify(d.fragnetName)}`);
+      const frag = d.fragnetName ? fragnetByName.get(normalize(d.fragnetName)) : null;
+      if (d.fragnetName && !frag) {
+        throw new Error(
+          `Import: missing fragnet for deliverable ${JSON.stringify(d.deliverableName)}: ${JSON.stringify(d.fragnetName)}`
+        );
       }
       const created = await tx.deliverable.create({
         data: {
           name: d.deliverableName.trim(),
           bestDuration: d.bestDuration,
           likelyDuration: d.likelyDuration,
-          fragnetId: frag.id,
+          fragnetId: frag?.id ?? null,
           assignedResources: [] as any,
           projectId: projectIdStr,
           externalProjectId: d.externalProjectId != null && String(d.externalProjectId).trim() !== "" ? String(d.externalProjectId).trim() : null,
           companyId: companyIdStr,
         } as Prisma.DeliverableUncheckedCreateInput,
       });
-      deliverableByFragAndName.set(`${normalize(frag.name)}||${normalize(created.name)}`, created);
+      deliverableByFragAndName.set(importDeliverableKey(d.fragnetName, created.name), created);
     }
 
     const { materializeTemplatesForDeliverable } = await import("../fragnetActivityTemplate.service.js");
@@ -503,7 +519,7 @@ export async function importFullTemplate(
       if (!frag) {
         throw new Error(`Import: missing fragnet for activity ${JSON.stringify(a.activityCode)}: ${JSON.stringify(a.fragnetName)}`);
       }
-      const del = deliverableByFragAndName.get(`${normalize(frag.name)}||${normalize(a.deliverableName)}`);
+      const del = deliverableByFragAndName.get(importDeliverableKey(a.fragnetName, a.deliverableName));
       if (!del) {
         throw new Error(
           `Import: missing deliverable for activity ${JSON.stringify(a.activityCode)} under fragnet ${JSON.stringify(frag.name)}: ${JSON.stringify(

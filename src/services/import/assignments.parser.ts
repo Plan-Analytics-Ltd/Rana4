@@ -124,8 +124,10 @@ export function parseAssignmentsSheet(rows: unknown[]): ParsedAssignmentRow[] {
     }
     const level = normalizeLevel(levelRaw, excelRow);
 
-    if (!fragnetName) {
-      throw new Error(`Assignments sheet row ${excelRow}: fragnet_name is required`);
+    if (!fragnetName && level !== "DELIVERABLE") {
+      throw new Error(
+        `Assignments sheet row ${excelRow}: fragnet_name is required for ACTIVITY rows (leave blank only for DELIVERABLE rows on unassigned deliverables)`
+      );
     }
     if (!deliverableName) {
       throw new Error(`Assignments sheet row ${excelRow}: deliverable_name is required`);

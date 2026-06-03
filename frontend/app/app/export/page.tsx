@@ -19,11 +19,13 @@ import {
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useProject } from "@/contexts/project-context";
+import { expandProjectDataForExportView } from "@/lib/schedule-effective";
 import { parseFullData, type ProjectFullData } from "@/lib/schedule-types";
 import { validateProjectSchedule, readinessScore } from "@/lib/schedule-validation";
 import { ValidationPanel } from "@/components/schedule/validation-panel";
 import { ReadinessDisplay } from "@/components/schedule/readiness-display";
 import { appendExportHistory, loadExportHistory, type ExportHistoryEntry } from "@/lib/export-history";
+import { filterUserVisibleFragnets, filterUserVisibleStandards } from "@/lib/project-level-ui";
 
 type Scenario = "best" | "likely";
 type ExportMode = "FRAGNET" | "STANDARD";
@@ -62,8 +64,11 @@ export default function ExportPage() {
         return;
       }
       const { data } = await standardsApi.list(selectedProjectId);
-      setStandards(data);
-      if (data.length > 0 && !selectedStandardId) setSelectedStandardId(data[0].id);
+      const visibleStandards = filterUserVisibleStandards(data);
+      setStandards(visibleStandards);
+      setSelectedStandardId((prev) =>
+        prev && visibleStandards.some((standard) => standard.id === prev) ? prev : (visibleStandards[0]?.id ?? "")
+      );
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err) || "Failed to load standards");
     } finally {
@@ -80,8 +85,11 @@ export default function ExportPage() {
     setLoadingFragnets(true);
     try {
       const { data } = await fragnetsApi.listByStandard(selectedStandardId);
-      setFragnets(data);
-      setSelectedFragnetId(data.length > 0 ? data[0].id : "");
+      const visibleFragnets = filterUserVisibleFragnets(data);
+      setFragnets(visibleFragnets);
+      setSelectedFragnetId((prev) =>
+        prev && visibleFragnets.some((fragnet) => fragnet.id === prev) ? prev : (visibleFragnets[0]?.id ?? "")
+      );
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err) || "Failed to load fragnets");
       setFragnets([]);
@@ -102,7 +110,7 @@ export default function ExportPage() {
         api.get<ProjectFullData>(`/projects/${encodeURIComponent(selectedProjectId)}/full-data`),
         rateCardApi.get().catch(() => ({ data: { entries: [] as RateCardEntry[] } })),
       ]);
-      setFullData(parseFullData(res.data));
+      setFullData(expandProjectDataForExportView(parseFullData(res.data)));
       setRateCard(rc.data.entries ?? []);
     } catch {
       setFullData(null);

@@ -1,7 +1,6 @@
 "use client";
 
 import { GitBranch, Users, Clock, PoundSterling } from "lucide-react";
-import { ActivityOwnershipBadge } from "@/components/schedule/activity-ownership-badge";
 import type { RateCardEntry } from "@/lib/api";
 import { activityMetrics } from "@/lib/schedule-metrics";
 import type { ScheduleActivity } from "@/lib/schedule-types";
@@ -20,18 +19,16 @@ export function ActivityRow(props: {
   const days = scenario === "best" ? a.bestDuration : a.likelyDuration;
   const hasDuration = Number.isFinite(days) && days > 0;
   const fmtLag = (lag: number) => (lag === 0 ? "" : lag > 0 ? ` +${lag}d` : ` ${lag}d`);
-  const inherited = a.isInherited && !a.detachedFromTemplate;
-  const fmtRel = (code: string, type: string, lag: number) => `${code} (${type}${fmtLag(lag)})`;
+  const fmtRel = (r: { activityCode: string; deliverableName?: string; relationshipType: string; lag: number }) => {
+    const label = r.deliverableName ? `Deliverable ${r.deliverableName}` : r.activityCode;
+    return `${label} (${r.relationshipType}${fmtLag(r.lag)})`;
+  };
 
   return (
     <div
       className={cn(
-        "rounded-lg border bg-white p-3 text-sm shadow-sm transition-colors dark:bg-slate-950",
-        highlight
-          ? "border-cyan-400 ring-1 ring-cyan-400/40"
-          : inherited
-            ? "border-violet-200 bg-violet-50/30 dark:border-violet-900/50 dark:bg-violet-950/20"
-            : "border-slate-200 dark:border-slate-800",
+        "rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-sm transition-colors dark:border-slate-800 dark:bg-slate-950",
+        highlight && "border-cyan-400 ring-1 ring-cyan-400/40",
         !hasDuration && "border-amber-300 dark:border-amber-700"
       )}
     >
@@ -41,7 +38,6 @@ export function ActivityRow(props: {
             <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs font-semibold text-slate-800 dark:bg-slate-800 dark:text-slate-200">
               {a.activityCode}
             </span>
-            <ActivityOwnershipBadge activity={a} />
             <span
               className={cn(
                 "rounded-full px-2 py-0.5 text-xs font-medium",
@@ -52,8 +48,19 @@ export function ActivityRow(props: {
             >
               {hasDuration ? `${days}d` : "No duration"}
             </span>
+            {a.isSharedAcrossDeliverables ? (
+              <span className="rounded-full bg-cyan-100 px-2 py-0.5 text-xs font-medium text-cyan-800 dark:bg-cyan-950/40 dark:text-cyan-300">
+                Shared by {Math.max(1, a.linkedDeliverables?.length ?? 1)} deliverable
+                {Math.max(1, a.linkedDeliverables?.length ?? 1) === 1 ? "" : "s"}
+              </span>
+            ) : null}
           </div>
           <p className="mt-1 font-medium text-slate-900 dark:text-white">{a.name}</p>
+          {a.isSharedAcrossDeliverables && (a.linkedDeliverables?.length ?? 0) > 0 ? (
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Linked deliverables: {a.linkedDeliverables?.map((d) => d.name).join(", ")}
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-1.5">
           {m.predCount > 0 && (
@@ -89,13 +96,13 @@ export function ActivityRow(props: {
           {a.relationships.predecessors.length > 0 && (
             <span>
               <span className="font-medium text-slate-500">Pred:</span>{" "}
-              {a.relationships.predecessors.map((r) => fmtRel(r.activityCode, r.relationshipType, r.lag)).join(", ")}
+              {a.relationships.predecessors.map((r) => fmtRel(r)).join(", ")}
             </span>
           )}
           {a.relationships.successors.length > 0 && (
             <span>
               <span className="font-medium text-slate-500">Succ:</span>{" "}
-              {a.relationships.successors.map((r) => fmtRel(r.activityCode, r.relationshipType, r.lag)).join(", ")}
+              {a.relationships.successors.map((r) => fmtRel(r)).join(", ")}
             </span>
           )}
         </div>

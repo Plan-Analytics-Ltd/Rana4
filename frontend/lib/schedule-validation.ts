@@ -41,6 +41,9 @@ const CODE_SCORE_RULES: Record<
   DUPLICATE_TASK_CODE: { severity: "critical", first: 20, extra: 8, cap: 38 },
   ORPHAN_RELATIONSHIP: { severity: "critical", first: 22, extra: 6, cap: 35 },
   CYCLE: { severity: "critical", first: 28, extra: 10, cap: 45 },
+  CPM_CYCLE: { severity: "critical", first: 28, extra: 10, cap: 45 },
+  NEGATIVE_FLOAT: { severity: "critical", first: 20, extra: 6, cap: 35 },
+  IMPOSSIBLE_DATES: { severity: "critical", first: 22, extra: 6, cap: 35 },
   NO_RATE_CARD: { severity: "critical", first: 15, extra: 0, cap: 15 },
 
   MISSING_RATE: { severity: "warning", first: 6, extra: 2, cap: 18 },
@@ -232,7 +235,6 @@ export function validateProjectSchedule(
   const lookup = rateCardLookup(rateCard);
   const codeToActivityId = new Map<string, string>();
   const deliverableNames = new Map<string, string[]>();
-  const activityCodes = new Map<string, number>();
   let totalActivities = 0;
   let withResources = 0;
   let withRelationships = 0;
@@ -247,7 +249,7 @@ export function validateProjectSchedule(
       names.push(d.id);
       deliverableNames.set(d.name.trim().toLowerCase(), names);
 
-      if (!deliverableHasEffectiveWorkflow(d, templateCount)) {
+      if (!deliverableHasEffectiveWorkflow(d, templateCount, f)) {
         emptyDeliverableCount++;
       } else if (deliverableNeedsMaterialization(d, templateCount)) {
         pendingMaterializationCount++;
@@ -257,7 +259,6 @@ export function validateProjectSchedule(
         totalActivities++;
         const code = a.activityCode.trim();
         codeToActivityId.set(code, a.id);
-        activityCodes.set(code, (activityCodes.get(code) ?? 0) + 1);
 
         const days = durationDays(a, scenario);
         if (!Number.isFinite(days) || days <= 0) {
@@ -385,14 +386,34 @@ export function validateProjectSchedule(
     );
   }
 
-  for (const [code, count] of activityCodes) {
-    if (count > 1) {
-      issues.push(
-        issue("critical", "DUPLICATE_TASK_CODE", `Activity code "${code}" appears ${count} times in project data`, {
-          entityType: "activity",
-          entityLabel: code,
-        })
-      );
+  for (const f of data.fragnets) {
+    const codesInFragnet = new Map<string, { count: number; ids: string[] }>();
+    for (const d of f.deliverables) {
+      for (const a of d.activities) {
+        const code = a.activityCode.trim();
+        if (!code) continue;
+        const prev = codesInFragnet.get(code) ?? { count: 0, ids: [] };
+        prev.count += 1;
+        prev.ids.push(a.id);
+        codesInFragnet.set(code, prev);
+      }
+    }
+    for (const [code, { count, ids }] of codesInFragnet) {
+      if (count > 1) {
+        issues.push(
+          issue(
+            "critical",
+            "DUPLICATE_TASK_CODE",
+            `Activity code "${code}" is duplicated ${count} times in fragnet "${f.name}" — each instance needs a unique code (e.g. DEL-A1000)`,
+            {
+              entityType: "activity",
+              entityId: ids[0],
+              entityLabel: code,
+              navigateHref: "/app/schedule",
+            }
+          )
+        );
+      }
     }
   }
 
@@ -401,9 +422,24 @@ export function validateProjectSchedule(
     for (const d of f.deliverables) {
       for (const a of d.activities) {
         for (const p of a.relationships.predecessors) {
-          if (!codeToActivityId.has(p.activityCode)) {
+          if (p.deliverableName) {
+            const ek = `del:${p.deliverableName}\x1d${a.activityCode}\x1d${p.relationshipType}`;
+            if (edgeKeys.has(ek)) {
+              issues.push(
+                issue(
+                  "critical",
+                  "DUPLICATE_RELATIONSHIP",
+                  `Duplicate deliverable link ${p.deliverableName} → ${a.activityCode} (${p.relationshipType})`,
+                  { entityType: "relationship", entityLabel: ek }
+                )
+              );
+            }
+            edgeKeys.add(ek);
+            continue;
+          }
+          if (!p.activityCode || !codeToActivityId.has(p.activityCode)) {
             issues.push(
-              issue("critical", "ORPHAN_PRED", `Activity ${a.activityCode}: unknown predecessor ${p.activityCode}`, {
+              issue("critical", "ORPHAN_PRED", `Activity ${a.activityCode}: unknown predecessor ${p.activityCode || "?"}`, {
                 entityType: "relationship",
                 entityId: a.id,
                 entityLabel: `${p.activityCode} → ${a.activityCode}`,

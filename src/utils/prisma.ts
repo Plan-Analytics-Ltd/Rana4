@@ -264,3 +264,30 @@ function buildPrismaClient(): PrismaClient {
 export const prisma = globalForPrisma.prisma ?? buildPrismaClient();
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+
+const CONNECTION_ERROR_CODES = new Set(["P1001", "P1002", "P1008", "P1017"]);
+
+export function isPrismaConnectionError(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    typeof (err as { code: unknown }).code === "string" &&
+    CONNECTION_ERROR_CODES.has((err as { code: string }).code)
+  );
+}
+
+/** Retry once after reconnecting (Neon / idle pool drops). */
+export async function withPrismaRetry<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (!isPrismaConnectionError(err)) throw err;
+    await prisma.$connect();
+    return await fn();
+  }
+}
+
+export async function connectPrisma(): Promise<void> {
+  await prisma.$connect();
+}

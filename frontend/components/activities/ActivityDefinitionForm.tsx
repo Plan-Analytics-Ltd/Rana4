@@ -32,11 +32,23 @@ export type ActivityDefinitionFormProps = {
   onResourceDrafts: (drafts: ResourceAssignmentDraft[]) => void;
   submitting: boolean;
   lockActivityCode?: boolean;
+  activityCodeHint?: string | null;
+  activityCodeAvailable?: boolean | null;
+  activityCodeChecking?: boolean;
+  suggestedActivityCode?: string | null;
+  nextAvailableActivityId?: string | null;
+  nextAvailableLoading?: boolean;
+  onUseSuggestedCode?: (code: string) => void;
   /** Deliverable scope only */
   deliverables?: Deliverable[];
   loadingDeliverables?: boolean;
   formDeliverableId?: string;
   onDeliverableId?: (id: string) => void;
+  formLinkedDeliverableIds?: string[];
+  onLinkedDeliverableIds?: (ids: string[]) => void;
+  formIsSharedAcrossDeliverables?: boolean;
+  onIsSharedAcrossDeliverables?: (value: boolean) => void;
+  allowEmptyDeliverable?: boolean;
   assuranceNotes?: AssuranceNote[];
   formAssuranceNoteId?: string;
   onAssuranceNoteId?: (id: string) => void;
@@ -64,10 +76,22 @@ export function ActivityDefinitionForm(props: ActivityDefinitionFormProps) {
     onResourceDrafts,
     submitting,
     lockActivityCode = false,
+    activityCodeHint = null,
+    activityCodeAvailable = null,
+    activityCodeChecking = false,
+    suggestedActivityCode = null,
+    nextAvailableActivityId = null,
+    nextAvailableLoading = false,
+    onUseSuggestedCode,
     deliverables = [],
     loadingDeliverables = false,
     formDeliverableId = "",
     onDeliverableId,
+    formLinkedDeliverableIds = [],
+    onLinkedDeliverableIds,
+    formIsSharedAcrossDeliverables = false,
+    onIsSharedAcrossDeliverables,
+    allowEmptyDeliverable = false,
     assuranceNotes = [],
     formAssuranceNoteId = "",
     onAssuranceNoteId,
@@ -80,22 +104,79 @@ export function ActivityDefinitionForm(props: ActivityDefinitionFormProps) {
     <div className="space-y-8 py-2">
       <FormSection title="Basic info" description={copy.basicDescription}>
         {scope === "deliverable" && onDeliverableId ? (
-          <FormField label="Deliverable">
-            <select
-              value={formDeliverableId}
-              onChange={(e) => onDeliverableId(e.target.value)}
-              disabled={loadingDeliverables || deliverables.length === 0}
-              className={fieldClass}
-              required
-            >
-              {deliverables.length === 0 ? <option value="">No deliverables on this fragnet</option> : null}
-              {deliverables.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </FormField>
+          <>
+            <FormField label="Deliverable">
+              <select
+                value={formDeliverableId}
+                onChange={(e) => onDeliverableId(e.target.value)}
+                disabled={loadingDeliverables || deliverables.length === 0}
+                className={fieldClass}
+                required={!allowEmptyDeliverable}
+              >
+                {allowEmptyDeliverable ? <option value="">No deliverable / use project-level bucket</option> : null}
+                {deliverables.length === 0 ? <option value="">No deliverables on this fragnet</option> : null}
+                {deliverables.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+            {onIsSharedAcrossDeliverables ? (
+              <FormField label="Sharing">
+                <label className="flex items-start gap-3 rounded-md border border-slate-200 px-3 py-2 text-sm dark:border-slate-800">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={formIsSharedAcrossDeliverables}
+                    onChange={(e) => onIsSharedAcrossDeliverables(e.target.checked)}
+                    disabled={loadingDeliverables}
+                  />
+                  <span className="space-y-1">
+                    <span className="block font-medium text-slate-900 dark:text-slate-100">
+                      Shared across deliverables
+                    </span>
+                    <span className="block text-xs text-slate-500 dark:text-slate-400">
+                      {formIsSharedAcrossDeliverables
+                        ? "One activity is shared by the deliverables you select below."
+                        : "A separate copy of this activity is added to every deliverable in this fragnet."}
+                    </span>
+                  </span>
+                </label>
+              </FormField>
+            ) : null}
+            {formIsSharedAcrossDeliverables && onLinkedDeliverableIds ? (
+              <FormField label="Also used on">
+                <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border border-slate-200 p-3 dark:border-slate-800">
+                  {deliverables.length === 0 ? (
+                    <p className="text-sm text-slate-500 dark:text-slate-400">No deliverables available in this fragnet.</p>
+                  ) : (
+                    deliverables.map((d) => {
+                      const checked = new Set([formDeliverableId, ...formLinkedDeliverableIds]).has(d.id);
+                      return (
+                        <label key={d.id} className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              const next = new Set([formDeliverableId, ...formLinkedDeliverableIds]);
+                              if (e.target.checked) next.add(d.id);
+                              else if (d.id !== formDeliverableId) next.delete(d.id);
+                              onLinkedDeliverableIds([...next]);
+                            }}
+                          />
+                          <span>{d.name}</span>
+                          {d.id === formDeliverableId ? (
+                            <span className="text-xs text-slate-500 dark:text-slate-400">(primary)</span>
+                          ) : null}
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              </FormField>
+            ) : null}
+          </>
         ) : (
           <p className="rounded-md border border-violet-200/80 bg-violet-50/50 px-3 py-2 text-sm text-violet-900 dark:border-violet-900/50 dark:bg-violet-950/30 dark:text-violet-100">
             Applies to all deliverables in this fragnet.
@@ -110,7 +191,63 @@ export function ActivityDefinitionForm(props: ActivityDefinitionFormProps) {
             required
             readOnly={lockActivityCode}
             disabled={lockActivityCode}
+            aria-invalid={activityCodeAvailable === false}
           />
+          {!lockActivityCode ? (
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              {nextAvailableLoading ? (
+                "Loading next available ID…"
+              ) : nextAvailableActivityId ? (
+                <>
+                  Next available activity ID is{" "}
+                  <span className="font-mono font-medium text-slate-800 dark:text-slate-200">
+                    {nextAvailableActivityId}
+                  </span>
+                  {onUseSuggestedCode ? (
+                    <>
+                      {" · "}
+                      <button
+                        type="button"
+                        className="font-medium text-cyan-700 underline-offset-2 hover:underline dark:text-cyan-400"
+                        onClick={() => onUseSuggestedCode(nextAvailableActivityId)}
+                      >
+                        Use {nextAvailableActivityId}
+                      </button>
+                    </>
+                  ) : null}
+                </>
+              ) : (
+                "Select a project and fragnet to see the next ID"
+              )}
+            </p>
+          ) : null}
+          {!lockActivityCode && formActivityCode.trim() ? (
+            <p
+              className={
+                activityCodeChecking
+                  ? "text-xs text-slate-500"
+                  : activityCodeAvailable === true
+                    ? "text-xs text-emerald-700 dark:text-emerald-400"
+                    : activityCodeAvailable === false
+                      ? "text-xs text-red-700 dark:text-red-400"
+                      : "text-xs text-slate-500"
+              }
+            >
+              {activityCodeChecking ? "Checking availability…" : activityCodeHint ?? ""}
+            </p>
+          ) : null}
+          {!activityCodeChecking &&
+          activityCodeAvailable === false &&
+          onUseSuggestedCode &&
+          suggestedActivityCode ? (
+            <button
+              type="button"
+              className="text-xs font-medium text-cyan-700 underline-offset-2 hover:underline dark:text-cyan-400"
+              onClick={() => onUseSuggestedCode(suggestedActivityCode)}
+            >
+              Use {suggestedActivityCode}
+            </button>
+          ) : null}
         </FormField>
         <FormField label="Name">
           <Input
@@ -148,28 +285,8 @@ export function ActivityDefinitionForm(props: ActivityDefinitionFormProps) {
         </div>
       </FormSection>
 
-      {scope === "deliverable" && assuranceNotes.length > 0 && onAssuranceNoteId ? (
-        <FormSection title="Assurance">
-          <FormField label="Assurance note (optional)">
-            <select
-              value={formAssuranceNoteId}
-              onChange={(e) => onAssuranceNoteId(e.target.value)}
-              className={fieldClass}
-            >
-              <option value="">None</option>
-              {assuranceNotes.map((n) => (
-                <option key={n.id} value={n.id}>
-                  {n.noteText.slice(0, 80)}
-                  {n.noteText.length > 80 ? "…" : ""}
-                </option>
-              ))}
-            </select>
-          </FormField>
-        </FormSection>
-      ) : null}
-
       {mayEditP6Codes && codeTypes.length > 0 ? (
-        <FormSection title="Primavera activity codes" description="Optional — one value per type.">
+        <FormSection title="Activity codes (P6)" description="One value per type when exporting to Primavera.">
           <div className="space-y-4">
             {codeTypes.map((t) => (
               <FormField key={t.id} label={t.name}>
@@ -189,6 +306,26 @@ export function ActivityDefinitionForm(props: ActivityDefinitionFormProps) {
               </FormField>
             ))}
           </div>
+        </FormSection>
+      ) : null}
+
+      {scope === "deliverable" && assuranceNotes.length > 0 && onAssuranceNoteId ? (
+        <FormSection title="Assurance">
+          <FormField label="Assurance note">
+            <select
+              value={formAssuranceNoteId}
+              onChange={(e) => onAssuranceNoteId(e.target.value)}
+              className={fieldClass}
+            >
+              <option value="">None</option>
+              {assuranceNotes.map((n) => (
+                <option key={n.id} value={n.id}>
+                  {n.noteText.slice(0, 80)}
+                  {n.noteText.length > 80 ? "…" : ""}
+                </option>
+              ))}
+            </select>
+          </FormField>
         </FormSection>
       ) : null}
 

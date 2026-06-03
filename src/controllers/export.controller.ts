@@ -18,6 +18,7 @@ import { loadActivityCodeCatalogForExport } from "../services/activityCodeCatalo
 import { generateHumanReadableWBS } from "../services/wbsHumanReadable.service.js";
 import { generateXERWithWBS } from "../services/xerTemplateInject.service.js";
 import { generateWbsFromFragnets } from "../services/wbsFromFragnets.service.js";
+import { buildUnassignedFragnetForExport } from "../services/exportUnassignedDeliverables.service.js";
 import { validateActivityAssignments } from "../services/activityAssignmentValidation.service.js";
 import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
@@ -34,6 +35,26 @@ function safeFileBaseName(name: string): string {
     name.replace(/[^a-z0-9]/gi, "_").toLowerCase().replace(/_+/g, "_").replace(/^_+|_+$/g, "") ||
     "project"
   );
+}
+
+function exportHttpStatus(err: unknown): 400 | 500 {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (
+    msg.includes("WBS generation blocked") ||
+    msg.includes("export validation") ||
+    msg.includes("Export:") ||
+    msg.includes("P6 export") ||
+    msg.includes("Assignments import") ||
+    msg.includes("validation failed")
+  ) {
+    return 400;
+  }
+  return 500;
+}
+
+function exportErrorBody(err: unknown, fallback: string): { error: string } {
+  const msg = err instanceof Error ? err.message : String(err);
+  return { error: msg.trim() || fallback };
 }
 
 export async function exportFragnet(req: AuthRequest, res: Response): Promise<void> {
@@ -71,11 +92,13 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
-    const fragnet = await prisma.fragnet.findFirst({
+    let fragnet = await prisma.fragnet.findFirst({
       where: { id: fragnetId, companyId },
       include: {
         activities: { where: { companyId }, orderBy: { createdAt: "asc" } },
         relationships: true,
+        deliverableRelationships: true,
+        deliverableActivityRelationships: true,
         deliverables: { where: { companyId }, orderBy: { createdAt: "asc" } },
       },
     });
@@ -90,6 +113,23 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
     }
     const membership = await requireProjectAccess(fragnet.projectId, req.user);
     requirePermission(membership.role, "fragnet", "read");
+
+    const { materializeTemplatesForAllDeliverables } = await import(
+      "../services/fragnetActivityTemplate.service.js"
+    );
+    await materializeTemplatesForAllDeliverables(fragnetId, companyId);
+
+    fragnet =
+      (await prisma.fragnet.findFirst({
+        where: { id: fragnetId, companyId },
+        include: {
+          activities: { where: { companyId }, orderBy: { createdAt: "asc" } },
+          relationships: true,
+          deliverableRelationships: true,
+          deliverableActivityRelationships: true,
+          deliverables: { where: { companyId }, orderBy: { createdAt: "asc" } },
+        },
+      })) ?? fragnet;
 
     const wbsExportIssues = validateFragnetForWbsExport(fragnet);
     if (wbsExportIssues.length > 0) {
@@ -206,7 +246,19 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
           fragnetId: fragnet.id,
         },
         activityCatalog,
-      }
+      },
+      fragnet.deliverableRelationships.map((r) => ({
+        predecessorDeliverableId: r.predecessorDeliverableId,
+        successorDeliverableId: r.successorDeliverableId,
+        relationshipType: r.relationshipType,
+        lag: r.lag,
+      })),
+      fragnet.deliverableActivityRelationships.map((r) => ({
+        predecessorDeliverableId: r.predecessorDeliverableId,
+        successorActivityId: r.successorActivityId,
+        relationshipType: r.relationshipType,
+        lag: r.lag,
+      }))
     );
     const safeName = safeFileBaseName(pname);
 
@@ -259,7 +311,8 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
     res.status(200).send(zipBuffer);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Failed to export fragnet" });
+    const status = exportHttpStatus(err);
+    res.status(status).json(exportErrorBody(err, "Failed to export fragnet"));
   }
 }
 
@@ -313,6 +366,8 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
           include: {
             activities: { where: { companyId }, orderBy: { createdAt: "asc" } },
             relationships: true,
+            deliverableRelationships: true,
+            deliverableActivityRelationships: true,
             deliverables: { where: { companyId }, orderBy: { createdAt: "asc" } },
           },
         },
@@ -327,8 +382,35 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
     const membership = await requireProjectAccess(standard.projectId, req.user);
     requirePermission(membership.role, "fragnet", "read");
 
+    const { materializeProjectDeliverablesInOrder } = await import(
+      "../services/fragnetActivityTemplate.service.js"
+    );
+    await materializeProjectDeliverablesInOrder(standard.projectId, companyId);
+
+    const standardReloaded = await prisma.standard.findFirst({
+      where: { id: standardId, companyId },
+      include: {
+        fragnets: {
+          where: { companyId },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          include: {
+            activities: { where: { companyId }, orderBy: { createdAt: "asc" } },
+            relationships: true,
+            deliverableRelationships: true,
+            deliverableActivityRelationships: true,
+            deliverables: { where: { companyId }, orderBy: { createdAt: "asc" } },
+          },
+        },
+      },
+    });
+    if (!standardReloaded) {
+      res.status(404).json({ error: "Standard not found" });
+      return;
+    }
+    const standardForExport = standardReloaded;
+
     // Validate each fragnet's activity→deliverable integrity (same checks as single fragnet export).
-    for (const fragnet of standard.fragnets) {
+    for (const fragnet of standardForExport.fragnets) {
       const wbsExportIssues = validateFragnetForWbsExport(fragnet);
       if (wbsExportIssues.length > 0) {
         res.status(400).json({
@@ -341,10 +423,10 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
     }
 
     // Strict: fail hard if any activity isn't linked to a valid deliverable under this standard.
-    await validateActivityAssignments(standard.id);
+    await validateActivityAssignments(standardForExport.id);
 
     // WBS: Project → Fragnet → Deliverable
-    const generatedWbs = await generateWbsFromFragnets(standard.id);
+    const generatedWbs = await generateWbsFromFragnets(standardForExport.id);
     const structureIssues = validateGeneratedWbsStructure(generatedWbs);
     if (structureIssues.length > 0) {
       res.status(500).json({
@@ -369,7 +451,7 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
     const projectCode = pid !== "" && pname !== "" && pid === `${pname}1` ? pname : pid;
 
     const fragnetsForExport: StandardFragnetForExport[] = await Promise.all(
-      standard.fragnets.map(async (f) => {
+      standardForExport.fragnets.map(async (f) => {
         const deliverables = await Promise.all(
           f.deliverables.map(async (d) => ({
             id: d.id,
@@ -397,12 +479,39 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
           relationshipType: r.relationshipType,
           lag: r.lag,
         }));
-        return { id: f.id, deliverables, activities, relationships };
+        const deliverableRelationships = f.deliverableRelationships.map((r) => ({
+          predecessorDeliverableId: r.predecessorDeliverableId,
+          successorDeliverableId: r.successorDeliverableId,
+          relationshipType: r.relationshipType,
+          lag: r.lag,
+        }));
+        const deliverableActivityRelationships = f.deliverableActivityRelationships.map((r) => ({
+          predecessorDeliverableId: r.predecessorDeliverableId,
+          successorActivityId: r.successorActivityId,
+          relationshipType: r.relationshipType,
+          lag: r.lag,
+        }));
+        return {
+          id: f.id,
+          deliverables,
+          activities,
+          relationships,
+          deliverableRelationships,
+          deliverableActivityRelationships,
+        };
       })
     );
 
-    const allActivityIds = standard.fragnets.flatMap((f) => f.activities.map((a) => a.id));
-    const allDeliverableIds = standard.fragnets.flatMap((f) => f.deliverables.map((d) => d.id));
+    const unassignedFragnet = await buildUnassignedFragnetForExport(
+      standardForExport.projectId,
+      companyId
+    );
+    if (unassignedFragnet) {
+      fragnetsForExport.push(unassignedFragnet);
+    }
+
+    const allActivityIds = fragnetsForExport.flatMap((f) => f.activities.map((a) => a.id));
+    const allDeliverableIds = fragnetsForExport.flatMap((f) => f.deliverables.map((d) => d.id));
     const activityCatalog = await loadActivityCodeCatalogForExport(companyId, {
       activityIds: allActivityIds,
       deliverableIds: allDeliverableIds,
@@ -432,7 +541,7 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
       {
         exportContext: {
           companyId,
-          ranaProjectId: standard.projectId,
+          ranaProjectId: standardForExport.projectId,
           p6ProjIdCell: p6ProjCell,
         },
         activityCatalog,
@@ -459,7 +568,7 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
       xerString = await generateXERWithWBS(generatedWbs, pname, projectCode, rateCardEntries, {
         activityCatalog,
         pendingSemanticTaskRows: pendingSemanticRows,
-        xerDeterministicScope: `${companyId}:${standard.projectId}:${projectCode}`,
+        xerDeterministicScope: `${companyId}:${standardForExport.projectId}:${projectCode}`,
         taskPredExportRows,
       });
     } catch (e) {
@@ -479,10 +588,10 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
       await auditLog({
         userId,
         companyId,
-        projectId: standard.projectId,
+        projectId: standardForExport.projectId,
         action: "EXPORT_STANDARD",
         entity: "Standard",
-        entityId: standard.id,
+        entityId: standardForExport.id,
       });
     }
 
@@ -491,7 +600,8 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
     res.status(200).send(zipBuffer);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Failed to export standard" });
+    const status = exportHttpStatus(err);
+    res.status(status).json(exportErrorBody(err, "Failed to export standard"));
   }
 }
 

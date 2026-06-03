@@ -4,7 +4,8 @@
 
 export type ParsedDeliverableRow = {
   deliverableName: string;
-  fragnetName: string;
+  /** Empty / missing in Excel → unassigned deliverable (no fragnet). */
+  fragnetName: string | null;
   bestDuration: number;
   likelyDuration: number;
   externalProjectId?: string | null;
@@ -74,13 +75,13 @@ export function parseDeliverablesSheet(rows: unknown[]): ParsedDeliverableRow[] 
     if (isBlankRow(fields)) continue;
 
     const deliverableName = trimStr(fields.deliverable_name);
-    const fragnetName = trimStr(fields.fragnet_name);
+    const fragnetNameRaw = trimStr(fields.fragnet_name);
+    const fragnetName = fragnetNameRaw === "" ? null : fragnetNameRaw;
     const bestDuration = parsePositiveInt(fields.best_duration);
     const likelyDuration = parsePositiveInt(fields.likely_duration);
     const externalProjectIdRaw = trimStr(fields.external_project_id);
 
     if (!deliverableName) throw new Error(`Deliverables sheet row ${excelRow}: deliverable_name is required`);
-    if (!fragnetName) throw new Error(`Deliverables sheet row ${excelRow}: fragnet_name is required`);
     if (bestDuration === null || bestDuration < 1) {
       throw new Error(`Deliverables sheet row ${excelRow}: best_duration must be an integer >= 1`);
     }

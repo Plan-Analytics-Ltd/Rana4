@@ -26,6 +26,7 @@ import { standardsApi, assuranceNotesApi, type Standard, type AssuranceNote, get
 import { cn } from "@/lib/utils";
 import { useProject } from "@/contexts/project-context";
 import { hasPermission } from "@/lib/project-permissions";
+import { filterUserVisibleStandards } from "@/lib/project-level-ui";
 
 export default function StandardsPage() {
   const { selectedProjectId, selectedProjectRole } = useProject();
@@ -58,7 +59,7 @@ export default function StandardsPage() {
         return;
       }
       const { data } = await standardsApi.list(selectedProjectId);
-      setStandards(data);
+      setStandards(filterUserVisibleStandards(data));
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err) || "Failed to load standards");
     } finally {
@@ -87,7 +88,9 @@ export default function StandardsPage() {
   }, [selectedProjectId]);
 
   useEffect(() => {
-    if (standards.length > 0 && !notesStandardId) setNotesStandardId(standards[0].id);
+    setNotesStandardId((prev) =>
+      prev && standards.some((standard) => standard.id === prev) ? prev : (standards[0]?.id ?? "")
+    );
   }, [standards]);
 
   useEffect(() => {

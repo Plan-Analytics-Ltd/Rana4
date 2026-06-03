@@ -25,6 +25,7 @@ import {
   getApiErrorMessage,
 } from "@/lib/api";
 import { useProject } from "@/contexts/project-context";
+import { filterUserVisibleFragnets, filterUserVisibleStandards } from "@/lib/project-level-ui";
 
 type DashboardMetrics = {
   standards: number;
@@ -51,7 +52,7 @@ export default function AppDashboardPage() {
           return;
         }
         const [standardsRes] = await Promise.all([standardsApi.list(selectedProjectId)]);
-        const standardsList = standardsRes.data;
+        const standardsList = filterUserVisibleStandards(standardsRes.data);
         if (cancelled) return;
         setStandards(standardsList);
 
@@ -59,7 +60,7 @@ export default function AppDashboardPage() {
           standardsList.map((s) => fragnetsApi.listByStandard(s.id))
         );
         if (cancelled) return;
-        const allFragnets = fragnetLists.flatMap((r) => r.data);
+        const allFragnets = filterUserVisibleFragnets(fragnetLists.flatMap((r) => r.data));
         const withStandard = allFragnets.map((f) => ({
           ...f,
           standardName: standardsList.find((s) => s.id === f.standardId)?.name,
@@ -69,13 +70,18 @@ export default function AppDashboardPage() {
         ).slice(0, 8);
         setRecentFragnets(recent);
 
-        const [deliverablesRes, activitiesPerFragnet] = await Promise.all([
+        const [deliverablesRes, activitiesPerFragnet, projectLevelActivitiesRes] = await Promise.all([
           deliverablesApi.list(selectedProjectId),
           Promise.all(allFragnets.map((f) => activitiesApi.listByFragnet(f.id))),
+          activitiesApi
+            .getProjectLevelContext(selectedProjectId)
+            .catch(() => ({ data: { activities: [] as { id: string }[] } })),
         ]);
         if (cancelled) return;
         const totalDeliverables = deliverablesRes.data.length;
-        const totalActivities = activitiesPerFragnet.reduce((sum, r) => sum + r.data.length, 0);
+        const totalActivities =
+          activitiesPerFragnet.reduce((sum, r) => sum + r.data.length, 0) +
+          (projectLevelActivitiesRes.data.activities?.length ?? 0);
 
         setMetrics({
           standards: standardsList.length,

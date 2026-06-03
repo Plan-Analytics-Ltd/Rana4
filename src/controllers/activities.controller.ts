@@ -2,7 +2,6 @@ import type { Response } from "express";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../utils/prisma.js";
 import { parseAndValidateAssignedResources } from "../services/rateCard.js";
-import { assertDeliverableOnFragnet } from "../services/deliverableActivityLink.service.js";
 import type { AuthRequest } from "../middleware/auth.middleware.js";
 import { isPrismaForeignKeyViolation } from "../utils/prismaErrors.js";
 import { auditLog } from "../services/audit.service.js";
@@ -14,7 +13,28 @@ import { getActivityVersions } from "../services/activityVersions.service.js";
 import { rollbackActivityToVersion } from "../services/activityRollback.service.js";
 import { changeApprovalState } from "../services/activityApproval.service.js";
 import { replaceActivityCodeAssignmentsForActivity } from "../services/activityCodeAssignments.service.js";
+import { checkActivityCodeAvailability } from "../services/activityCodeSequence.service.js";
 import { detachActivityFromTemplate } from "../services/fragnetActivityTemplate.service.js";
+import {
+  ensureProjectLevelActivityContext,
+  getProjectLevelActivityContext,
+} from "../services/projectLevelActivityContext.service.js";
+import { recalculateProjectScheduleAfterMutation } from "../services/scheduleAutoRecalc.service.js";
+import {
+  activityDeliverableInclude,
+  serializeLinkedDeliverables,
+  syncActivityDeliverableLinks,
+} from "../services/activityDeliverableLinks.service.js";
+import { bootstrapSharedActivityRelationshipsForFragnet } from "../services/sharedActivityRelationshipBootstrap.service.js";
+import { createNonSharedActivityOnAllFragnetDeliverables } from "../services/activityCreation.service.js";
+import {
+  syncDeliverableToFirstActivityFsLink,
+  syncFragnetDeliverableToFirstActivityFsLinks,
+} from "../services/deliverableFirstActivityLink.service.js";
+const activityInclude = {
+  activityCodeAssignments: { include: { type: true as const, code: true as const } },
+  ...activityDeliverableInclude,
+};
 
 function isPrismaUniqueViolation(err: unknown): boolean {
   return (
@@ -32,6 +52,132 @@ function parseDuration(value: unknown): number | null {
   return n;
 }
 
+async function resolveCreateActivityContext(args: {
+  companyId: string;
+  projectId?: string;
+  fragnetId?: string;
+  deliverableId?: string;
+}): Promise<
+  | { ok: true; projectId: string; fragnetId: string; standardId: string | null; deliverableId: string }
+  | { ok: false; status: number; error: string }
+> {
+  const projectId = String(args.projectId ?? "").trim();
+  const fragnetId = String(args.fragnetId ?? "").trim();
+  const deliverableId = String(args.deliverableId ?? "").trim();
+
+  if (deliverableId) {
+    const deliverable = await prisma.deliverable.findFirst({
+      where: { id: deliverableId, companyId: args.companyId },
+    });
+    if (!deliverable) return { ok: false, status: 400, error: "Deliverable not found" };
+
+    if (deliverable.fragnetId) {
+      const fragnet = await prisma.fragnet.findFirst({
+        where: { id: deliverable.fragnetId, companyId: args.companyId },
+        select: { id: true, projectId: true, standardId: true },
+      });
+      if (!fragnet) return { ok: false, status: 400, error: "Deliverable fragnet not found" };
+      return {
+        ok: true,
+        projectId: fragnet.projectId,
+        fragnetId: fragnet.id,
+        standardId: fragnet.standardId,
+        deliverableId: deliverable.id,
+      };
+    }
+
+    const ctx = await ensureProjectLevelActivityContext(deliverable.projectId, args.companyId);
+    await prisma.deliverable.update({
+      where: { id: deliverable.id },
+      data: { fragnetId: ctx.fragnet.id },
+    });
+    return {
+      ok: true,
+      projectId: deliverable.projectId,
+      fragnetId: ctx.fragnet.id,
+      standardId: ctx.standard.id,
+      deliverableId: deliverable.id,
+    };
+  }
+
+  if (fragnetId) {
+    const fragnet = await prisma.fragnet.findFirst({
+      where: { id: fragnetId, companyId: args.companyId },
+      select: { id: true, projectId: true, standardId: true },
+    });
+    if (!fragnet) return { ok: false, status: 404, error: "Fragnet not found" };
+    const deliverable = await prisma.deliverable.findFirst({
+      where: { companyId: args.companyId, projectId: fragnet.projectId, fragnetId: fragnet.id },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { id: true },
+    });
+    if (!deliverable) {
+      return { ok: false, status: 400, error: "No deliverables exist on this fragnet. Select a deliverable or use project-level mode." };
+    }
+    return {
+      ok: true,
+      projectId: fragnet.projectId,
+      fragnetId: fragnet.id,
+      standardId: fragnet.standardId,
+      deliverableId: deliverable.id,
+    };
+  }
+
+  if (!projectId) {
+    return { ok: false, status: 400, error: "projectId, fragnetId, or deliverableId is required" };
+  }
+
+  const ctx = await ensureProjectLevelActivityContext(projectId, args.companyId);
+  return {
+    ok: true,
+    projectId,
+    fragnetId: ctx.fragnet.id,
+    standardId: ctx.standard.id,
+    deliverableId: ctx.deliverable.id,
+  };
+}
+
+async function resolveLinkedDeliverableIds(args: {
+  companyId: string;
+  projectId: string;
+  fragnetId: string;
+  primaryDeliverableId: string;
+  deliverableIds?: string[];
+}): Promise<{ ok: true; deliverableIds: string[] } | { ok: false; status: number; error: string }> {
+  const deliverableIds = [
+    args.primaryDeliverableId,
+    ...(args.deliverableIds ?? []).map((id) => String(id ?? "").trim()),
+  ].filter(Boolean);
+  const uniqueIds = [...new Set(deliverableIds)];
+  const deliverables = await prisma.deliverable.findMany({
+    where: { id: { in: uniqueIds }, companyId: args.companyId },
+    select: { id: true, projectId: true, fragnetId: true },
+  });
+  if (deliverables.length !== uniqueIds.length) {
+    return { ok: false, status: 400, error: "One or more linked deliverables were not found" };
+  }
+
+  for (const deliverable of deliverables) {
+    if (deliverable.projectId !== args.projectId) {
+      return { ok: false, status: 400, error: "Linked deliverables must belong to the same project" };
+    }
+    let resolvedFragnetId = deliverable.fragnetId;
+    if (!resolvedFragnetId) {
+      const ctx = await ensureProjectLevelActivityContext(args.projectId, args.companyId);
+      await prisma.deliverable.update({
+        where: { id: deliverable.id },
+        data: { fragnetId: ctx.fragnet.id },
+      });
+      resolvedFragnetId = ctx.fragnet.id;
+    }
+    if (resolvedFragnetId !== args.fragnetId) {
+      return { ok: false, status: 400, error: "Linked deliverables must belong to the same fragnet" };
+    }
+  }
+
+  return { ok: true, deliverableIds: uniqueIds };
+}
+
 export async function create(req: AuthRequest, res: Response): Promise<void> {
   try {
     if (!req.user) {
@@ -39,36 +185,32 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
       return;
     }
     const {
+      projectId: projectIdRaw,
       fragnetId,
       deliverableId: deliverableIdRaw,
+      deliverableIds: deliverableIdsRaw,
       activityCode,
       name,
       bestDuration: bestDurationRaw,
       likelyDuration: likelyDurationRaw,
       assuranceNoteId,
       assignedResources: assignedResourcesRaw,
+      isSharedAcrossDeliverables,
       activityCodeByTypeId,
     } = req.body as {
+      projectId?: string;
       fragnetId?: string;
       deliverableId?: string;
+      deliverableIds?: string[];
       activityCode?: string;
       name?: string;
       bestDuration?: number;
       likelyDuration?: number;
       assuranceNoteId?: string | null;
       assignedResources?: unknown;
+      isSharedAcrossDeliverables?: boolean;
       activityCodeByTypeId?: Record<string, string | null>;
     };
-
-    if (!fragnetId || String(fragnetId).trim() === "") {
-      res.status(400).json({ error: "fragnetId is required" });
-      return;
-    }
-    if (!deliverableIdRaw || String(deliverableIdRaw).trim() === "") {
-      res.status(400).json({ error: "deliverableId is required" });
-      return;
-    }
-    const deliverableId = String(deliverableIdRaw).trim();
     if (activityCode === undefined || activityCode === null || String(activityCode).trim() === "") {
       res.status(400).json({ error: "activityCode is required" });
       return;
@@ -89,36 +231,30 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
       return;
     }
 
-    const fragnet = (await prisma.fragnet.findFirst({
-      where: { id: fragnetId, companyId: req.user.companyId },
-    })) as
-      | {
-          id: string;
-          standardId: string;
-          projectId: string;
-        }
-      | null;
-    if (!fragnet) {
-      res.status(404).json({ error: "Fragnet not found" });
+    const resolved = await resolveCreateActivityContext({
+      companyId: req.user.companyId,
+      projectId: projectIdRaw != null ? String(projectIdRaw).trim() : undefined,
+      fragnetId: fragnetId != null ? String(fragnetId).trim() : undefined,
+      deliverableId: deliverableIdRaw != null ? String(deliverableIdRaw).trim() : undefined,
+    });
+    if (!resolved.ok) {
+      res.status(resolved.status).json({ error: resolved.error });
       return;
     }
-    const membership = await requireProjectAccess(fragnet.projectId, req.user);
-    requirePermission(membership.role, "activity", "create");
+    const linkedDeliverables = await resolveLinkedDeliverableIds({
+      companyId: req.user.companyId,
+      projectId: resolved.projectId,
+      fragnetId: resolved.fragnetId,
+      primaryDeliverableId: resolved.deliverableId,
+      deliverableIds: Array.isArray(deliverableIdsRaw) ? deliverableIdsRaw : undefined,
+    });
+    if (!linkedDeliverables.ok) {
+      res.status(linkedDeliverables.status).json({ error: linkedDeliverables.error });
+      return;
+    }
 
-    const deliverableCheck = await assertDeliverableOnFragnet(fragnet.id, deliverableId);
-    if (!deliverableCheck.ok) {
-      if (deliverableCheck.mismatch.kind === "not_found") {
-        res.status(400).json({ error: "Deliverable not found" });
-        return;
-      }
-      res.status(400).json({ error: "Deliverable must belong to the same fragnet as the activity" });
-      return;
-    }
-    const { deliverable } = deliverableCheck;
-    if (deliverable.projectId !== fragnet.projectId) {
-      res.status(400).json({ error: "Deliverable must belong to the same project as the fragnet" });
-      return;
-    }
+    const membership = await requireProjectAccess(resolved.projectId, req.user);
+    requirePermission(membership.role, "activity", "create");
 
     const assuranceNoteIdTrimmed =
       assuranceNoteId != null && String(assuranceNoteId).trim() !== ""
@@ -132,8 +268,12 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
         res.status(400).json({ error: "Assurance note not found" });
         return;
       }
-      if (note.standardId !== fragnet.standardId) {
+      if (!resolved.standardId || note.standardId !== resolved.standardId) {
         res.status(400).json({ error: "Assurance note must belong to the same standard as the fragnet" });
+        return;
+      }
+      if (note.projectId !== resolved.projectId) {
+        res.status(400).json({ error: "Assurance note must belong to the same project as the activity" });
         return;
       }
     }
@@ -144,21 +284,116 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
       return;
     }
 
+    const nameTrimmed = String(name).trim();
+    if (Boolean(isSharedAcrossDeliverables)) {
+      // Manual shared activities should reuse an existing shared node in the fragnet (MVP: exact name match).
+      const existingShared = await prisma.activity.findFirst({
+        where: {
+          companyId: req.user.companyId,
+          projectId: resolved.projectId,
+          fragnetId: resolved.fragnetId,
+          isSharedAcrossDeliverables: true,
+          name: nameTrimmed,
+        },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        include: activityInclude,
+      });
+      if (existingShared) {
+        await syncActivityDeliverableLinks({
+          activityId: existingShared.id,
+          primaryDeliverableId: resolved.deliverableId,
+          deliverableIds: linkedDeliverables.deliverableIds,
+          projectId: resolved.projectId,
+          companyId: req.user.companyId,
+        });
+        await bootstrapSharedActivityRelationshipsForFragnet({
+          fragnetId: resolved.fragnetId,
+          companyId: req.user.companyId,
+        });
+        await recalculateProjectScheduleAfterMutation(resolved.projectId, req.user.companyId);
+        res.status(201).json(serializeLinkedDeliverables(existingShared as any));
+        return;
+      }
+    }
+
+    const codeCheck = await checkActivityCodeAvailability({
+      projectId: resolved.projectId,
+      companyId: req.user.companyId,
+      fragnetId: resolved.fragnetId,
+      userCode: String(activityCode),
+    });
+    if (!codeCheck.available || !codeCheck.normalizedCode) {
+      res.status(400).json({
+        error: codeCheck.message,
+        suggestedCode: codeCheck.suggestedCode ?? undefined,
+      });
+      return;
+    }
+    const resolvedCode = codeCheck.normalizedCode;
+
+    if (!Boolean(isSharedAcrossDeliverables)) {
+      try {
+        const { primaryActivityId } = await createNonSharedActivityOnAllFragnetDeliverables({
+          companyId: req.user.companyId,
+          projectId: resolved.projectId,
+          fragnetId: resolved.fragnetId,
+          primaryDeliverableId: resolved.deliverableId,
+          name: nameTrimmed,
+          bestDuration,
+          likelyDuration,
+          assuranceNoteId: assuranceNoteIdTrimmed,
+          assignedResources: assignedParsed.assignments as Prisma.InputJsonValue,
+          primaryActivityCode: resolvedCode,
+          activityCodeByTypeId,
+        });
+        const activityWithCodes = await prisma.activity.findFirstOrThrow({
+          where: { id: primaryActivityId, companyId: req.user.companyId },
+          include: activityInclude,
+        });
+        await auditLog({
+          userId: req.user.id,
+          companyId: req.user.companyId,
+          projectId: resolved.projectId,
+          action: "CREATE_ACTIVITY",
+          entity: "Activity",
+          entityId: primaryActivityId,
+        });
+        await recalculateProjectScheduleAfterMutation(resolved.projectId, req.user.companyId);
+        res.status(201).json(serializeLinkedDeliverables(activityWithCodes));
+        return;
+      } catch (e) {
+        const st = e && typeof e === "object" && "status" in e ? Number((e as any).status) : undefined;
+        if (st === 400) {
+          res.status(400).json({ error: (e as Error).message });
+          return;
+        }
+        throw e;
+      }
+    }
+
     const createData = {
-      fragnetId: fragnet.id,
-      deliverableId: deliverable.id,
-      activityCode: String(activityCode).trim(),
-      name: String(name).trim(),
+      fragnetId: resolved.fragnetId,
+      deliverableId: resolved.deliverableId,
+      activityCode: resolvedCode,
+      name: nameTrimmed,
       bestDuration,
       likelyDuration,
       assuranceNoteId: assuranceNoteIdTrimmed,
       assignedResources: assignedParsed.assignments as Prisma.InputJsonValue,
-      projectId: fragnet.projectId,
+      projectId: resolved.projectId,
       companyId: req.user.companyId,
+      isSharedAcrossDeliverables: true,
       isInherited: false,
       detachedFromTemplate: true,
     };
     const activity = await prisma.activity.create({ data: createData });
+    await syncActivityDeliverableLinks({
+      activityId: activity.id,
+      primaryDeliverableId: resolved.deliverableId,
+      deliverableIds: linkedDeliverables.deliverableIds,
+      projectId: resolved.projectId,
+      companyId: req.user.companyId,
+    });
     try {
       await replaceActivityCodeAssignmentsForActivity({
         companyId: req.user.companyId,
@@ -176,17 +411,25 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
     }
     const activityWithCodes = await prisma.activity.findFirstOrThrow({
       where: { id: activity.id, companyId: req.user.companyId },
-      include: { activityCodeAssignments: { include: { type: true, code: true } } },
+      include: activityInclude,
     });
     await auditLog({
       userId: req.user.id,
       companyId: req.user.companyId,
-      projectId: fragnet.projectId,
+      projectId: resolved.projectId,
       action: "CREATE_ACTIVITY",
       entity: "Activity",
       entityId: activity.id,
     });
-    res.status(201).json(activityWithCodes);
+    await bootstrapSharedActivityRelationshipsForFragnet({
+      fragnetId: resolved.fragnetId,
+      companyId: req.user.companyId,
+    });
+    if (resolved.deliverableId) {
+      await syncDeliverableToFirstActivityFsLink(resolved.deliverableId, req.user.companyId);
+    }
+    await recalculateProjectScheduleAfterMutation(resolved.projectId, req.user.companyId);
+    res.status(201).json(serializeLinkedDeliverables(activityWithCodes));
   } catch (err) {
     if (isPrismaUniqueViolation(err)) {
       res.status(400).json({ error: "activityCode already exists for this fragnet" });
@@ -210,17 +453,36 @@ export async function getByFragnetId(req: AuthRequest, res: Response): Promise<v
     const { fragnetId } = req.params;
     const fragnet = (await prisma.fragnet.findFirst({
       where: { id: fragnetId, companyId: req.user.companyId },
-      include: { activities: { where: { companyId: req.user.companyId }, orderBy: { activityCode: "asc" }, include: { activityCodeAssignments: { include: { type: true, code: true } } } } },
+      include: { activities: { where: { companyId: req.user.companyId }, orderBy: { activityCode: "asc" }, include: activityInclude } },
     })) as ({ projectId: string; activities: unknown[] } & Record<string, unknown>) | null;
     if (!fragnet) {
       res.status(404).json({ error: "Fragnet not found" });
       return;
     }
     await requireProjectAccess(fragnet.projectId, req.user);
-    res.json(fragnet.activities);
+    res.json((fragnet.activities as any[]).map((activity) => serializeLinkedDeliverables(activity)));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch activities" });
+  }
+}
+
+export async function getProjectLevelContext(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const { projectId } = req.params as { projectId: string };
+    await requireProjectAccess(projectId, req.user);
+    const context = await getProjectLevelActivityContext(projectId, req.user.companyId);
+    res.json({
+      ...context,
+      activities: (context.activities as any[]).map((activity) => serializeLinkedDeliverables(activity)),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch project-level activity context" });
   }
 }
 
@@ -233,14 +495,14 @@ export async function getById(req: AuthRequest, res: Response): Promise<void> {
     const { id } = req.params;
     const activity = (await prisma.activity.findFirst({
       where: { id, companyId: req.user.companyId },
-      include: { activityCodeAssignments: { include: { type: true, code: true } } },
+      include: activityInclude,
     })) as { projectId: string } | null;
     if (!activity) {
       res.status(404).json({ error: "Activity not found" });
       return;
     }
     await requireProjectAccess(activity.projectId, req.user);
-    res.json(activity);
+    res.json(serializeLinkedDeliverables(activity as any));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch activity" });
@@ -255,26 +517,41 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
     }
     const { id } = req.params;
     const {
+      activityCode,
       name,
       deliverableId: deliverableIdRaw,
+      deliverableIds: deliverableIdsRaw,
       bestDuration: bestDurationRaw,
       likelyDuration: likelyDurationRaw,
       assuranceNoteId,
       assignedResources: assignedResourcesRaw,
+      isSharedAcrossDeliverables,
       activityCodeByTypeId,
     } = req.body as {
+      activityCode?: string;
       name?: string;
       deliverableId?: string;
+      deliverableIds?: string[];
       bestDuration?: number;
       likelyDuration?: number;
       assuranceNoteId?: string | null;
       assignedResources?: unknown;
+      isSharedAcrossDeliverables?: boolean;
       activityCodeByTypeId?: Record<string, string | null>;
     };
 
     const existing = (await prisma.activity.findFirst({
       where: { id, companyId: req.user.companyId },
-    })) as { id: string; fragnetId: string; projectId: string; status: string } | null;
+      include: { deliverableLinks: { select: { deliverableId: true }, orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] } },
+    })) as {
+      id: string;
+      fragnetId: string;
+      projectId: string;
+      status: string;
+      deliverableId: string;
+      isSharedAcrossDeliverables: boolean;
+      deliverableLinks: { deliverableId: string }[];
+    } | null;
     if (!existing) {
       res.status(404).json({ error: "Activity not found" });
       return;
@@ -303,10 +580,14 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
           ? String(assuranceNoteId).trim()
           : null
         : undefined;
+    let targetFragnetId = existing.fragnetId;
+    let targetStandardId: string | null | undefined;
+
     if (assuranceNoteIdTrimmed !== undefined && assuranceNoteIdTrimmed !== null) {
       const fragnet = (await prisma.fragnet.findFirst({
         where: { id: existing.fragnetId, companyId: req.user.companyId },
       })) as { id: string; standardId: string } | null;
+      targetStandardId = fragnet?.standardId ?? null;
       const note = (await prisma.assuranceNote.findFirst({
         where: { id: assuranceNoteIdTrimmed, companyId: req.user.companyId },
       })) as { id: string; standardId: string; projectId: string } | null;
@@ -320,23 +601,92 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
       }
     }
 
+    const requestedPrimaryDeliverableId =
+      deliverableIdRaw !== undefined
+        ? deliverableIdRaw
+        : Array.isArray(deliverableIdsRaw) && deliverableIdsRaw.length > 0
+          ? deliverableIdsRaw[0]
+          : undefined;
+
     let resolvedDeliverableId: string | undefined;
-    if (deliverableIdRaw !== undefined) {
-      if (deliverableIdRaw === null || String(deliverableIdRaw).trim() === "") {
+    if (requestedPrimaryDeliverableId !== undefined) {
+      if (requestedPrimaryDeliverableId === null || String(requestedPrimaryDeliverableId).trim() === "") {
         res.status(400).json({ error: "deliverableId cannot be empty" });
         return;
       }
-      const nextDeliverableId = String(deliverableIdRaw).trim();
-      const deliverableCheck = await assertDeliverableOnFragnet(existing.fragnetId, nextDeliverableId);
-      if (!deliverableCheck.ok) {
-        if (deliverableCheck.mismatch.kind === "not_found") {
-          res.status(400).json({ error: "Deliverable not found" });
-          return;
-        }
-        res.status(400).json({ error: "Deliverable must belong to the same fragnet as the activity" });
+      const nextDeliverableId = String(requestedPrimaryDeliverableId).trim();
+      const targetDeliverable = await prisma.deliverable.findFirst({
+        where: { id: nextDeliverableId, companyId: req.user.companyId },
+      });
+      if (!targetDeliverable) {
+        res.status(400).json({ error: "Deliverable not found" });
         return;
       }
+      if (targetDeliverable.projectId !== existing.projectId) {
+        res.status(400).json({ error: "Deliverable must belong to the same project as the activity" });
+        return;
+      }
+      if (targetDeliverable.fragnetId == null) {
+        const ctx = await ensureProjectLevelActivityContext(existing.projectId, req.user.companyId);
+        await prisma.deliverable.update({
+          where: { id: targetDeliverable.id },
+          data: { fragnetId: ctx.fragnet.id },
+        });
+        targetFragnetId = ctx.fragnet.id;
+        targetStandardId = ctx.standard.id;
+      } else {
+        targetFragnetId = targetDeliverable.fragnetId;
+        const targetFragnet = await prisma.fragnet.findFirst({
+          where: { id: targetFragnetId, companyId: req.user.companyId },
+          select: { standardId: true },
+        });
+        targetStandardId = targetFragnet?.standardId ?? null;
+      }
+
+      if (targetFragnetId !== existing.fragnetId) {
+        const dependencyCount = await prisma.relationship.count({
+          where: {
+            companyId: req.user.companyId,
+            OR: [{ predecessorActivityId: id }, { successorActivityId: id }],
+          },
+        });
+        if (dependencyCount > 0) {
+          res.status(409).json({
+            error: "Cannot move an activity to a different fragnet while it has logic relationships. Remove the links first.",
+          });
+          return;
+        }
+      }
       resolvedDeliverableId = nextDeliverableId;
+    }
+
+    const primaryDeliverableId = resolvedDeliverableId ?? existing.deliverableId;
+    const resolvedLinkedDeliverables = await resolveLinkedDeliverableIds({
+      companyId: req.user.companyId,
+      projectId: existing.projectId,
+      fragnetId: targetFragnetId,
+      primaryDeliverableId,
+      deliverableIds: Array.isArray(deliverableIdsRaw)
+        ? deliverableIdsRaw
+        : existing.deliverableLinks.map((link) => link.deliverableId),
+    });
+    if (!resolvedLinkedDeliverables.ok) {
+      res.status(resolvedLinkedDeliverables.status).json({ error: resolvedLinkedDeliverables.error });
+      return;
+    }
+
+    if (assuranceNoteIdTrimmed !== undefined && assuranceNoteIdTrimmed !== null) {
+      const note = (await prisma.assuranceNote.findFirst({
+        where: { id: assuranceNoteIdTrimmed, companyId: req.user.companyId },
+      })) as { id: string; standardId: string; projectId: string } | null;
+      if (!note || !targetStandardId || note.standardId !== targetStandardId) {
+        res.status(400).json({ error: "Assurance note must belong to the same standard as the activity context" });
+        return;
+      }
+      if (note.projectId !== existing.projectId) {
+        res.status(400).json({ error: "Assurance note must belong to the same project as the activity" });
+        return;
+      }
     }
 
     let assignedUpdate: Prisma.InputJsonValue | undefined;
@@ -349,13 +699,45 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
       assignedUpdate = assignedParsed.assignments as Prisma.InputJsonValue;
     }
 
+    let resolvedCodeUpdate: string | undefined;
+    if (activityCode !== undefined && String(activityCode).trim() !== "") {
+      const deliverableForCode = await prisma.deliverable.findFirst({
+        where: {
+          id: resolvedDeliverableId ?? existing.deliverableId,
+          companyId: req.user.companyId,
+        },
+      });
+      if (deliverableForCode) {
+        const codeCheck = await checkActivityCodeAvailability({
+          projectId: deliverableForCode.projectId,
+          companyId: req.user.companyId,
+          fragnetId: targetFragnetId,
+          userCode: String(activityCode),
+          excludeActivityId: id,
+        });
+        if (!codeCheck.available || !codeCheck.normalizedCode) {
+          res.status(400).json({
+            error: codeCheck.message,
+            suggestedCode: codeCheck.suggestedCode ?? undefined,
+          });
+          return;
+        }
+        resolvedCodeUpdate = codeCheck.normalizedCode;
+      }
+    }
+
     const updateData = {
+      ...(targetFragnetId !== existing.fragnetId && { fragnetId: targetFragnetId }),
+      ...(resolvedCodeUpdate !== undefined && { activityCode: resolvedCodeUpdate }),
       ...(name !== undefined && { name: String(name).trim() }),
-      ...(resolvedDeliverableId !== undefined && { deliverableId: resolvedDeliverableId }),
+      ...(resolvedDeliverableId !== undefined && { deliverableId: primaryDeliverableId }),
       ...(bestDurationRaw !== undefined && { bestDuration: parseDuration(bestDurationRaw)! }),
       ...(likelyDurationRaw !== undefined && { likelyDuration: parseDuration(likelyDurationRaw)! }),
       ...(assuranceNoteId !== undefined && { assuranceNoteId: assuranceNoteIdTrimmed ?? null }),
       ...(assignedUpdate !== undefined && { assignedResources: assignedUpdate }),
+      ...(isSharedAcrossDeliverables !== undefined && {
+        isSharedAcrossDeliverables: Boolean(isSharedAcrossDeliverables),
+      }),
     };
     // Axios omits undefined JSON keys; the client may send only activityCodeByTypeId. Prisma rejects update({ data: {} }).
     const activity =
@@ -384,9 +766,29 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
       }
     }
 
+    const targetIsShared =
+      isSharedAcrossDeliverables === undefined
+        ? existing.isSharedAcrossDeliverables
+        : Boolean(isSharedAcrossDeliverables);
+    if (targetIsShared) {
+      await syncActivityDeliverableLinks({
+        activityId: id,
+        primaryDeliverableId,
+        deliverableIds: resolvedLinkedDeliverables.deliverableIds,
+        projectId: existing.projectId,
+        companyId: req.user.companyId,
+      });
+    }
+    if (targetIsShared) {
+      await bootstrapSharedActivityRelationshipsForFragnet({
+        fragnetId: targetFragnetId,
+        companyId: req.user.companyId,
+      });
+    }
+
     const activityOut = await prisma.activity.findFirstOrThrow({
       where: { id: activity.id, companyId: req.user.companyId },
-      include: { activityCodeAssignments: { include: { type: true, code: true } } },
+      include: activityInclude,
     });
     await auditUpdateIfChanged({
       userId: req.user.id,
@@ -397,9 +799,10 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
       entityId: id,
       before: existing as any,
       after: activity as any,
-      fields: ["name", "deliverableId", "bestDuration", "likelyDuration", "assuranceNoteId", "assignedResources"],
+      fields: ["name", "deliverableId", "bestDuration", "likelyDuration", "assuranceNoteId", "assignedResources", "isSharedAcrossDeliverables"],
     });
-    res.json(activityOut);
+    await recalculateProjectScheduleAfterMutation(existing.projectId, req.user.companyId);
+    res.json(serializeLinkedDeliverables(activityOut));
   } catch (err) {
     if (isPrismaForeignKeyViolation(err)) {
       res.status(400).json({ error: "Invalid cross-company reference" });
@@ -419,7 +822,22 @@ export async function remove(req: AuthRequest, res: Response): Promise<void> {
     const { id } = req.params;
     const existing = (await prisma.activity.findFirst({
       where: { id, companyId: req.user.companyId },
-    })) as { id: string; projectId: string; status: string } | null;
+      select: {
+        id: true,
+        projectId: true,
+        status: true,
+        fragnetId: true,
+        deliverableId: true,
+        isSharedAcrossDeliverables: true,
+      },
+    })) as {
+      id: string;
+      projectId: string;
+      status: string;
+      fragnetId: string;
+      deliverableId: string | null;
+      isSharedAcrossDeliverables: boolean;
+    } | null;
     if (!existing) {
       res.status(404).json({ error: "Activity not found" });
       return;
@@ -436,6 +854,13 @@ export async function remove(req: AuthRequest, res: Response): Promise<void> {
       hasDependencies: dependencyCount > 0,
     });
     await prisma.activity.delete({ where: { id } });
+
+    if (!existing.isSharedAcrossDeliverables && existing.fragnetId) {
+      await syncFragnetDeliverableToFirstActivityFsLinks(existing.fragnetId, req.user.companyId);
+    } else if (!existing.isSharedAcrossDeliverables && existing.deliverableId) {
+      await syncDeliverableToFirstActivityFsLink(existing.deliverableId, req.user.companyId);
+    }
+
     await auditLog({
       userId: req.user.id,
       companyId: req.user.companyId,
@@ -444,6 +869,7 @@ export async function remove(req: AuthRequest, res: Response): Promise<void> {
       entity: "Activity",
       entityId: id,
     });
+    await recalculateProjectScheduleAfterMutation(existing.projectId, req.user.companyId);
     res.status(204).send();
   } catch (err) {
     const status = err && typeof err === "object" && "status" in err ? Number((err as any).status) : undefined;
@@ -653,9 +1079,9 @@ export async function detachFromTemplate(req: AuthRequest, res: Response): Promi
     await detachActivityFromTemplate(id, req.user.companyId);
     const updated = await prisma.activity.findFirstOrThrow({
       where: { id, companyId: req.user.companyId },
-      include: { activityCodeAssignments: { include: { type: true, code: true } } },
+      include: activityInclude,
     });
-    res.json(updated);
+    res.json(serializeLinkedDeliverables(updated));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to detach activity from template" });
