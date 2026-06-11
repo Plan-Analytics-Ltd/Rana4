@@ -87,9 +87,9 @@ export function DeliverableDriversSection({ drivers }: { drivers: IntelligenceDr
 
   return (
     <div className="space-y-2">
-      <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Drivers</div>
+      <div className="text-sm font-medium text-slate-900 dark:text-slate-100">Key Factors</div>
       <p className="text-xs text-slate-500 dark:text-slate-400">
-        Associations from comparable historical programmes — not causal recommendations.
+        Patterns from comparable previous projects — not recommendations.
       </p>
       {drivers.map((d, i) => (
         <DriverCard key={`${d.driverType}-${i}`} driver={d} />

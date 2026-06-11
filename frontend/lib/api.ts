@@ -326,6 +326,41 @@ export type IntelligenceFinding = {
   evidence: { label: string; value: string | number }[];
 };
 
+export type IntelligenceRecommendation = {
+  recommendationType: string;
+  title: string;
+  summary: string;
+  recommendation: string;
+  severity: "LOW" | "MEDIUM" | "HIGH";
+  confidenceLevel: "LOW" | "MEDIUM" | "HIGH";
+  confidenceScore: number;
+  evidenceCount: number;
+  supportingEvidence: { label: string; value: string | number }[];
+};
+
+export type RecommendationTrendGroup = {
+  recommendationType: string;
+  typeLabel: string;
+  description: string;
+  profiles: RecommendationProfile[];
+};
+
+export type RecommendationProfile = {
+  id: string;
+  classification: string;
+  label: string;
+  recommendationType: string;
+  title: string;
+  summary: string;
+  recommendation: string;
+  severity: "LOW" | "MEDIUM" | "HIGH";
+  confidenceLevel: "LOW" | "MEDIUM" | "HIGH";
+  confidenceScore: number;
+  evidenceCount: number;
+  supportingEvidence: { label: string; value: string | number }[];
+  lastUpdated: string;
+};
+
 export type IntelligenceDriver = {
   driverType: string;
   confidence: "LOW" | "MEDIUM" | "HIGH";
@@ -360,6 +395,16 @@ export const intelligenceApi = {
     const projectIds = (opts?.projectIds ?? []).filter(Boolean);
     return api.get<{ drivers: IntelligenceDriver[] }>(
       `/projects/${encodeURIComponent(pid)}/intelligence/drivers/${encodeURIComponent(deliverableId)}`,
+      {
+        params: projectIds.length ? { projectIds: projectIds.join(",") } : undefined,
+      }
+    );
+  },
+  getDeliverableRecommendations: (projectId: string, deliverableId: string, opts?: { projectIds?: string[] }) => {
+    const pid = requireProjectId(projectId);
+    const projectIds = (opts?.projectIds ?? []).filter(Boolean);
+    return api.get<{ recommendations: IntelligenceRecommendation[] }>(
+      `/projects/${encodeURIComponent(pid)}/intelligence/recommendations/${encodeURIComponent(deliverableId)}`,
       {
         params: projectIds.length ? { projectIds: projectIds.join(",") } : undefined,
       }
@@ -1100,4 +1145,170 @@ export const programmeIntelligenceApi = {
     api.get<{ findings: LessonFinding[] }>("/intelligence/lessons-learned", {
       params: refresh ? { refresh: "true" } : undefined,
     }),
+};
+
+export type LearnedInsightType =
+  | "DURATION_OVERRUN"
+  | "DURATION_PREDICTABILITY"
+  | "FLOAT_CONSUMPTION"
+  | "DRIVER_STRENGTH"
+  | "RECURRING_LESSON"
+  | "FORECAST_RELIABILITY"
+  | "OUTCOME_PREDICTION";
+
+export type LearnedInsight = {
+  id: string;
+  insightType: LearnedInsightType;
+  title: string;
+  summary: string;
+  observation: string;
+  category: string | null;
+  classification: string | null;
+  projectType: string | null;
+  stage: string | null;
+  complexity: string | null;
+  clientType: string | null;
+  procurementRoute: string | null;
+  sampleSize: number;
+  confidenceLevel: "LOW" | "MEDIUM" | "HIGH";
+  confidenceScore: number;
+  evidenceJson: Record<string, unknown>;
+  lastCalculatedAt: string;
+};
+
+export type DeliverableReliabilityProfile = {
+  id: string;
+  classification: string;
+  label: string;
+  sampleSize: number;
+  projectCount: number;
+  plannedAverageDuration: number | null;
+  actualAverageDuration: number | null;
+  averageVariancePercent: number | null;
+  averageVarianceDays: number | null;
+  overrunFrequency: number;
+  underrunFrequency: number;
+  onTargetFrequency: number;
+  predictabilityScore: number | null;
+  reliabilityScore: number;
+  reliabilityBand: string;
+  reliabilityLabel: string;
+  confidenceLevel: string;
+  confidenceScore: number;
+  lastUpdated: string;
+};
+
+export type DeliverableOutcomeProfile = {
+  id: string;
+  classification: string;
+  label: string;
+  sampleSize: number;
+  projectCount: number;
+  predictedMinimumDuration: number | null;
+  predictedMostLikelyDuration: number | null;
+  predictedMaximumDuration: number | null;
+  rangeLabel: string | null;
+  historicalAverageDuration: number | null;
+  historicalMedianDuration: number | null;
+  historicalOverrunFrequency: number;
+  historicalAverageVariancePercent: number | null;
+  predictionConfidenceLevel: string;
+  predictionConfidenceScore: number;
+  reasoning: string[];
+  lastUpdated: string;
+};
+
+export type DeliverableKnowledgeProfile = {
+  id: string;
+  classification: string;
+  label: string;
+  sampleSize: number;
+  projectCount: number;
+  averageDuration: number | null;
+  medianDuration: number | null;
+  minimumDuration: number | null;
+  maximumDuration: number | null;
+  standardDeviation: number | null;
+  predictabilityScore: number | null;
+  confidenceScore: number;
+  confidenceLevel: string;
+  learningMaturity: string;
+  maturityLabel: string;
+  evidenceVolume: number;
+  coverageScore: number | null;
+  lastCalculatedAt: string;
+};
+
+export const organisationalIntelligenceApi = {
+  deliverableProfiles: () =>
+    api.get<{ profiles: DeliverableKnowledgeProfile[]; count: number }>("/intelligence/deliverable-profiles"),
+
+  reliabilityProfiles: () =>
+    api.get<{ profiles: DeliverableReliabilityProfile[]; count: number }>("/intelligence/reliability-profiles"),
+
+  reliabilityProfile: (classification: string) =>
+    api.get<{ profile: DeliverableReliabilityProfile }>(
+      `/intelligence/reliability-profiles/${encodeURIComponent(classification)}`
+    ),
+
+  regenerateReliabilityProfiles: () =>
+    api.post<{ profiles: DeliverableReliabilityProfile[]; count: number; profilesUpdated: number }>(
+      "/intelligence/reliability-profiles/regenerate"
+    ),
+
+  outcomeProfiles: () =>
+    api.get<{ profiles: DeliverableOutcomeProfile[]; count: number }>("/intelligence/outcome-profiles"),
+
+  outcomeProfile: (classification: string) =>
+    api.get<{ profile: DeliverableOutcomeProfile }>(
+      `/intelligence/outcome-profiles/${encodeURIComponent(classification)}`
+    ),
+
+  regenerateOutcomeProfiles: () =>
+    api.post<{ profiles: DeliverableOutcomeProfile[]; count: number; profilesUpdated: number }>(
+      "/intelligence/outcome-profiles/regenerate"
+    ),
+
+  recommendationProfiles: () =>
+    api.get<{ profiles: RecommendationProfile[]; trends: RecommendationTrendGroup[]; count: number }>(
+      "/intelligence/recommendation-profiles"
+    ),
+
+  recommendationProfile: (classification: string) =>
+    api.get<{ profiles: RecommendationProfile[]; count: number }>(
+      `/intelligence/recommendation-profiles/${encodeURIComponent(classification)}`
+    ),
+
+  regenerateRecommendationProfiles: () =>
+    api.post<{
+      profiles: RecommendationProfile[];
+      trends: RecommendationTrendGroup[];
+      count: number;
+      profilesUpdated: number;
+    }>("/intelligence/recommendation-profiles/regenerate"),
+
+  listInsights: (params?: {
+    refresh?: boolean;
+    classification?: string;
+    projectType?: string;
+    stage?: string;
+    complexity?: string;
+    clientType?: string;
+    procurementRoute?: string;
+    limit?: number;
+  }) =>
+    api.get<{ insights: LearnedInsight[]; count: number }>("/intelligence/insights", {
+      params: params?.refresh
+        ? { ...params, refresh: "true" }
+        : params,
+    }),
+  insightsByType: (type: LearnedInsightType, params?: Record<string, string | number>) =>
+    api.get<{ insights: LearnedInsight[]; count: number }>(
+      `/intelligence/insights/by-type/${encodeURIComponent(type)}`,
+      { params }
+    ),
+  getInsight: (id: string) =>
+    api.get<{ insight: LearnedInsight }>(`/intelligence/insights/${encodeURIComponent(id)}`),
+  regenerate: () =>
+    api.post<{ insights: LearnedInsight[]; count: number }>("/intelligence/insights/regenerate"),
 };

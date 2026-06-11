@@ -1,5 +1,8 @@
 import type { ProgrammeState } from "@prisma/client";
 import { prisma } from "../../utils/prisma.js";
+import { computeExpectedDuration } from "./expectedDuration.service.js";
+import { getForecastReliabilityForClassification } from "./forecastReliability.service.js";
+import { computeOutcomePredictionFromLayers } from "./outcomePrediction.service.js";
 import { computeProjectSimilarityScore, getSimilarDeliverables, getSimilarProjects } from "./similarity.service.js";
 import { computeOutlier } from "./outlier.service.js";
 import type { OutlierStatus } from "./outlier.service.js";
@@ -390,6 +393,42 @@ export async function getDeliverableBenchmark(args: {
     projectBreakdown[sector] = (projectBreakdown[sector] ?? 0) + 1;
   }
 
+  const intelligenceProfile = await prisma.projectIntelligenceProfile.findUnique({
+    where: { projectId: args.projectId },
+    select: {
+      projectType: true,
+      stage: true,
+      complexity: true,
+      procurementRoute: true,
+      clientType: true,
+      primaryRibaStage: true,
+    },
+  });
+
+  const forecastReliability = await getForecastReliabilityForClassification(
+    args.companyId,
+    deliverable.classification
+  );
+
+  const expectedDuration = await computeExpectedDuration({
+    companyId: args.companyId,
+    filters: {
+      classification: baseClassification ?? "OTHER",
+      projectType: intelligenceProfile?.projectType,
+      stage: intelligenceProfile?.stage ?? intelligenceProfile?.primaryRibaStage,
+      complexity: intelligenceProfile?.complexity,
+      procurementRoute: intelligenceProfile?.procurementRoute,
+      clientType: intelligenceProfile?.clientType,
+    },
+    projectIds: comparableProjectIds.length > 0 ? comparableProjectIds : undefined,
+    excludeProjectId: args.projectId,
+  });
+
+  const predictedOutcome = computeOutcomePredictionFromLayers({
+    expected: expectedDuration,
+    reliability: forecastReliability,
+  });
+
   const evidence = {
     sampleSize,
     projectBreakdown,
@@ -426,6 +465,49 @@ export async function getDeliverableBenchmark(args: {
       durationComparisonType: durationMeta.durationComparisonType,
       benchmarkQuality,
       sampleSizeConfidenceTier,
+      expectedDuration: {
+        rangeLabel: expectedDuration.rangeLabel,
+        minimumExpectedDays: expectedDuration.minimumExpectedDays,
+        mostLikelyDays: expectedDuration.mostLikelyDays,
+        maximumExpectedDays: expectedDuration.maximumExpectedDays,
+        confidenceLevel: expectedDuration.confidenceLevel,
+        confidenceScore: expectedDuration.confidenceScore,
+        evidenceCount: expectedDuration.evidenceCount,
+        learningMaturity: expectedDuration.learningMaturity,
+        maturityLabel: expectedDuration.maturityLabel,
+        evidenceVolume: expectedDuration.evidenceVolume,
+        coverageScore: expectedDuration.coverageScore,
+        explanation: expectedDuration.explanation,
+      },
+      forecastReliability: forecastReliability
+        ? {
+            reliabilityLabel: forecastReliability.reliabilityLabel,
+            reliabilityBand: forecastReliability.reliabilityBand,
+            overrunFrequency: forecastReliability.overrunFrequency,
+            underrunFrequency: forecastReliability.underrunFrequency,
+            onTargetFrequency: forecastReliability.onTargetFrequency,
+            averageVariancePercent: forecastReliability.averageVariancePercent,
+            averageVarianceDays: forecastReliability.averageVarianceDays,
+            plannedAverageDuration: forecastReliability.plannedAverageDuration,
+            actualAverageDuration: forecastReliability.actualAverageDuration,
+            sampleSize: forecastReliability.sampleSize,
+            predictabilityScore: forecastReliability.predictabilityScore,
+            confidenceLevel: forecastReliability.confidenceLevel,
+            confidenceScore: forecastReliability.confidenceScore,
+          }
+        : null,
+      predictedOutcome: predictedOutcome
+        ? {
+            rangeLabel: predictedOutcome.rangeLabel,
+            predictedMinimumDuration: predictedOutcome.predictedMinimumDuration,
+            predictedMostLikelyDuration: predictedOutcome.predictedMostLikelyDuration,
+            predictedMaximumDuration: predictedOutcome.predictedMaximumDuration,
+            predictionConfidenceLevel: predictedOutcome.predictionConfidenceLevel,
+            predictionConfidenceScore: predictedOutcome.predictionConfidenceScore,
+            evidenceCount: predictedOutcome.evidenceCount,
+            reasoning: predictedOutcome.reasoning,
+          }
+        : null,
     },
     outlier,
     evidence,

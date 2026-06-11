@@ -9,16 +9,16 @@ import {
   getApiErrorMessage,
   type IntelligenceFinding,
   type IntelligenceDriver,
+  type IntelligenceRecommendation,
 } from "@/lib/api";
 import { DeliverableFindingsSection } from "@/components/deliverables/deliverable-findings-section";
 import { DeliverableDriversSection } from "@/components/deliverables/deliverable-drivers-section";
+import { DeliverableRecommendationsSection } from "@/components/deliverables/deliverable-recommendations-section";
 
 type Props = {
   projectId: string;
   deliverableId: string;
-  /** When false, skips network requests (e.g. dialog closed). */
   enabled?: boolean;
-  /** Bump after saves to force a fresh load when re-opened. */
   refreshKey?: number;
 };
 
@@ -43,6 +43,7 @@ export function DeliverableBenchmarkPanel({
   const [data, setData] = useState<any>(null);
   const [findings, setFindings] = useState<IntelligenceFinding[]>([]);
   const [drivers, setDrivers] = useState<IntelligenceDriver[]>([]);
+  const [recommendations, setRecommendations] = useState<IntelligenceRecommendation[]>([]);
 
   useEffect(() => {
     if (!enabled || !projectId || !deliverableId) {
@@ -55,18 +56,20 @@ export function DeliverableBenchmarkPanel({
       setLoading(true);
       setErr(null);
       try {
-        const [benchRes, findingsRes, driversRes] = await Promise.all([
+        const [benchRes, findingsRes, driversRes, recommendationsRes] = await Promise.all([
           intelligenceApi.getDeliverableBenchmark(projectId, deliverableId),
           intelligenceApi.getDeliverableFindings(projectId, deliverableId),
           intelligenceApi.getDeliverableDrivers(projectId, deliverableId),
+          intelligenceApi.getDeliverableRecommendations(projectId, deliverableId),
         ]);
         if (!cancelled) {
           setData(benchRes.data);
           setFindings(findingsRes.data.findings ?? []);
           setDrivers(driversRes.data.drivers ?? []);
+          setRecommendations(recommendationsRes.data.recommendations ?? []);
         }
       } catch (e: unknown) {
-        if (!cancelled) setErr(getApiErrorMessage(e) || "Failed to load benchmark");
+        if (!cancelled) setErr(getApiErrorMessage(e) || "Failed to load comparison");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -77,6 +80,9 @@ export function DeliverableBenchmarkPanel({
   }, [projectId, deliverableId, enabled, refreshKey]);
 
   const benchmark = data?.benchmark;
+  const expected = benchmark?.expectedDuration;
+  const reliability = benchmark?.forecastReliability;
+  const predicted = benchmark?.predictedOutcome;
   const outlier = data?.outlier;
   const evidence = data?.evidence;
 
@@ -95,24 +101,32 @@ export function DeliverableBenchmarkPanel({
   const avgProjSim = benchmark?.benchmarkQuality?.averageProjectSimilarity ?? null;
 
   const subtitle = useMemo(() => {
+    if (expected?.evidenceCount > 0) {
+      return `Based on ${expected.evidenceCount} comparable deliverable${expected.evidenceCount === 1 ? "" : "s"}`;
+    }
     if (sampleSize > 0) return `Based on ${sampleSize} comparable deliverables`;
-    return "No comparable historical deliverables found (stable snapshots only)";
-  }, [sampleSize]);
+    return "No comparable historical deliverables found yet";
+  }, [expected?.evidenceCount, sampleSize]);
 
   return (
     <Card className="border-slate-200 dark:border-slate-700">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-3">
-          <CardTitle className="text-base">Benchmark & red flag</CardTitle>
+          <CardTitle className="text-base">Comparison</CardTitle>
           <Badge variant={statusVariant(status)}>{status}</Badge>
         </div>
         <div className="space-y-1">
           <p className="text-xs text-slate-500 dark:text-slate-400">{subtitle}</p>
+          {expected?.maturityLabel ? (
+            <p className="text-xs font-medium text-slate-700 dark:text-slate-200">{expected.maturityLabel}</p>
+          ) : null}
           {confidenceLevel ? (
             <p className="text-xs text-slate-600 dark:text-slate-300">
-              Confidence: <span className="font-medium">{confidenceLevel}</span>
-              {confidenceScore != null ? <span className="text-slate-500"> ({confidenceScore})</span> : null}
-              {sampleTier ? <span className="text-slate-500"> · sample tier {sampleTier}</span> : null}
+              Confidence: <span className="font-medium">{expected?.confidenceLevel ?? confidenceLevel}</span>
+              {(expected?.confidenceScore ?? confidenceScore) != null ? (
+                <span className="text-slate-500"> ({expected?.confidenceScore ?? confidenceScore})</span>
+              ) : null}
+              {sampleTier ? <span className="text-slate-500"> · evidence tier {sampleTier}</span> : null}
               {avgProjSim != null ? <span className="text-slate-500"> · avg project similarity {avgProjSim}%</span> : null}
             </p>
           ) : null}
@@ -121,15 +135,127 @@ export function DeliverableBenchmarkPanel({
       <CardContent className="space-y-3">
         {loading ? (
           <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading benchmark…
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading comparison…
           </div>
         ) : err ? (
           <div className="text-sm text-red-600">{err}</div>
         ) : (
           <>
-            {confidenceLevel === "LOW" ? (
+            {(expected?.confidenceLevel === "LOW" || confidenceLevel === "LOW") && sampleSize + (expected?.evidenceCount ?? 0) > 0 ? (
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
-                Limited historical evidence. Use benchmark as guidance only.
+                Limited historical evidence. Use these figures as guidance only.
+              </div>
+            ) : null}
+
+            {expected?.rangeLabel ? (
+              <div className="grid gap-3 rounded-lg border border-cyan-200/60 bg-cyan-50/50 p-3 dark:border-cyan-900/40 dark:bg-cyan-950/20 sm:grid-cols-2">
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Expected duration
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">{expected.rangeLabel}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Most likely
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
+                    {expected.mostLikelyDays != null ? `${expected.mostLikelyDays} Days` : "—"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">Confidence</div>
+                  <div className="font-medium">{expected.confidenceLevel ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">Evidence</div>
+                  <div className="font-medium">
+                    {expected.evidenceCount ?? 0} Comparable Deliverable{(expected.evidenceCount ?? 0) === 1 ? "" : "s"}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {reliability?.reliabilityLabel ? (
+              <div className="grid gap-3 rounded-lg border border-violet-200/60 bg-violet-50/50 p-3 dark:border-violet-900/40 dark:bg-violet-950/20 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Forecast reliability
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
+                    {reliability.reliabilityLabel}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">Historical overrun frequency</div>
+                  <div className="font-medium">
+                    {reliability.overrunFrequency != null
+                      ? `${Math.round(reliability.overrunFrequency)}%`
+                      : "—"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">Average variance</div>
+                  <div className="font-medium">
+                    {reliability.averageVariancePercent != null
+                      ? `${reliability.averageVariancePercent > 0 ? "+" : ""}${Math.round(reliability.averageVariancePercent)}%`
+                      : "—"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">Sample size</div>
+                  <div className="font-medium">{reliability.sampleSize ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">Confidence</div>
+                  <div className="font-medium">{reliability.confidenceLevel ?? "—"}</div>
+                </div>
+              </div>
+            ) : null}
+
+            {predicted?.rangeLabel ? (
+              <div className="grid gap-3 rounded-lg border border-emerald-200/60 bg-emerald-50/50 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/20 sm:grid-cols-2">
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Predicted outcome
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">{predicted.rangeLabel}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Most likely
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
+                    {predicted.predictedMostLikelyDuration != null
+                      ? `${Math.round(predicted.predictedMostLikelyDuration)} Days`
+                      : "—"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">Confidence</div>
+                  <div className="font-medium">{predicted.predictionConfidenceLevel ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">Evidence</div>
+                  <div className="font-medium">
+                    {predicted.evidenceCount ?? 0} Comparable Deliverable
+                    {(predicted.evidenceCount ?? 0) === 1 ? "" : "s"}
+                  </div>
+                </div>
+                {(predicted.reasoning ?? []).length > 0 ? (
+                  <div className="sm:col-span-2">
+                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Reasoning</div>
+                    <ul className="mt-1 list-inside list-disc space-y-0.5 text-xs text-slate-600 dark:text-slate-300">
+                      {predicted.reasoning.map((line: string, i: number) => (
+                        <li key={i}>{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <div className="sm:col-span-2 text-xs text-slate-500 dark:text-slate-400">
+                    Based on historical outcomes from comparable projects.
+                  </div>
+                )}
               </div>
             ) : null}
 
@@ -203,10 +329,10 @@ export function DeliverableBenchmarkPanel({
 
             <DeliverableFindingsSection findings={findings} />
             <DeliverableDriversSection drivers={drivers} />
+            <DeliverableRecommendationsSection recommendations={recommendations} />
           </>
         )}
       </CardContent>
     </Card>
   );
 }
-

@@ -208,5 +208,11 @@ export async function importProgrammeSchedule(
   // Auto-classify live deliverables (manual override always wins).
   await autoClassifyDeliverablesForProject(options.projectId, options.companyId);
 
+  // Learning feedback loop: profiles + organisational insights.
+  const { runPostImportLearningRefresh } = await import("./learningRefresh.service.js");
+  void runPostImportLearningRefresh(options.companyId).catch((err) => {
+    console.error("[programmeImport] post-import learning refresh failed", err);
+  });
+
   return { snapshotId, summary, matchResult };
 }

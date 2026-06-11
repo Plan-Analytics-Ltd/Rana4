@@ -83,7 +83,7 @@ export function ProgrammeIntelligencePanel({ projectId, canEdit }: Props) {
       >
         <span className="flex items-center gap-2">
           <History className="h-3.5 w-3.5" />
-          Programme intelligence
+          Project history
           {snapshots.length > 0 && (
             <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] dark:bg-slate-700">
               {snapshots.length} snapshots

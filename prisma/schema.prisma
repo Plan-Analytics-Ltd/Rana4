@@ -94,6 +94,11 @@ model Company {
   projects           Project[]
   programmeSnapshots ProgrammeSnapshot[]
   intelligenceFindings IntelligenceFinding[]
+  learnedInsights              LearnedInsight[]
+  deliverableKnowledgeProfiles   DeliverableKnowledgeProfile[]
+  deliverableReliabilityProfiles DeliverableReliabilityProfile[]
+  deliverableOutcomeProfiles     DeliverableOutcomeProfile[]
+  recommendationProfiles       RecommendationProfile[]
   relationships                     Relationship[]
   deliverableRelationships          DeliverableRelationship[]
   deliverableActivityRelationships  DeliverableActivityRelationship[]
@@ -779,6 +784,196 @@ model RelationshipSnapshot {
 
   @@index([snapshotId])
   @@map("relationship_snapshots")
+}
+
+/// Evidence-based organisational knowledge derived from historical programme data.
+enum LearnedInsightType {
+  DURATION_OVERRUN
+  DURATION_PREDICTABILITY
+  FLOAT_CONSUMPTION
+  DRIVER_STRENGTH
+  RECURRING_LESSON
+  FORECAST_RELIABILITY
+  OUTCOME_PREDICTION
+}
+
+enum LearnedInsightConfidenceLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+model LearnedInsight {
+  id               String                        @id @default(cuid())
+  companyId        String                        @map("company_id")
+  insightType      LearnedInsightType            @map("insight_type")
+  title            String                        @db.VarChar(512)
+  summary          String                        @db.Text
+  observation      String                        @db.Text
+  category         String?                       @db.VarChar(64)
+  classification   String?                       @db.VarChar(64)
+  projectType      String?                       @map("project_type") @db.VarChar(64)
+  stage            String?                       @db.VarChar(64)
+  complexity       String?                       @db.VarChar(64)
+  clientType       String?                       @map("client_type") @db.VarChar(64)
+  procurementRoute String?                       @map("procurement_route") @db.VarChar(64)
+  sampleSize       Int                           @default(0) @map("sample_size")
+  confidenceLevel  LearnedInsightConfidenceLevel @map("confidence_level")
+  confidenceScore  Float                         @map("confidence_score")
+  evidenceJson     Json                          @default("{}") @map("evidence_json")
+  lastCalculatedAt DateTime                      @default(now()) @map("last_calculated_at")
+  createdAt        DateTime                      @default(now()) @map("created_at")
+  updatedAt        DateTime                      @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, insightType])
+  @@index([companyId, classification])
+  @@index([companyId, projectType])
+  @@index([companyId, lastCalculatedAt])
+  @@map("learned_insights")
+}
+
+/// Learning maturity band for deliverable classification knowledge.
+enum LearningMaturity {
+  WELL_KNOWN
+  MODERATE
+  LIMITED
+}
+
+/// Persistent duration learning profile per deliverable classification (company-wide).
+model DeliverableKnowledgeProfile {
+  id                  String                   @id @default(cuid())
+  companyId           String                   @map("company_id")
+  classification      DeliverableClassification
+  label               String                   @db.VarChar(128)
+  sampleSize          Int                      @default(0) @map("sample_size")
+  projectCount        Int                      @default(0) @map("project_count")
+  averageDuration     Float?                   @map("average_duration")
+  medianDuration      Float?                   @map("median_duration")
+  minimumDuration     Float?                   @map("minimum_duration")
+  maximumDuration     Float?                   @map("maximum_duration")
+  standardDeviation   Float?                   @map("standard_deviation")
+  predictabilityScore Float?                   @map("predictability_score")
+  confidenceScore     Float                    @default(0) @map("confidence_score")
+  confidenceLevel     String                   @default("LOW") @map("confidence_level") @db.VarChar(16)
+  learningMaturity    LearningMaturity         @default(LIMITED) @map("learning_maturity")
+  evidenceVolume      Int                      @default(0) @map("evidence_volume")
+  coverageScore       Float?                   @map("coverage_score")
+  lastCalculatedAt    DateTime                 @default(now()) @map("last_calculated_at")
+  createdAt           DateTime                 @default(now()) @map("created_at")
+  updatedAt           DateTime                 @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, classification])
+  @@index([companyId, learningMaturity])
+  @@map("deliverable_knowledge_profiles")
+}
+
+/// Forecast reliability band (plain-language estimate quality).
+enum ReliabilityBand {
+  HIGHLY_RELIABLE
+  GENERALLY_RELIABLE
+  MIXED_RELIABILITY
+  FREQUENTLY_OVERRUNS
+  HIGHLY_UNPREDICTABLE
+}
+
+/// Planned vs actual outcome learning per deliverable classification.
+model DeliverableReliabilityProfile {
+  id                      String                   @id @default(cuid())
+  companyId               String                   @map("company_id")
+  classification          DeliverableClassification
+  label                   String                   @db.VarChar(128)
+  sampleSize              Int                      @default(0) @map("sample_size")
+  projectCount            Int                      @default(0) @map("project_count")
+  plannedAverageDuration  Float?                   @map("planned_average_duration")
+  actualAverageDuration   Float?                   @map("actual_average_duration")
+  averageVariancePercent  Float?                   @map("average_variance_percent")
+  averageVarianceDays     Float?                   @map("average_variance_days")
+  overrunFrequency        Float                    @default(0) @map("overrun_frequency")
+  underrunFrequency       Float                    @default(0) @map("underrun_frequency")
+  onTargetFrequency       Float                    @default(0) @map("on_target_frequency")
+  predictabilityScore     Float?                   @map("predictability_score")
+  reliabilityScore        Float                    @default(0) @map("reliability_score")
+  reliabilityBand         ReliabilityBand          @default(MIXED_RELIABILITY) @map("reliability_band")
+  reliabilityLabel        String                   @default("Mixed Reliability") @map("reliability_label") @db.VarChar(64)
+  confidenceLevel         String                   @default("LOW") @map("confidence_level") @db.VarChar(16)
+  confidenceScore         Float                    @default(0) @map("confidence_score")
+  lastUpdated             DateTime                 @default(now()) @map("last_updated")
+  createdAt               DateTime                 @default(now()) @map("created_at")
+  updatedAt               DateTime                 @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, classification])
+  @@index([companyId, reliabilityBand])
+  @@map("deliverable_reliability_profiles")
+}
+
+/// Evidence-based outcome prediction per deliverable classification.
+model DeliverableOutcomeProfile {
+  id                              String                   @id @default(cuid())
+  companyId                       String                   @map("company_id")
+  classification                  DeliverableClassification
+  label                           String                   @db.VarChar(128)
+  sampleSize                      Int                      @default(0) @map("sample_size")
+  projectCount                    Int                      @default(0) @map("project_count")
+  predictedMinimumDuration        Float?                   @map("predicted_minimum_duration")
+  predictedMostLikelyDuration     Float?                   @map("predicted_most_likely_duration")
+  predictedMaximumDuration          Float?                   @map("predicted_maximum_duration")
+  historicalAverageDuration       Float?                   @map("historical_average_duration")
+  historicalMedianDuration        Float?                   @map("historical_median_duration")
+  historicalOverrunFrequency      Float                    @default(0) @map("historical_overrun_frequency")
+  historicalAverageVariancePercent Float?                  @map("historical_average_variance_percent")
+  predictionConfidenceLevel       String                   @default("LOW") @map("prediction_confidence_level") @db.VarChar(16)
+  predictionConfidenceScore       Float                    @default(0) @map("prediction_confidence_score")
+  reasoningJson                   Json                     @default("[]") @map("reasoning_json")
+  lastUpdated                     DateTime                 @default(now()) @map("last_updated")
+  createdAt                       DateTime                 @default(now()) @map("created_at")
+  updatedAt                       DateTime                 @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, classification])
+  @@index([companyId, predictionConfidenceLevel])
+  @@map("deliverable_outcome_profiles")
+}
+
+/// Evidence-based recommendation type (deterministic, traceable).
+enum RecommendationType {
+  DURATION_REVIEW
+  OPTIMISM_RISK
+  LOW_CONFIDENCE
+  HIGH_VARIABILITY
+  STRONG_ALIGNMENT
+}
+
+/// Classification-level recommendation trend (organisational learning).
+model RecommendationProfile {
+  id                     String                 @id @default(cuid())
+  companyId              String                 @map("company_id")
+  classification         DeliverableClassification
+  label                  String                 @db.VarChar(128)
+  recommendationType     RecommendationType     @map("recommendation_type")
+  title                  String                 @db.VarChar(512)
+  summary                String                 @db.Text
+  recommendation         String                 @db.Text
+  severity               String                 @default("MEDIUM") @db.VarChar(16)
+  confidenceLevel        String                 @default("LOW") @map("confidence_level") @db.VarChar(16)
+  confidenceScore        Float                  @default(0) @map("confidence_score")
+  evidenceCount          Int                    @default(0) @map("evidence_count")
+  supportingEvidenceJson Json                   @default("[]") @map("supporting_evidence_json")
+  lastUpdated            DateTime               @default(now()) @map("last_updated")
+  createdAt              DateTime               @default(now()) @map("created_at")
+  updatedAt              DateTime               @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, classification, recommendationType])
+  @@index([companyId, recommendationType])
+  @@map("recommendation_profiles")
 }
 
 /// Structured portfolio learning finding (queryable, AI-ready).
