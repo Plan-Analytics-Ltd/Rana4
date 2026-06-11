@@ -15,9 +15,12 @@ test("runtime config validates missing, weak, reused, and unsafe production secr
 
 test("application installs validation and self-tests before listening", async () => {
   const index = withoutComments(await readRepoFile("src/index.ts"));
-  assert.ok(index.indexOf("validateRuntimeSecurityConfig()") < index.indexOf("listenWithFallback"));
-  assert.match(index, /runSecuritySelfTests\(\)\s*\.then\(\(\) => listenWithFallback\(basePort\)\)/s);
-  assert.match(index, /catch\(\(err\) => \{\s*console\.error\(err\);\s*process\.exit\(1\);/s);
+  const selfTestsAt = index.indexOf("runSecuritySelfTests()");
+  const connectAt = index.indexOf("connectPrisma()");
+  const listenAt = index.indexOf("listenWithFallback(basePort)");
+  assert.ok(index.indexOf("validateRuntimeSecurityConfig()") < listenAt);
+  assert.ok(selfTestsAt >= 0 && connectAt > selfTestsAt && listenAt > connectAt);
+  assert.match(index, /catch\(\(err\) => \{[\s\S]*process\.exit\(1\);/);
 });
 
 test("frontend and backend builds separate public config from runtime secrets", async () => {

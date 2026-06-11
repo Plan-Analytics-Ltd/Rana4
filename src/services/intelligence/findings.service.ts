@@ -1,6 +1,6 @@
 import type { OutlierStatus } from "./outlier.service.js";
 import { OUTLIER_THRESHOLDS } from "./outlier.service.js";
-import { getDeliverableBenchmark } from "./benchmark.service.js";
+import { getDeliverableBenchmark, type BenchmarkReport } from "./benchmark.service.js";
 
 export type FindingSeverity = "LOW" | "MEDIUM" | "HIGH";
 export type FindingConfidence = "LOW" | "MEDIUM" | "HIGH";
@@ -14,8 +14,6 @@ export type IntelligenceFinding = {
   reasoning: string[];
   evidence: { label: string; value: string | number }[];
 };
-
-type BenchmarkReport = Awaited<ReturnType<typeof getDeliverableBenchmark>>;
 
 function durationEvidenceBlock(
   benchmark: BenchmarkReport["benchmark"],

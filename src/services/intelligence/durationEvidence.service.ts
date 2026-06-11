@@ -1,18 +1,11 @@
-import type { DeliverableClassification, ProgrammeState } from "@prisma/client";
+import type { DeliverableClassification } from "@prisma/client";
 import { prisma } from "../../utils/prisma.js";
+import { ALLOWED_SNAPSHOT_STATES } from "./intelligenceConstants.js";
+import { diffDaysFromDates, round1 } from "./intelligenceMath.js";
 
-const ALLOWED_SNAPSHOT_STATES: ProgrammeState[] = ["APPROVED_BASELINE", "AS_BUILT", "FINAL_AS_BUILT"];
+export { ALLOWED_SNAPSHOT_STATES };
 
-function msPerDay() {
-  return 24 * 60 * 60 * 1000;
-}
-
-function diffDays(a: Date | null, b: Date | null): number | null {
-  if (!a || !b) return null;
-  const d = (b.getTime() - a.getTime()) / msPerDay();
-  if (!Number.isFinite(d)) return null;
-  return Math.max(0, Math.round(d));
-}
+const diffDays = diffDaysFromDates;
 
 export function median(sorted: number[]): number | null {
   const n = sorted.length;
@@ -38,9 +31,7 @@ export function stddev(values: number[], mean: number): number | null {
   return Math.sqrt(v);
 }
 
-export function round1(x: number): number {
-  return Math.round(x * 10) / 10;
-}
+export { round1 } from "./intelligenceMath.js";
 
 export type DurationEvidenceFilters = {
   classification: DeliverableClassification | string;
@@ -57,6 +48,15 @@ export type HistoricalDurationSample = {
   snapshotId: string;
 };
 
+export type HistoricalDurationSampleWithMeta = HistoricalDurationSample & {
+  classification: string;
+  projectType?: string | null;
+  stage?: string | null;
+  complexity?: string | null;
+  procurementRoute?: string | null;
+  clientType?: string | null;
+};
+
 function normMatch(value: string | null | undefined, filter: string | null | undefined): boolean {
   if (!filter) return true;
   const f = String(filter).trim().toLowerCase();
@@ -64,13 +64,30 @@ function normMatch(value: string | null | undefined, filter: string | null | und
   return v === f;
 }
 
-export async function loadHistoricalDeliverableDurations(args: {
+function filterDurationSamples(
+  samples: HistoricalDurationSampleWithMeta[],
+  filters: DurationEvidenceFilters
+): HistoricalDurationSample[] {
+  const classification = String(filters.classification);
+  const out: HistoricalDurationSample[] = [];
+  for (const s of samples) {
+    if (s.classification !== classification) continue;
+    if (!normMatch(s.projectType, filters.projectType)) continue;
+    if (!normMatch(s.stage, filters.stage)) continue;
+    if (!normMatch(s.complexity, filters.complexity)) continue;
+    if (!normMatch(s.procurementRoute, filters.procurementRoute)) continue;
+    if (!normMatch(s.clientType, filters.clientType)) continue;
+    out.push({ durationDays: s.durationDays, projectId: s.projectId, snapshotId: s.snapshotId });
+  }
+  return out;
+}
+
+/** Load all historical duration samples for a company in one snapshot query. */
+export async function loadCompanyHistoricalDurationSamples(args: {
   companyId: string;
-  filters: DurationEvidenceFilters;
   projectIds?: string[];
   excludeProjectId?: string;
-}): Promise<HistoricalDurationSample[]> {
-  const classification = String(args.filters.classification);
+}): Promise<HistoricalDurationSampleWithMeta[]> {
   const snapshots = await prisma.programmeSnapshot.findMany({
     where: {
       companyId: args.companyId,
@@ -80,16 +97,14 @@ export async function loadHistoricalDeliverableDurations(args: {
       ...(args.projectIds && args.projectIds.length > 0 ? { projectId: { in: args.projectIds } } : {}),
     },
     include: {
-      deliverableSnapshots: {
-        where: { classification: classification as DeliverableClassification },
-      },
+      deliverableSnapshots: true,
       project: { include: { intelligenceProfile: true } },
     },
     orderBy: { importedAt: "desc" },
     take: 500,
   });
 
-  const out: HistoricalDurationSample[] = [];
+  const out: HistoricalDurationSampleWithMeta[] = [];
   for (const snap of snapshots) {
     const profile = snap.project.intelligenceProfile;
     const meta = {
@@ -99,21 +114,38 @@ export async function loadHistoricalDeliverableDurations(args: {
       procurementRoute: snap.procurementRoute ?? profile?.procurementRoute,
       clientType: snap.clientType ?? profile?.clientType,
     };
-    if (!normMatch(meta.projectType, args.filters.projectType)) continue;
-    if (!normMatch(meta.stage, args.filters.stage)) continue;
-    if (!normMatch(meta.complexity, args.filters.complexity)) continue;
-    if (!normMatch(meta.procurementRoute, args.filters.procurementRoute)) continue;
-    if (!normMatch(meta.clientType, args.filters.clientType)) continue;
-
     for (const d of snap.deliverableSnapshots) {
       const durationActual = diffDays(d.actualStart, d.actualFinish);
       const durationPlanned = diffDays(d.plannedStart, d.plannedFinish);
       const durationDays = durationActual ?? durationPlanned;
       if (durationDays == null || !Number.isFinite(durationDays)) continue;
-      out.push({ durationDays, projectId: snap.projectId, snapshotId: snap.id });
+      out.push({
+        durationDays,
+        projectId: snap.projectId,
+        snapshotId: snap.id,
+        classification: String(d.classification ?? "OTHER"),
+        ...meta,
+      });
     }
   }
   return out;
+}
+
+export async function loadHistoricalDeliverableDurations(args: {
+  companyId: string;
+  filters: DurationEvidenceFilters;
+  projectIds?: string[];
+  excludeProjectId?: string;
+  preloadedSamples?: HistoricalDurationSampleWithMeta[];
+}): Promise<HistoricalDurationSample[]> {
+  const samples =
+    args.preloadedSamples ??
+    (await loadCompanyHistoricalDurationSamples({
+      companyId: args.companyId,
+      projectIds: args.projectIds,
+      excludeProjectId: args.excludeProjectId,
+    }));
+  return filterDurationSamples(samples, args.filters);
 }
 
 export function formatClassificationLabel(classification: string): string {

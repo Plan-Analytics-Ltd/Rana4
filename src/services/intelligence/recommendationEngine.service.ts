@@ -1,11 +1,11 @@
 import { DeliverableClassification, type RecommendationType } from "@prisma/client";
 import { prisma } from "../../utils/prisma.js";
-import { getDeliverableBenchmark } from "./benchmark.service.js";
+import { getDeliverableBenchmark, type BenchmarkReport } from "./benchmark.service.js";
 import { formatClassificationLabel, round1 } from "./durationEvidence.service.js";
 import { generateFindings, type IntelligenceFinding } from "./findings.service.js";
+import { MIN_PROFILE_SAMPLE } from "./intelligenceConstants.js";
+import { clamp01 } from "./intelligenceMath.js";
 import { confidenceLevelFromScore } from "./learningMaturity.service.js";
-
-type BenchmarkReport = Awaited<ReturnType<typeof getDeliverableBenchmark>>;
 
 export type RecommendationSeverity = "LOW" | "MEDIUM" | "HIGH";
 export type RecommendationConfidence = "LOW" | "MEDIUM" | "HIGH";
@@ -38,12 +38,8 @@ export type RecommendationProfileDto = {
   lastUpdated: string;
 };
 
-const MIN_EVIDENCE = 3;
+const MIN_EVIDENCE = MIN_PROFILE_SAMPLE;
 const MATERIAL_BELOW_THRESHOLD = 0.1;
-
-function clamp01(x: number): number {
-  return Math.max(0, Math.min(1, x));
-}
 
 function passesEvidenceGate(evidenceCount: number, confidenceLevel: RecommendationConfidence): boolean {
   return evidenceCount >= MIN_EVIDENCE && confidenceLevel !== "LOW";

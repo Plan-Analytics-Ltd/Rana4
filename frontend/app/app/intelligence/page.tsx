@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Brain, Loader2, RefreshCw } from "lucide-react";
+import { Brain, Loader2, RefreshCw, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -14,6 +14,7 @@ import {
   type LearnedInsight,
   type LearnedInsightType,
   type RecommendationTrendGroup,
+  type IntelligenceTrustProfile,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -144,6 +145,43 @@ function ReliabilityProfileCard({ profile }: { profile: DeliverableReliabilityPr
   );
 }
 
+function TrustProfileCard({ profile }: { profile: IntelligenceTrustProfile }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/50">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <h3 className="font-medium text-slate-900 dark:text-white">{profile.label}</h3>
+        <span className="flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+          <Shield className="h-3 w-3" />
+          {profile.trustLabel}
+        </span>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+        <div>
+          <div className="text-xs text-slate-500">Evidence strength</div>
+          <div className="font-semibold">{profile.evidenceStrength.strengthLabel}</div>
+        </div>
+        <div>
+          <div className="text-xs text-slate-500">Coverage</div>
+          <div className="font-semibold">{profile.knowledgeCoverage.coverageLabel}</div>
+        </div>
+        <div>
+          <div className="text-xs text-slate-500">Evidence</div>
+          <div className="font-semibold">
+            {profile.evidenceStrength.sampleSize} examples · {profile.evidenceStrength.projectCount} projects
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-slate-500">Active layers</div>
+          <div className="font-semibold">{profile.evidenceStrength.layersAvailable.length}</div>
+        </div>
+      </div>
+      {profile.whySeeingThis[0] ? (
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{profile.whySeeingThis[0]}</p>
+      ) : null}
+    </div>
+  );
+}
+
 function RecommendationTrendCard({ group }: { group: RecommendationTrendGroup }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/50">
@@ -246,24 +284,20 @@ export default function IntelligencePage() {
   const [reliabilityProfiles, setReliabilityProfiles] = useState<DeliverableReliabilityProfile[]>([]);
   const [outcomeProfiles, setOutcomeProfiles] = useState<DeliverableOutcomeProfile[]>([]);
   const [recommendationTrends, setRecommendationTrends] = useState<RecommendationTrendGroup[]>([]);
+  const [trustProfiles, setTrustProfiles] = useState<IntelligenceTrustProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [regenerating, setRegenerating] = useState(false);
 
   const loadData = useCallback(async (refresh = false) => {
     setLoading(true);
     try {
-      const [insightsRes, profilesRes, reliabilityRes, outcomeRes, recommendationRes] = await Promise.all([
-        organisationalIntelligenceApi.listInsights(refresh ? { refresh: true } : undefined),
-        organisationalIntelligenceApi.deliverableProfiles(),
-        organisationalIntelligenceApi.reliabilityProfiles(),
-        organisationalIntelligenceApi.outcomeProfiles(),
-        organisationalIntelligenceApi.recommendationProfiles(),
-      ]);
-      setInsights(insightsRes.data.insights ?? []);
-      setProfiles(profilesRes.data.profiles ?? []);
-      setReliabilityProfiles(reliabilityRes.data.profiles ?? []);
-      setOutcomeProfiles(outcomeRes.data.profiles ?? []);
-      setRecommendationTrends(recommendationRes.data.trends ?? []);
+      const { data } = await organisationalIntelligenceApi.dashboard(refresh ? { refresh: true } : undefined);
+      setInsights(data.insights ?? []);
+      setProfiles(data.deliverableProfiles ?? []);
+      setReliabilityProfiles(data.reliabilityProfiles ?? []);
+      setOutcomeProfiles(data.outcomeProfiles ?? []);
+      setRecommendationTrends(data.recommendationTrends ?? []);
+      setTrustProfiles(data.trustProfiles ?? []);
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err) || "Failed to load insights");
       setInsights([]);
@@ -271,6 +305,7 @@ export default function IntelligencePage() {
       setReliabilityProfiles([]);
       setOutcomeProfiles([]);
       setRecommendationTrends([]);
+      setTrustProfiles([]);
     } finally {
       setLoading(false);
     }
@@ -294,19 +329,15 @@ export default function IntelligencePage() {
   const handleRegenerate = async () => {
     setRegenerating(true);
     try {
-      const { data } = await organisationalIntelligenceApi.regenerate();
-      setInsights(data.insights ?? []);
-      const [profilesRes, reliabilityRes, outcomeRes, recommendationRes] = await Promise.all([
-        organisationalIntelligenceApi.deliverableProfiles(),
-        organisationalIntelligenceApi.reliabilityProfiles(),
-        organisationalIntelligenceApi.outcomeProfiles(),
-        organisationalIntelligenceApi.recommendationProfiles(),
-      ]);
-      setProfiles(profilesRes.data.profiles ?? []);
-      setReliabilityProfiles(reliabilityRes.data.profiles ?? []);
-      setOutcomeProfiles(outcomeRes.data.profiles ?? []);
-      setRecommendationTrends(recommendationRes.data.trends ?? []);
-      toast.success(`Updated ${data.count} insight(s) from project history`);
+      const { data: regen } = await organisationalIntelligenceApi.regenerate();
+      setInsights(regen.insights ?? []);
+      const { data: dash } = await organisationalIntelligenceApi.dashboard();
+      setProfiles(dash.deliverableProfiles ?? []);
+      setReliabilityProfiles(dash.reliabilityProfiles ?? []);
+      setOutcomeProfiles(dash.outcomeProfiles ?? []);
+      setRecommendationTrends(dash.recommendationTrends ?? []);
+      setTrustProfiles(dash.trustProfiles ?? []);
+      toast.success(`Updated ${regen.count} insight(s) from project history`);
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err) || "Update failed (admin role may be required)");
     } finally {
@@ -340,6 +371,27 @@ export default function IntelligencePage() {
         </div>
       ) : (
         <>
+          {trustProfiles.length > 0 ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Shield className="h-5 w-5 text-slate-600 dark:text-slate-300" />
+                  Trust &amp; explainability
+                </CardTitle>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  How much you can rely on intelligence for each deliverable type — based on evidence, not AI.
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  {trustProfiles.map((p) => (
+                    <TrustProfileCard key={p.id} profile={p} />
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+
           {reliabilityProfiles.length > 0 ? (
             <Card>
               <CardHeader>

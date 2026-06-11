@@ -18,6 +18,11 @@ import {
   type LearnedInsightFilters,
 } from "../services/intelligence/learningEngine.service.js";
 import {
+  getIntelligenceTrustProfileByClassification,
+  listIntelligenceTrustProfiles,
+  refreshIntelligenceTrustProfiles,
+} from "../services/intelligence/intelligenceTrust.service.js";
+import {
   getRecommendationProfilesByClassification,
   groupRecommendationTrends,
   listRecommendationProfiles,
@@ -52,6 +57,42 @@ function parseFilters(req: AuthRequest): LearnedInsightFilters {
     procurementRoute: String(req.query.procurementRoute ?? "").trim() || undefined,
     limit: Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : undefined,
   };
+}
+
+/** GET /intelligence/dashboard — aggregated organisational intelligence for What We've Learned */
+export async function getIntelligenceDashboard(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const refresh = req.query.refresh === "true" || req.query.refresh === "1";
+    if (refresh) await runPostImportLearningRefresh(req.user.companyId);
+    const companyId = req.user.companyId;
+    const filters = parseFilters(req);
+    const [insights, deliverableProfiles, reliabilityProfiles, outcomeProfiles, recommendationProfiles, trustProfiles] =
+      await Promise.all([
+        listLearnedInsights(companyId, filters),
+        listDeliverableKnowledgeProfiles(companyId),
+        listReliabilityProfiles(companyId),
+        listOutcomeProfiles(companyId),
+        listRecommendationProfiles(companyId),
+        listIntelligenceTrustProfiles(companyId),
+      ]);
+    const recommendationTrends = groupRecommendationTrends(recommendationProfiles);
+    res.json({
+      insights,
+      deliverableProfiles,
+      reliabilityProfiles,
+      outcomeProfiles,
+      recommendationProfiles,
+      recommendationTrends,
+      trustProfiles,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to load intelligence dashboard" });
+  }
 }
 
 /** GET /intelligence/reliability-profiles */
@@ -157,6 +198,61 @@ export async function postRegenerateOutcomeProfiles(req: AuthRequest, res: Respo
     }
     const updated = await refreshDeliverableOutcomeProfiles(req.user.companyId);
     const profiles = await listOutcomeProfiles(req.user.companyId);
+    res.json({ profiles, count: profiles.length, profilesUpdated: updated });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err instanceof Error ? err.message : "Regeneration failed" });
+  }
+}
+
+/** GET /intelligence/trust-profiles */
+export async function getTrustProfiles(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const profiles = await listIntelligenceTrustProfiles(req.user.companyId);
+    res.json({ profiles, count: profiles.length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to load trust profiles" });
+  }
+}
+
+/** GET /intelligence/trust-profiles/:classification */
+export async function getTrustProfile(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const classification = String(req.params.classification ?? "").trim();
+    const profile = await getIntelligenceTrustProfileByClassification(req.user.companyId, classification);
+    if (!profile) {
+      res.status(404).json({ error: "Trust profile not found" });
+      return;
+    }
+    res.json({ profile });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to load trust profile" });
+  }
+}
+
+/** POST /intelligence/trust-profiles/regenerate */
+export async function postRegenerateTrustProfiles(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    if (req.user.role !== "ADMIN") {
+      res.status(403).json({ error: "Admin role required to regenerate trust profiles" });
+      return;
+    }
+    const updated = await refreshIntelligenceTrustProfiles(req.user.companyId);
+    const profiles = await listIntelligenceTrustProfiles(req.user.companyId);
     res.json({ profiles, count: profiles.length, profilesUpdated: updated });
   } catch (err) {
     console.error(err);

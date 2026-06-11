@@ -1,62 +1,25 @@
-import type { ProgrammeState } from "@prisma/client";
 import { prisma } from "../../utils/prisma.js";
+import { median, percentile, round1, stddev } from "./durationEvidence.service.js";
 import { computeExpectedDuration } from "./expectedDuration.service.js";
 import { getForecastReliabilityForClassification } from "./forecastReliability.service.js";
+import { ALLOWED_SNAPSHOT_STATES } from "./intelligenceConstants.js";
+import { clamp01, diffDaysFromIso, MS_PER_DAY, round2 } from "./intelligenceMath.js";
+import { confidenceLevelFromScore } from "./learningMaturity.service.js";
 import { computeOutcomePredictionFromLayers } from "./outcomePrediction.service.js";
-import { computeProjectSimilarityScore, getSimilarDeliverables, getSimilarProjects } from "./similarity.service.js";
+import {
+  getSimilarDeliverables,
+  getSimilarProjects,
+  scoreProjectProfilesSimilarity,
+} from "./similarity.service.js";
 import { computeOutlier } from "./outlier.service.js";
 import type { OutlierStatus } from "./outlier.service.js";
 
-const ALLOWED_SNAPSHOT_STATES: ProgrammeState[] = ["APPROVED_BASELINE", "AS_BUILT", "FINAL_AS_BUILT"];
 const MIN_AUTO_PROJECT_SIMILARITY = 50;
 const MIN_DELIVERABLE_SIMILARITY = 30;
 
-function msPerDay() {
-  return 24 * 60 * 60 * 1000;
-}
+const diffDays = diffDaysFromIso;
 
-function clamp01(x: number): number {
-  if (!Number.isFinite(x)) return 0;
-  return Math.max(0, Math.min(1, x));
-}
-
-function round2(x: number): number {
-  return Math.round(x * 100) / 100;
-}
-
-function diffDays(a: string | null, b: string | null): number | null {
-  if (!a || !b) return null;
-  const start = new Date(a);
-  const finish = new Date(b);
-  if (!Number.isFinite(start.getTime()) || !Number.isFinite(finish.getTime())) return null;
-  const d = (finish.getTime() - start.getTime()) / msPerDay();
-  if (!Number.isFinite(d)) return null;
-  return Math.max(0, Math.round(d));
-}
-
-function median(sorted: number[]): number | null {
-  const n = sorted.length;
-  if (n === 0) return null;
-  const mid = Math.floor(n / 2);
-  return n % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
-}
-
-function percentile(sorted: number[], p: number): number | null {
-  if (sorted.length === 0) return null;
-  const pp = Math.max(0, Math.min(1, p));
-  const idx = (sorted.length - 1) * pp;
-  const lo = Math.floor(idx);
-  const hi = Math.ceil(idx);
-  if (lo === hi) return sorted[lo]!;
-  const w = idx - lo;
-  return sorted[lo]! * (1 - w) + sorted[hi]! * w;
-}
-
-function stddev(values: number[], avg: number): number | null {
-  if (values.length < 2) return null;
-  const v = values.reduce((acc, x) => acc + (x - avg) * (x - avg), 0) / (values.length - 1);
-  return Math.sqrt(v);
-}
+export type BenchmarkReport = Awaited<ReturnType<typeof getDeliverableBenchmark>>;
 
 type BenchmarkConfidenceTier = "NONE" | "LOW" | "MEDIUM" | "HIGH";
 
@@ -64,13 +27,6 @@ function confidenceTierFromSampleSize(sampleSize: number): BenchmarkConfidenceTi
   if (sampleSize <= 0) return "NONE";
   if (sampleSize <= 4) return "LOW";
   if (sampleSize <= 9) return "MEDIUM";
-  return "HIGH";
-}
-
-function confidenceLevelFromScore(score: number): "LOW" | "MEDIUM" | "HIGH" {
-  const s = clamp01(score);
-  if (s <= 0.39) return "LOW";
-  if (s <= 0.69) return "MEDIUM";
   return "HIGH";
 }
 
@@ -124,7 +80,7 @@ async function getCurrentDeliverableDurationDays(projectId: string, companyId: s
   }
 
   if (!minStart || !maxFinish) return null;
-  const days = Math.max(0, Math.round((maxFinish.getTime() - minStart.getTime()) / msPerDay()));
+  const days = Math.max(0, Math.round((maxFinish.getTime() - minStart.getTime()) / MS_PER_DAY));
   return days;
 }
 
@@ -173,26 +129,31 @@ export async function getDeliverableBenchmark(args: {
       select: { id: true, name: true },
     });
     comparableProjectIds = projects.map((p) => p.id);
-    matchedProjects = await Promise.all(
-      projects.map(async (p) => {
-        const similarityScore = await computeProjectSimilarityScore({
-          companyId: args.companyId,
-          aProjectId: args.projectId,
-          bProjectId: p.id,
-        });
-        const warning =
-          similarityScore < MIN_AUTO_PROJECT_SIMILARITY
-            ? "Project included by manual selection despite low similarity."
-            : undefined;
-        return {
-          projectId: p.id,
-          projectName: p.name,
-          similarityScore,
-          manuallySelected: true,
-          ...(warning ? { warning } : {}),
-        };
-      })
-    );
+    const profileRows = await prisma.projectIntelligenceProfile.findMany({
+      where: {
+        companyId: args.companyId,
+        projectId: { in: [args.projectId, ...comparableProjectIds] },
+      },
+    });
+    const profileByProject = new Map(profileRows.map((row) => [row.projectId, row]));
+    const sourceProfile = profileByProject.get(args.projectId);
+    matchedProjects = projects.map((p) => {
+      const similarityScore =
+        p.id === args.projectId
+          ? 100
+          : scoreProjectProfilesSimilarity(sourceProfile, profileByProject.get(p.id));
+      const warning =
+        similarityScore < MIN_AUTO_PROJECT_SIMILARITY
+          ? "Project included by manual selection despite low similarity."
+          : undefined;
+      return {
+        projectId: p.id,
+        projectName: p.name,
+        similarityScore,
+        manuallySelected: true,
+        ...(warning ? { warning } : {}),
+      };
+    });
     projectSimilarityIncluded = matchedProjects.length;
   } else {
     const sim = await getSimilarProjects({ projectId: args.projectId, companyId: args.companyId, limit: 20 });

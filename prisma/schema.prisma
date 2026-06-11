@@ -99,6 +99,7 @@ model Company {
   deliverableReliabilityProfiles DeliverableReliabilityProfile[]
   deliverableOutcomeProfiles     DeliverableOutcomeProfile[]
   recommendationProfiles       RecommendationProfile[]
+  intelligenceTrustProfiles    IntelligenceTrustProfile[]
   relationships                     Relationship[]
   deliverableRelationships          DeliverableRelationship[]
   deliverableActivityRelationships  DeliverableActivityRelationship[]
@@ -974,6 +975,41 @@ model RecommendationProfile {
   @@unique([companyId, classification, recommendationType])
   @@index([companyId, recommendationType])
   @@map("recommendation_profiles")
+}
+
+/// Trust band for intelligence explainability.
+enum TrustBand {
+  HIGH_TRUST
+  MODERATE_TRUST
+  LIMITED_TRUST
+  INSUFFICIENT_EVIDENCE
+}
+
+/// Classification-level trust and explainability profile.
+model IntelligenceTrustProfile {
+  id                           String                   @id @default(cuid())
+  companyId                    String                   @map("company_id")
+  classification               DeliverableClassification
+  label                        String                   @db.VarChar(128)
+  trustScore                   Float                    @default(0) @map("trust_score")
+  trustBand                    TrustBand                @default(INSUFFICIENT_EVIDENCE) @map("trust_band")
+  trustLabel                   String                   @default("Insufficient Evidence") @map("trust_label") @db.VarChar(64)
+  evidenceStrengthJson         Json                     @default("{}") @map("evidence_strength_json")
+  knowledgeCoverageJson        Json                     @default("{}") @map("knowledge_coverage_json")
+  recommendationTraceabilityJson Json                   @default("{}") @map("recommendation_traceability_json")
+  whySeeingThisJson            Json                     @default("[]") @map("why_seeing_this_json")
+  sampleSize                   Int                      @default(0) @map("sample_size")
+  projectCount                 Int                      @default(0) @map("project_count")
+  layersAvailable              Int                      @default(0) @map("layers_available")
+  lastUpdated                  DateTime                 @default(now()) @map("last_updated")
+  createdAt                    DateTime                 @default(now()) @map("created_at")
+  updatedAt                    DateTime                 @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, classification])
+  @@index([companyId, trustBand])
+  @@map("intelligence_trust_profiles")
 }
 
 /// Structured portfolio learning finding (queryable, AI-ready).

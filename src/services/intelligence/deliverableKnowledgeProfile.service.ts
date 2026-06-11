@@ -2,7 +2,7 @@ import { DeliverableClassification } from "@prisma/client";
 import { prisma } from "../../utils/prisma.js";
 import {
   formatClassificationLabel,
-  loadHistoricalDeliverableDurations,
+  loadCompanyHistoricalDurationSamples,
   median,
   round1,
   stddev,
@@ -47,18 +47,22 @@ function maturityLabel(m: string): string {
 /** Rebuild all classification profiles for a company from historical snapshots. */
 export async function refreshDeliverableKnowledgeProfiles(companyId: string): Promise<number> {
   const classifications = Object.values(DeliverableClassification);
+  const allSamples = await loadCompanyHistoricalDurationSamples({ companyId });
+  const samplesByClass = new Map<string, typeof allSamples>();
+  for (const sample of allSamples) {
+    const bucket = samplesByClass.get(sample.classification) ?? [];
+    bucket.push(sample);
+    samplesByClass.set(sample.classification, bucket);
+  }
 
   const now = new Date();
   let updated = 0;
 
   for (const classification of classifications) {
-    const samples = await loadHistoricalDeliverableDurations({
-      companyId,
-      filters: { classification },
-    });
-    const durations = samples.map((s) => s.durationDays).sort((a, b) => a - b);
+    const classSamples = samplesByClass.get(classification) ?? [];
+    const durations = classSamples.map((s) => s.durationDays).sort((a, b) => a - b);
     const sampleSize = durations.length;
-    const projectCount = new Set(samples.map((s) => s.projectId)).size;
+    const projectCount = new Set(classSamples.map((s) => s.projectId)).size;
 
     if (sampleSize === 0) {
       await prisma.deliverableKnowledgeProfile.deleteMany({

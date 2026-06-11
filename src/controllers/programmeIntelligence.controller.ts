@@ -175,7 +175,11 @@ export async function getPlannedVsActual(req: AuthRequest, res: Response): Promi
   }
 }
 
-/** GET /projects/:projectId/intelligence-profile */
+/**
+ * GET /projects/:projectId/intelligence-profile
+ * @legacy Prefer GET /projects/:projectId/intelligence/profile (projectIntelligence controller).
+ * Kept for backward compatibility; not used by the current frontend.
+ */
 export async function getIntelligenceProfile(req: AuthRequest, res: Response): Promise<void> {
   try {
     if (!req.user) {
@@ -194,7 +198,10 @@ export async function getIntelligenceProfile(req: AuthRequest, res: Response): P
   }
 }
 
-/** PUT /projects/:projectId/intelligence-profile */
+/**
+ * PUT /projects/:projectId/intelligence-profile
+ * @legacy Prefer PUT /projects/:projectId/intelligence/profile. Not used by the current frontend.
+ */
 export async function updateIntelligenceProfile(req: AuthRequest, res: Response): Promise<void> {
   try {
     if (!req.user) {

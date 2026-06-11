@@ -1,6 +1,7 @@
 import axios, { type AxiosInstance, type AxiosError, type AxiosResponse } from "axios";
 import { getStoredAuthToken } from "@/lib/auth-storage";
 import { getInMemoryApprovalToken } from "@/lib/approval-token";
+import { cachedFetch, invalidateCachedFetch, SHARED_CACHE_KEYS } from "@/lib/shared-api-cache";
 
 export function isAxiosError(err: unknown): err is AxiosError {
   return axios.isAxiosError(err);
@@ -326,6 +327,54 @@ export type IntelligenceFinding = {
   evidence: { label: string; value: string | number }[];
 };
 
+export type IntelligenceTrustExplanation = {
+  trustScore: number;
+  trustBand: string;
+  trustLabel: string;
+  evidenceStrength: {
+    strengthLabel: string;
+    sampleSize: number;
+    projectCount: number;
+    benchmarkConfidence: string | null;
+    benchmarkConfidenceScore: number | null;
+    layersAvailable: string[];
+  };
+  knowledgeCoverage: {
+    coverageLabel: string;
+    coverageScore: number;
+    sampleSize: number;
+    projectCount: number;
+    learningMaturity: string | null;
+    hasReliabilityEvidence: boolean;
+    hasOutcomePrediction: boolean;
+  };
+  recommendationTraceability: {
+    traceChain: string[];
+    sourceLayers: Array<{
+      layer: string;
+      status: string;
+      evidenceCount: number;
+      summary: string;
+    }>;
+    recommendationCount: number;
+    recommendations: Array<{
+      type: string;
+      title: string;
+      evidenceCount: number;
+      sourceLayers: string[];
+    }>;
+  };
+  whySeeingThis: string[];
+  supportingEvidence: { label: string; value: string | number }[];
+};
+
+export type IntelligenceTrustProfile = IntelligenceTrustExplanation & {
+  id: string;
+  classification: string;
+  label: string;
+  lastUpdated: string;
+};
+
 export type IntelligenceRecommendation = {
   recommendationType: string;
   title: string;
@@ -372,7 +421,132 @@ export type IntelligenceDriver = {
   evidence: { label: string; value: string | number }[];
 };
 
+export type BenchmarkExpectedDuration = {
+  rangeLabel: string | null;
+  minimumExpectedDays: number | null;
+  mostLikelyDays: number | null;
+  maximumExpectedDays: number | null;
+  confidenceLevel: "LOW" | "MEDIUM" | "HIGH";
+  confidenceScore: number;
+  evidenceCount: number;
+  learningMaturity?: string;
+  maturityLabel?: string;
+  evidenceVolume?: number;
+  coverageScore?: number;
+  explanation?: string[];
+};
+
+export type BenchmarkForecastReliability = {
+  reliabilityLabel: string;
+  reliabilityBand: string;
+  overrunFrequency: number;
+  underrunFrequency?: number;
+  onTargetFrequency?: number;
+  averageVariancePercent: number | null;
+  averageVarianceDays?: number | null;
+  sampleSize: number;
+  confidenceLevel: string;
+  confidenceScore: number;
+};
+
+export type BenchmarkPredictedOutcome = {
+  rangeLabel: string | null;
+  predictedMinimumDuration: number | null;
+  predictedMostLikelyDuration: number | null;
+  predictedMaximumDuration: number | null;
+  predictionConfidenceLevel: "LOW" | "MEDIUM" | "HIGH";
+  predictionConfidenceScore: number;
+  evidenceCount: number;
+  reasoning: string[];
+};
+
+export type BenchmarkOutlierStatus =
+  | "NORMAL"
+  | "SLIGHTLY_HIGH"
+  | "HIGH"
+  | "RED_FLAG"
+  | "EXTREME_OUTLIER";
+
+export type BenchmarkOutlier = {
+  status: BenchmarkOutlierStatus;
+  currentDurationDays: number | null;
+  differenceFromAveragePercent: number | null;
+};
+
+export type MatchedDeliverableEvidence = {
+  projectId: string;
+  projectName: string;
+  deliverableId: string;
+  deliverableName: string;
+  classification: string;
+  programmeState: string;
+  durationDays: number;
+  similarityScore: number;
+};
+
+export type BenchmarkEvidence = {
+  sampleSize: number;
+  matchedDeliverables: MatchedDeliverableEvidence[];
+};
+
+export type DeliverableBenchmarkBlock = {
+  averageDuration: number | null;
+  medianDuration: number | null;
+  minimumDuration: number | null;
+  maximumDuration: number | null;
+  sampleSize: number;
+  confidenceLevel: "LOW" | "MEDIUM" | "HIGH" | null;
+  confidenceScore: number | null;
+  sampleSizeConfidenceTier?: string | null;
+  notes?: string[];
+  expectedDuration: BenchmarkExpectedDuration | null;
+  forecastReliability: BenchmarkForecastReliability | null;
+  predictedOutcome: BenchmarkPredictedOutcome | null;
+  benchmarkQuality?: { averageProjectSimilarity: number | null };
+};
+
+export type DeliverableAnalysisCore = {
+  deliverable: { id: string; name: string; classification: string | null };
+  currentDurationDays: number | null;
+  benchmark: DeliverableBenchmarkBlock;
+  outlier: BenchmarkOutlier;
+  evidence: BenchmarkEvidence;
+};
+
+export type DeliverableIntelligenceAnalysis = DeliverableAnalysisCore & {
+  observations: IntelligenceFinding[];
+  keyFactors: IntelligenceDriver[];
+  reliability: BenchmarkForecastReliability | null;
+  predictedOutcome: BenchmarkPredictedOutcome | null;
+  recommendations: IntelligenceRecommendation[];
+  trust: IntelligenceTrustExplanation;
+};
+
+export type IntelligenceDashboard = {
+  insights: LearnedInsight[];
+  deliverableProfiles: DeliverableKnowledgeProfile[];
+  reliabilityProfiles: DeliverableReliabilityProfile[];
+  outcomeProfiles: DeliverableOutcomeProfile[];
+  recommendationProfiles: RecommendationProfile[];
+  recommendationTrends: RecommendationTrendGroup[];
+  trustProfiles: IntelligenceTrustProfile[];
+};
+
 export const intelligenceApi = {
+  getDeliverableIntelligenceAnalysis: (
+    projectId: string,
+    deliverableId: string,
+    opts?: { projectIds?: string[] }
+  ) => {
+    const pid = requireProjectId(projectId);
+    const projectIds = (opts?.projectIds ?? []).filter(Boolean);
+    return api.get<DeliverableIntelligenceAnalysis>(
+      `/projects/${encodeURIComponent(pid)}/intelligence/analysis/${encodeURIComponent(deliverableId)}`,
+      {
+        params: projectIds.length ? { projectIds: projectIds.join(",") } : undefined,
+      }
+    );
+  },
   getDeliverableBenchmark: (projectId: string, deliverableId: string, opts?: { projectIds?: string[] }) => {
     const pid = requireProjectId(projectId);
     const projectIds = (opts?.projectIds ?? []).filter(Boolean);
@@ -395,6 +569,16 @@ export const intelligenceApi = {
     const projectIds = (opts?.projectIds ?? []).filter(Boolean);
     return api.get<{ drivers: IntelligenceDriver[] }>(
       `/projects/${encodeURIComponent(pid)}/intelligence/drivers/${encodeURIComponent(deliverableId)}`,
+      {
+        params: projectIds.length ? { projectIds: projectIds.join(",") } : undefined,
+      }
+    );
+  },
+  getDeliverableTrust: (projectId: string, deliverableId: string, opts?: { projectIds?: string[] }) => {
+    const pid = requireProjectId(projectId);
+    const projectIds = (opts?.projectIds ?? []).filter(Boolean);
+    return api.get<{ trust: IntelligenceTrustExplanation }>(
+      `/projects/${encodeURIComponent(pid)}/intelligence/trust/${encodeURIComponent(deliverableId)}`,
       {
         params: projectIds.length ? { projectIds: projectIds.join(",") } : undefined,
       }
@@ -535,21 +719,38 @@ export type AssignedResource = {
   units?: number;
 };
 
+type RateCardResponse = {
+  entries: RateCardEntry[];
+  types: string[];
+  summary: { type: string; count: number }[];
+};
+
 export const rateCardApi = {
-  get: () =>
-    api.get<{
-      entries: RateCardEntry[];
-      types: string[];
-      summary: { type: string; count: number }[];
-    }>("/rate-card"),
+  get: async () => {
+    const data = await cachedFetch(SHARED_CACHE_KEYS.rateCard, async () => {
+      const res = await api.get<RateCardResponse>("/rate-card");
+      return res.data;
+    });
+    return { data };
+  },
   /** Replaces the entire rate card. Field name must be `file`. */
-  upload: (file: File, projectId?: string) => {
+  upload: async (file: File, projectId?: string) => {
     const body = new FormData();
     body.append("file", file);
-    return api.post<{ ok: boolean; count: number; message: string }>("/rate-card/upload", body, { params: { projectId: requireProjectId(projectId) } });
+    const res = await api.post<{ ok: boolean; count: number; message: string }>("/rate-card/upload", body, {
+      params: { projectId: requireProjectId(projectId) },
+    });
+    invalidateCachedFetch(SHARED_CACHE_KEYS.rateCard);
+    return res;
   },
   /** Deletes every rate card row in the database. */
-  clear: (projectId?: string) => api.delete<{ ok: boolean; message: string }>("/rate-card", { params: { projectId: requireProjectId(projectId) } }),
+  clear: async (projectId?: string) => {
+    const res = await api.delete<{ ok: boolean; message: string }>("/rate-card", {
+      params: { projectId: requireProjectId(projectId) },
+    });
+    invalidateCachedFetch(SHARED_CACHE_KEYS.rateCard);
+    return res;
+  },
 };
 
 export const fragnetsApi = {
@@ -758,16 +959,38 @@ export const activitiesApi = {
 };
 
 export const activityCodeTypesApi = {
-  list: (projectId?: string) =>
-    api.get<ActivityCodeType[]>("/activity-code-types", { params: { projectId: requireProjectId(projectId) } }),
-  create: (data: { projectId?: string; name: string; slug?: string; shortName?: string | null; seqNum?: number }) =>
-    api.post<ActivityCodeType>("/activity-code-types", { ...data, projectId: requireProjectId(data.projectId) }),
-  update: (
+  list: async (projectId?: string) => {
+    const pid = requireProjectId(projectId);
+    const data = await cachedFetch(SHARED_CACHE_KEYS.activityCodeTypes(pid), async () => {
+      const res = await api.get<ActivityCodeType[]>("/activity-code-types", { params: { projectId: pid } });
+      return res.data;
+    });
+    return { data };
+  },
+  create: async (data: { projectId?: string; name: string; slug?: string; shortName?: string | null; seqNum?: number }) => {
+    const pid = requireProjectId(data.projectId);
+    const res = await api.post<ActivityCodeType>("/activity-code-types", { ...data, projectId: pid });
+    invalidateCachedFetch(SHARED_CACHE_KEYS.activityCodeTypes(pid));
+    return res;
+  },
+  update: async (
     id: string,
     data: { projectId?: string; name?: string; slug?: string; shortName?: string | null; seqNum?: number }
-  ) => api.put<ActivityCodeType>(`/activity-code-types/${encodeURIComponent(id)}`, { ...data, projectId: requireProjectId(data.projectId) }),
-  delete: (id: string, projectId?: string) =>
-    api.delete(`/activity-code-types/${encodeURIComponent(id)}`, { params: { projectId: requireProjectId(projectId) } }),
+  ) => {
+    const pid = requireProjectId(data.projectId);
+    const res = await api.put<ActivityCodeType>(`/activity-code-types/${encodeURIComponent(id)}`, {
+      ...data,
+      projectId: pid,
+    });
+    invalidateCachedFetch(SHARED_CACHE_KEYS.activityCodeTypes(pid));
+    return res;
+  },
+  delete: async (id: string, projectId?: string) => {
+    const pid = requireProjectId(projectId);
+    const res = await api.delete(`/activity-code-types/${encodeURIComponent(id)}`, { params: { projectId: pid } });
+    invalidateCachedFetch(SHARED_CACHE_KEYS.activityCodeTypes(pid));
+    return res;
+  },
 };
 
 export const activityCodesApi = {
@@ -1240,6 +1463,11 @@ export type DeliverableKnowledgeProfile = {
 };
 
 export const organisationalIntelligenceApi = {
+  dashboard: (params?: { refresh?: boolean }) =>
+    api.get<IntelligenceDashboard>("/intelligence/dashboard", {
+      params: params?.refresh ? { refresh: "true" } : undefined,
+    }),
+
   deliverableProfiles: () =>
     api.get<{ profiles: DeliverableKnowledgeProfile[]; count: number }>("/intelligence/deliverable-profiles"),
 
@@ -1286,6 +1514,19 @@ export const organisationalIntelligenceApi = {
       count: number;
       profilesUpdated: number;
     }>("/intelligence/recommendation-profiles/regenerate"),
+
+  trustProfiles: () =>
+    api.get<{ profiles: IntelligenceTrustProfile[]; count: number }>("/intelligence/trust-profiles"),
+
+  trustProfile: (classification: string) =>
+    api.get<{ profile: IntelligenceTrustProfile }>(
+      `/intelligence/trust-profiles/${encodeURIComponent(classification)}`
+    ),
+
+  regenerateTrustProfiles: () =>
+    api.post<{ profiles: IntelligenceTrustProfile[]; count: number; profilesUpdated: number }>(
+      "/intelligence/trust-profiles/regenerate"
+    ),
 
   listInsights: (params?: {
     refresh?: boolean;

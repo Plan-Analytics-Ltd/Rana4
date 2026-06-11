@@ -6,11 +6,15 @@ import { requireAuth } from "../middleware/auth.middleware.js";
 const router = Router();
 
 router.use(requireAuth);
+router.get("/dashboard", learningInsightsController.getIntelligenceDashboard);
 router.get("/portfolio-benchmarks", programmeIntelligenceController.getPortfolioBenchmarks);
 router.get("/lessons-learned", programmeIntelligenceController.getLessonsLearned);
 router.post("/lessons-learned/generate", programmeIntelligenceController.postGenerateLessons);
 
 router.get("/deliverable-profiles", learningInsightsController.getDeliverableKnowledgeProfiles);
+router.post("/trust-profiles/regenerate", learningInsightsController.postRegenerateTrustProfiles);
+router.get("/trust-profiles/:classification", learningInsightsController.getTrustProfile);
+router.get("/trust-profiles", learningInsightsController.getTrustProfiles);
 router.post("/recommendation-profiles/regenerate", learningInsightsController.postRegenerateRecommendationProfiles);
 router.get("/recommendation-profiles/:classification", learningInsightsController.getRecommendationProfile);
 router.get("/recommendation-profiles", learningInsightsController.getRecommendationProfiles);

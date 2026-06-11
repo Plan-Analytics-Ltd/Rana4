@@ -362,15 +362,27 @@ export default function ActivitiesPage() {
   }, [selectedProjectId, selectedStandardId]);
 
   useEffect(() => {
+    void fetchAssuranceNotes();
+  }, [selectedStandardId, selectedFragnetId]);
+
+  useEffect(() => {
     if (selectedFragnetId === PROJECT_LEVEL_FRAGNET_ID) {
       void fetchProjectLevelContext();
       return;
     }
+    if (!selectedFragnetId) return;
+    if (selectedStandardId && loadingFragnets) return;
+    if (
+      selectedStandardId &&
+      fragnets.length > 0 &&
+      !fragnets.some((fragnet) => fragnet.id === selectedFragnetId)
+    ) {
+      return;
+    }
     void fetchActivities();
     void fetchRelationships();
-    void fetchAssuranceNotes();
     void fetchDeliverables();
-  }, [selectedProjectId, selectedFragnetId, selectedStandardId]);
+  }, [selectedProjectId, selectedFragnetId, selectedStandardId, loadingFragnets, fragnets]);
 
   const createPrefilledRef = useRef(false);
   useEffect(() => {

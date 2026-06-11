@@ -156,6 +156,15 @@ function buildProjectSimilarity(a: any, b: any) {
   return { similarityScore: roundScore01To100(score01), matchedFields, explanations };
 }
 
+/** Score similarity between two loaded intelligence profiles (no DB access). */
+export function scoreProjectProfilesSimilarity(
+  a: Parameters<typeof buildProjectSimilarity>[0] | null | undefined,
+  b: Parameters<typeof buildProjectSimilarity>[1] | null | undefined
+): number {
+  if (!a || !b) return 0;
+  return buildProjectSimilarity(a, b).similarityScore;
+}
+
 export async function computeProjectSimilarityScore(args: {
   companyId: string;
   aProjectId: string;
@@ -170,8 +179,7 @@ export async function computeProjectSimilarityScore(args: {
       where: { companyId: args.companyId, projectId: args.bProjectId },
     }),
   ]);
-  if (!a || !b) return 0;
-  return buildProjectSimilarity(a, b).similarityScore;
+  return scoreProjectProfilesSimilarity(a, b);
 }
 
 function tokenizeName(name: string): Set<string> {

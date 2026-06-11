@@ -1,5 +1,6 @@
 import { prisma } from "../../utils/prisma.js";
-import { getDeliverableBenchmark } from "./benchmark.service.js";
+import { getDeliverableBenchmark, type BenchmarkReport } from "./benchmark.service.js";
+import { ALLOWED_SNAPSHOT_STATES } from "./intelligenceConstants.js";
 
 export type DriverConfidence = "LOW" | "MEDIUM" | "HIGH";
 export type DriverImpactLevel = "LOW" | "MEDIUM" | "HIGH";
@@ -14,8 +15,6 @@ export type DriverFinding = {
   reasoning: string[];
   evidence: { label: string; value: string | number }[];
 };
-
-type BenchmarkReport = Awaited<ReturnType<typeof getDeliverableBenchmark>>;
 
 type EnrichedSample = {
   projectId: string;
@@ -392,17 +391,9 @@ export function generateDrivers(
   return drivers;
 }
 
-export async function getDeliverableDrivers(args: {
-  projectId: string;
-  companyId: string;
-  deliverableId: string;
-  selectedProjectIds?: string[];
-}): Promise<{ drivers: DriverFinding[] }> {
-  const report = await getDeliverableBenchmark(args);
-  const samples = await enrichSamples(report, args.companyId);
-
+async function loadCurrentProjectMeta(projectId: string, companyId: string): Promise<ProjectMeta | null> {
   const currentProfileRow = await prisma.projectIntelligenceProfile.findUnique({
-    where: { projectId: args.projectId },
+    where: { projectId },
     select: {
       complexity: true,
       projectType: true,
@@ -412,42 +403,65 @@ export async function getDeliverableDrivers(args: {
     },
   });
 
-  let currentProfile: ProjectMeta | null = null;
   if (currentProfileRow) {
-    currentProfile = {
+    return {
       complexity: normComplexity(currentProfileRow.complexity),
       projectType: normLabel(currentProfileRow.projectType),
       procurementRoute: normLabel(currentProfileRow.procurementRoute),
       clientType: normLabel(currentProfileRow.clientType),
       stage: normLabel(currentProfileRow.stage),
     };
-  } else {
-    const snap = await prisma.programmeSnapshot.findFirst({
-      where: {
-        companyId: args.companyId,
-        projectId: args.projectId,
-        programmeState: { in: ["APPROVED_BASELINE", "AS_BUILT", "FINAL_AS_BUILT"] },
-      },
-      orderBy: { importedAt: "desc" },
-      select: {
-        complexity: true,
-        projectType: true,
-        procurementRoute: true,
-        clientType: true,
-        stage: true,
-      },
-    });
-    if (snap) {
-      currentProfile = {
-        complexity: normComplexity(snap.complexity),
-        projectType: normLabel(snap.projectType),
-        procurementRoute: normLabel(snap.procurementRoute),
-        clientType: normLabel(snap.clientType),
-        stage: normLabel(snap.stage),
-      };
-    }
   }
 
-  const drivers = generateDrivers(report, samples, currentProfile);
+  const snap = await prisma.programmeSnapshot.findFirst({
+    where: {
+      companyId,
+      projectId,
+      programmeState: { in: ALLOWED_SNAPSHOT_STATES },
+    },
+    orderBy: { importedAt: "desc" },
+    select: {
+      complexity: true,
+      projectType: true,
+      procurementRoute: true,
+      clientType: true,
+      stage: true,
+    },
+  });
+
+  if (!snap) return null;
+
+  return {
+    complexity: normComplexity(snap.complexity),
+    projectType: normLabel(snap.projectType),
+    procurementRoute: normLabel(snap.procurementRoute),
+    clientType: normLabel(snap.clientType),
+    stage: normLabel(snap.stage),
+  };
+}
+
+/** Build key-factor drivers from an existing benchmark report (no duplicate benchmark). */
+export async function buildKeyFactorsFromReport(
+  report: BenchmarkReport,
+  args: { companyId: string; projectId: string }
+): Promise<DriverFinding[]> {
+  const samples = await enrichSamples(report, args.companyId);
+  const currentProfile = await loadCurrentProjectMeta(args.projectId, args.companyId);
+  return generateDrivers(report, samples, currentProfile);
+}
+
+export async function getDeliverableDrivers(args: {
+  projectId: string;
+  companyId: string;
+  deliverableId: string;
+  selectedProjectIds?: string[];
+  /** When provided, skips a duplicate benchmark computation (e.g. trust orchestration). */
+  benchmarkReport?: BenchmarkReport;
+}): Promise<{ drivers: DriverFinding[] }> {
+  const report = args.benchmarkReport ?? (await getDeliverableBenchmark(args));
+  const drivers = await buildKeyFactorsFromReport(report, {
+    companyId: args.companyId,
+    projectId: args.projectId,
+  });
   return { drivers };
 }

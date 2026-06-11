@@ -7,13 +7,17 @@ import { Badge } from "@/components/ui/badge";
 import {
   intelligenceApi,
   getApiErrorMessage,
+  type BenchmarkOutlierStatus,
+  type DeliverableAnalysisCore,
   type IntelligenceFinding,
   type IntelligenceDriver,
   type IntelligenceRecommendation,
+  type IntelligenceTrustExplanation,
 } from "@/lib/api";
 import { DeliverableFindingsSection } from "@/components/deliverables/deliverable-findings-section";
 import { DeliverableDriversSection } from "@/components/deliverables/deliverable-drivers-section";
 import { DeliverableRecommendationsSection } from "@/components/deliverables/deliverable-recommendations-section";
+import { DeliverableTrustSection } from "@/components/deliverables/deliverable-trust-section";
 
 type Props = {
   projectId: string;
@@ -22,7 +26,7 @@ type Props = {
   refreshKey?: number;
 };
 
-type Status = "NORMAL" | "SLIGHTLY_HIGH" | "HIGH" | "RED_FLAG" | "EXTREME_OUTLIER";
+type Status = BenchmarkOutlierStatus;
 
 function statusVariant(s: Status): "default" | "secondary" | "destructive" | "outline" {
   if (s === "RED_FLAG" || s === "EXTREME_OUTLIER") return "destructive";
@@ -40,10 +44,11 @@ export function DeliverableBenchmarkPanel({
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<DeliverableAnalysisCore | null>(null);
   const [findings, setFindings] = useState<IntelligenceFinding[]>([]);
   const [drivers, setDrivers] = useState<IntelligenceDriver[]>([]);
   const [recommendations, setRecommendations] = useState<IntelligenceRecommendation[]>([]);
+  const [trust, setTrust] = useState<IntelligenceTrustExplanation | null>(null);
 
   useEffect(() => {
     if (!enabled || !projectId || !deliverableId) {
@@ -56,17 +61,22 @@ export function DeliverableBenchmarkPanel({
       setLoading(true);
       setErr(null);
       try {
-        const [benchRes, findingsRes, driversRes, recommendationsRes] = await Promise.all([
-          intelligenceApi.getDeliverableBenchmark(projectId, deliverableId),
-          intelligenceApi.getDeliverableFindings(projectId, deliverableId),
-          intelligenceApi.getDeliverableDrivers(projectId, deliverableId),
-          intelligenceApi.getDeliverableRecommendations(projectId, deliverableId),
-        ]);
+        const { data: analysis } = await intelligenceApi.getDeliverableIntelligenceAnalysis(
+          projectId,
+          deliverableId
+        );
         if (!cancelled) {
-          setData(benchRes.data);
-          setFindings(findingsRes.data.findings ?? []);
-          setDrivers(driversRes.data.drivers ?? []);
-          setRecommendations(recommendationsRes.data.recommendations ?? []);
+          setData({
+            deliverable: analysis.deliverable,
+            currentDurationDays: analysis.currentDurationDays,
+            benchmark: analysis.benchmark,
+            outlier: analysis.outlier,
+            evidence: analysis.evidence,
+          });
+          setFindings(analysis.observations ?? []);
+          setDrivers(analysis.keyFactors ?? []);
+          setRecommendations(analysis.recommendations ?? []);
+          setTrust(analysis.trust ?? null);
         }
       } catch (e: unknown) {
         if (!cancelled) setErr(getApiErrorMessage(e) || "Failed to load comparison");
@@ -101,8 +111,9 @@ export function DeliverableBenchmarkPanel({
   const avgProjSim = benchmark?.benchmarkQuality?.averageProjectSimilarity ?? null;
 
   const subtitle = useMemo(() => {
-    if (expected?.evidenceCount > 0) {
-      return `Based on ${expected.evidenceCount} comparable deliverable${expected.evidenceCount === 1 ? "" : "s"}`;
+    const expectedCount = expected?.evidenceCount ?? 0;
+    if (expectedCount > 0) {
+      return `Based on ${expectedCount} comparable deliverable${expectedCount === 1 ? "" : "s"}`;
     }
     if (sampleSize > 0) return `Based on ${sampleSize} comparable deliverables`;
     return "No comparable historical deliverables found yet";
@@ -141,6 +152,8 @@ export function DeliverableBenchmarkPanel({
           <div className="text-sm text-red-600">{err}</div>
         ) : (
           <>
+            <DeliverableTrustSection trust={trust} />
+
             {(expected?.confidenceLevel === "LOW" || confidenceLevel === "LOW") && sampleSize + (expected?.evidenceCount ?? 0) > 0 ? (
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
                 Limited historical evidence. Use these figures as guidance only.
@@ -311,7 +324,7 @@ export function DeliverableBenchmarkPanel({
                   Matched deliverables (showing up to {Math.min(20, evidence?.matchedDeliverables?.length ?? 0)})
                 </div>
                 <ul className="space-y-1">
-                  {(evidence?.matchedDeliverables ?? []).slice(0, 20).map((m: any, idx: number) => (
+                  {(evidence?.matchedDeliverables ?? []).slice(0, 20).map((m, idx) => (
                     <li key={idx} className="flex flex-col gap-0.5">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium">{m.projectName}</span>

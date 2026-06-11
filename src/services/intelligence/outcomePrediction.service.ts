@@ -1,8 +1,15 @@
 import { DeliverableClassification, type ReliabilityBand } from "@prisma/client";
 import { prisma } from "../../utils/prisma.js";
-import { formatClassificationLabel, round1 } from "./durationEvidence.service.js";
+import {
+  formatClassificationLabel,
+  loadCompanyHistoricalDurationSamples,
+  round1,
+  type HistoricalDurationSampleWithMeta,
+} from "./durationEvidence.service.js";
 import { computeExpectedDuration, type ExpectedDurationResult } from "./expectedDuration.service.js";
 import type { DeliverableReliabilityProfileDto } from "./forecastReliability.service.js";
+import { MIN_INSIGHT_SAMPLE, MIN_PROFILE_SAMPLE } from "./intelligenceConstants.js";
+import { clamp01 } from "./intelligenceMath.js";
 import { confidenceLevelFromScore } from "./learningMaturity.service.js";
 
 export type OutcomePredictionResult = {
@@ -35,13 +42,6 @@ export type DeliverableOutcomeProfileDto = {
   reasoning: string[];
   lastUpdated: string;
 };
-
-const MIN_PROFILE_SAMPLE = 3;
-const MIN_INSIGHT_SAMPLE = 10;
-
-function clamp01(x: number): number {
-  return Math.max(0, Math.min(1, x));
-}
 
 type KnowledgeInputs = {
   averageDuration: number | null;
@@ -195,22 +195,35 @@ function mapRow(row: {
   };
 }
 
+type ProfileRow = Awaited<
+  ReturnType<typeof prisma.deliverableKnowledgeProfile.findUnique>
+>;
+type ReliabilityRow = Awaited<
+  ReturnType<typeof prisma.deliverableReliabilityProfile.findUnique>
+>;
+
+type PredictionBuildResult = {
+  prediction: OutcomePredictionResult;
+  knowledge: ProfileRow;
+  reliability: ReliabilityRow;
+};
+
 async function buildPredictionForClassification(
   companyId: string,
-  classification: DeliverableClassification
-): Promise<OutcomePredictionResult | null> {
-  const [knowledge, reliability] = await Promise.all([
-    prisma.deliverableKnowledgeProfile.findUnique({
-      where: { companyId_classification: { companyId, classification } },
-    }),
-    prisma.deliverableReliabilityProfile.findUnique({
-      where: { companyId_classification: { companyId, classification } },
-    }),
-  ]);
+  classification: DeliverableClassification,
+  ctx: {
+    preloadedSamples: HistoricalDurationSampleWithMeta[];
+    knowledgeByClass: Map<string, ProfileRow>;
+    reliabilityByClass: Map<string, ReliabilityRow>;
+  }
+): Promise<PredictionBuildResult | null> {
+  const knowledge = ctx.knowledgeByClass.get(classification) ?? null;
+  const reliability = ctx.reliabilityByClass.get(classification) ?? null;
 
   const expected = await computeExpectedDuration({
     companyId,
     filters: { classification },
+    preloadedSamples: ctx.preloadedSamples,
   });
 
   if (expected.evidenceCount === 0 && !knowledge) {
@@ -225,7 +238,7 @@ async function buildPredictionForClassification(
     return null;
   }
 
-  return computeOutcomePrediction({
+  const prediction = computeOutcomePrediction({
     expectedMin,
     expectedMax,
     expectedMostLikely,
@@ -254,31 +267,34 @@ async function buildPredictionForClassification(
         }
       : null,
   });
+
+  return { prediction, knowledge, reliability };
 }
 
 /** Rebuild outcome profiles from knowledge, reliability, and historical evidence. */
 export async function refreshDeliverableOutcomeProfiles(companyId: string): Promise<number> {
+  const [preloadedSamples, knowledgeRows, reliabilityRows] = await Promise.all([
+    loadCompanyHistoricalDurationSamples({ companyId }),
+    prisma.deliverableKnowledgeProfile.findMany({ where: { companyId } }),
+    prisma.deliverableReliabilityProfile.findMany({ where: { companyId } }),
+  ]);
+  const knowledgeByClass = new Map(knowledgeRows.map((r) => [r.classification, r]));
+  const reliabilityByClass = new Map(reliabilityRows.map((r) => [r.classification, r]));
+  const ctx = { preloadedSamples, knowledgeByClass, reliabilityByClass };
+
   const now = new Date();
   let updated = 0;
 
   for (const classification of Object.values(DeliverableClassification)) {
-    const prediction = await buildPredictionForClassification(companyId, classification);
-    if (!prediction || prediction.evidenceCount < MIN_PROFILE_SAMPLE) {
+    const built = await buildPredictionForClassification(companyId, classification, ctx);
+    if (!built || built.prediction.evidenceCount < MIN_PROFILE_SAMPLE) {
       await prisma.deliverableOutcomeProfile.deleteMany({
         where: { companyId, classification },
       });
       continue;
     }
 
-    const [knowledge, reliability] = await Promise.all([
-      prisma.deliverableKnowledgeProfile.findUnique({
-        where: { companyId_classification: { companyId, classification } },
-      }),
-      prisma.deliverableReliabilityProfile.findUnique({
-        where: { companyId_classification: { companyId, classification } },
-      }),
-    ]);
-
+    const { prediction, knowledge, reliability } = built;
     const sampleSize = Math.max(
       prediction.evidenceCount,
       knowledge?.sampleSize ?? 0,
@@ -410,7 +426,21 @@ export async function getOutcomePredictionForClassification(
   if (!Object.values(DeliverableClassification).includes(normalized as DeliverableClassification)) {
     return null;
   }
-  return buildPredictionForClassification(companyId, normalized as DeliverableClassification);
+  const [preloadedSamples, knowledgeRows, reliabilityRows] = await Promise.all([
+    loadCompanyHistoricalDurationSamples({ companyId }),
+    prisma.deliverableKnowledgeProfile.findMany({ where: { companyId } }),
+    prisma.deliverableReliabilityProfile.findMany({ where: { companyId } }),
+  ]);
+  const built = await buildPredictionForClassification(
+    companyId,
+    normalized as DeliverableClassification,
+    {
+      preloadedSamples,
+      knowledgeByClass: new Map(knowledgeRows.map((r) => [r.classification, r])),
+      reliabilityByClass: new Map(reliabilityRows.map((r) => [r.classification, r])),
+    }
+  );
+  return built?.prediction ?? null;
 }
 
 export type OutcomePredictionInsightDraft = {

@@ -29,11 +29,17 @@ export function ProgrammeIntelligencePanel({ projectId, canEdit }: Props) {
       const res = await programmeIntelligenceApi.listSnapshots(projectId);
       setSnapshots(res.data.snapshots);
       const baseline = res.data.snapshots.find((s) => s.snapshotRole === "BASELINE");
-      if (baseline && !baselineId) setBaselineId(baseline.id);
+      if (baseline) {
+        setBaselineId((current) => current || baseline.id);
+      }
     } catch (err) {
       setError(getApiErrorMessage(err));
     }
-  }, [projectId, baselineId]);
+  }, [projectId]);
+
+  useEffect(() => {
+    setBaselineId("");
+  }, [projectId]);
 
   useEffect(() => {
     if (open) void loadSnapshots();

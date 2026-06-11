@@ -11,6 +11,7 @@ import { getSimilarDeliverables, getSimilarProjects } from "../services/intellig
 import { getDeliverableBenchmark } from "../services/intelligence/benchmark.service.js";
 import { getDeliverableFindings } from "../services/intelligence/findings.service.js";
 import { getDeliverableDrivers } from "../services/intelligence/driverAnalysis.service.js";
+import { getDeliverableIntelligenceAnalysis } from "../services/intelligence/intelligenceOrchestrator.service.js";
 import { getDeliverableRecommendations } from "../services/intelligence/recommendationEngine.service.js";
 
 /** GET /projects/:projectId/intelligence/profile */
@@ -136,6 +137,47 @@ export async function getSimilarDeliverablesForDeliverable(req: AuthRequest, res
   }
 }
 
+function parseSelectedProjectIds(req: AuthRequest): string[] | undefined {
+  const projectIdsRaw = String(req.query.projectIds ?? "").trim();
+  return projectIdsRaw && projectIdsRaw !== "null" && projectIdsRaw !== "undefined"
+    ? projectIdsRaw.split(",").map((s) => s.trim()).filter(Boolean)
+    : undefined;
+}
+
+/** GET /projects/:projectId/intelligence/analysis/:deliverableId */
+export async function getDeliverableIntelligenceAnalysisForDeliverable(
+  req: AuthRequest,
+  res: Response
+): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const projectId = String(req.params.projectId ?? "").trim();
+    const deliverableId = String(req.params.deliverableId ?? "").trim();
+    const membership = await requireProjectAccess(projectId, req.user, { adminOverride: true });
+    requirePermission(membership.role, "project", "read");
+
+    const analysis = await getDeliverableIntelligenceAnalysis({
+      projectId,
+      companyId: req.user.companyId,
+      deliverableId,
+      selectedProjectIds: parseSelectedProjectIds(req),
+    });
+
+    res.json(analysis);
+  } catch (err) {
+    const status = err && typeof err === "object" && "status" in err ? Number((err as any).status) : 500;
+    if (status === 404) {
+      res.status(404).json({ error: (err as Error).message || "Not found" });
+      return;
+    }
+    console.error(err);
+    res.status(500).json({ error: "Intelligence analysis failed" });
+  }
+}
+
 /** GET /projects/:projectId/intelligence/benchmark/:deliverableId */
 export async function getDeliverableBenchmarkForDeliverable(req: AuthRequest, res: Response): Promise<void> {
   try {
@@ -211,6 +253,37 @@ export async function getDeliverableFindingsForDeliverable(req: AuthRequest, res
     }
     console.error(err);
     res.status(500).json({ error: "Findings generation failed" });
+  }
+}
+
+/** GET /projects/:projectId/intelligence/trust/:deliverableId */
+export async function getDeliverableTrustForDeliverable(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const projectId = String(req.params.projectId ?? "").trim();
+    const deliverableId = String(req.params.deliverableId ?? "").trim();
+    const membership = await requireProjectAccess(projectId, req.user, { adminOverride: true });
+    requirePermission(membership.role, "project", "read");
+
+    const analysis = await getDeliverableIntelligenceAnalysis({
+      projectId,
+      companyId: req.user.companyId,
+      deliverableId,
+      selectedProjectIds: parseSelectedProjectIds(req),
+    });
+
+    res.json({ trust: analysis.trust });
+  } catch (err) {
+    const status = err && typeof err === "object" && "status" in err ? Number((err as any).status) : 500;
+    if (status === 404) {
+      res.status(404).json({ error: (err as Error).message || "Not found" });
+      return;
+    }
+    console.error(err);
+    res.status(500).json({ error: "Trust explanation failed" });
   }
 }
 

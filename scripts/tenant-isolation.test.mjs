@@ -108,14 +108,35 @@ async function seed() {
     })
   );
 
-  const rateA = await runWithAuthContextAsync({ userId: userA.id, companyId: companyA.id }, async () =>
-    prisma.rateCardEntry.create({ data: { resourceType: "T", resourceName: "R1", unit: "hr", rate: 10 } })
+  const assuranceNoteA = await runWithAuthContextAsync({ userId: userA.id, companyId: companyA.id }, async () =>
+    prisma.assuranceNote.create({
+      data: { noteText: "Note A", standardId: standardA.id, projectId: projectA.id },
+    })
   );
-  const rateB = await runWithAuthContextAsync({ userId: userB.id, companyId: companyB.id }, async () =>
-    prisma.rateCardEntry.create({ data: { resourceType: "T", resourceName: "R2", unit: "hr", rate: 20 } })
+  const assuranceNoteB = await runWithAuthContextAsync({ userId: userB.id, companyId: companyB.id }, async () =>
+    prisma.assuranceNote.create({
+      data: { noteText: "Note B", standardId: standardB.id, projectId: projectB.id },
+    })
   );
 
-  return { companyA, companyB, userA, userB, projectA, projectB, standardA, standardB, fragnetA, fragnetB, deliverableA, deliverableB, activityA, activityB, rateA, rateB };
+  return {
+    companyA,
+    companyB,
+    userA,
+    userB,
+    projectA,
+    projectB,
+    standardA,
+    standardB,
+    fragnetA,
+    fragnetB,
+    deliverableA,
+    deliverableB,
+    activityA,
+    activityB,
+    assuranceNoteA,
+    assuranceNoteB,
+  };
 }
 
 async function cleanup(seedData) {
@@ -127,7 +148,6 @@ async function cleanup(seedData) {
     await prisma.fragnet.deleteMany({});
     await prisma.assuranceNote.deleteMany({});
     await prisma.standard.deleteMany({});
-    await prisma.rateCardEntry.deleteMany({});
     await prisma.project.deleteMany({});
   });
   await runWithAuthContextAsync({ userId: seedData.userB.id, companyId: seedData.companyB.id }, async () => {
@@ -137,7 +157,6 @@ async function cleanup(seedData) {
     await prisma.fragnet.deleteMany({});
     await prisma.assuranceNote.deleteMany({});
     await prisma.standard.deleteMany({});
-    await prisma.rateCardEntry.deleteMany({});
     await prisma.project.deleteMany({});
   });
 
@@ -174,7 +193,7 @@ test("Test 2: cross-company UPDATE must fail", async () => {
 
 test("Test 3: cross-company DELETE must fail", async () => {
   const result = await runWithAuthContextAsync({ userId: seedData.userA.id, companyId: seedData.companyA.id }, async () =>
-    prisma.rateCardEntry.deleteMany({ where: { id: seedData.rateB.id } })
+    prisma.assuranceNote.deleteMany({ where: { id: seedData.assuranceNoteB.id } })
   );
   assert.equal(result.count, 0);
 });
@@ -188,6 +207,7 @@ test("Test 4: cross-company CREATE with foreign ID must fail (no silent mismatch
         data: {
           fragnetId: seedData.fragnetA.id,
           deliverableId: seedData.deliverableB.id, // foreign-company deliverable
+          projectId: seedData.projectA.id,
           activityCode: "X-TENANT-FK",
           name: "Cross-tenant FK attempt",
           bestDuration: 1,
@@ -216,17 +236,25 @@ test("Test 6: nested relation leak test (include activities)", async () => {
 
 test("Test 7: createMany enforcement (companyId injected)", async () => {
   const created = await runWithAuthContextAsync({ userId: seedData.userA.id, companyId: seedData.companyA.id }, async () =>
-    prisma.rateCardEntry.createMany({
+    prisma.assuranceNote.createMany({
       data: [
-        { resourceType: "T", resourceName: "R3", unit: "hr", rate: 1 },
-        { resourceType: "T", resourceName: "R4", unit: "hr", rate: 2 },
+        {
+          noteText: "Bulk note 1",
+          standardId: seedData.standardA.id,
+          projectId: seedData.projectA.id,
+        },
+        {
+          noteText: "Bulk note 2",
+          standardId: seedData.standardA.id,
+          projectId: seedData.projectA.id,
+        },
       ],
     })
   );
   assert.equal(created.count, 2);
 
   const rows = await runWithAuthContextAsync({ userId: seedData.userA.id, companyId: seedData.companyA.id }, async () =>
-    prisma.rateCardEntry.findMany({ where: { resourceName: { in: ["R3", "R4"] } } })
+    prisma.assuranceNote.findMany({ where: { noteText: { in: ["Bulk note 1", "Bulk note 2"] } } })
   );
   assert.equal(rows.length, 2);
   assert.equal(rows.every((r) => r.companyId === seedData.companyA.id), true);

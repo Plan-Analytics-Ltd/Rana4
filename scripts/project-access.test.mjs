@@ -42,12 +42,12 @@ test.before(async () => {
   );
   const memberA = await runWithAuthContextAsync(bootstrapCtx, async () =>
     prisma.user.create({
-      data: { email: `membera_${Date.now()}@test.local`, passwordHash: "x", name: "MemberA", companyId: companyA.id, role: "MEMBER" },
+      data: { email: `membera_${Date.now()}@test.local`, passwordHash: "x", name: "MemberA", companyId: companyA.id, role: "VIEWER" },
     })
   );
   const memberB = await runWithAuthContextAsync(bootstrapCtx, async () =>
     prisma.user.create({
-      data: { email: `memberb_${Date.now()}@test.local`, passwordHash: "x", name: "MemberB", companyId: companyB.id, role: "MEMBER" },
+      data: { email: `memberb_${Date.now()}@test.local`, passwordHash: "x", name: "MemberB", companyId: companyB.id, role: "VIEWER" },
     })
   );
 
@@ -86,7 +86,7 @@ test.after(async () => {
 
 test("Member assigned to project can access", async () => {
   const got = await runWithAuthContextAsync({ userId: seed.memberA.id, companyId: seed.companyA.id }, async () =>
-    requireProjectAccess(seed.projectA.id, { id: seed.memberA.id, companyId: seed.companyA.id, role: "MEMBER" })
+    requireProjectAccess(seed.projectA.id, { id: seed.memberA.id, companyId: seed.companyA.id, role: "VIEWER" })
   );
   assert.equal(got.projectId, seed.projectA.id);
   assert.equal(got.userId, seed.memberA.id);
@@ -95,7 +95,7 @@ test("Member assigned to project can access", async () => {
 test("Member not assigned cannot access", async () => {
   await assert.rejects(() =>
     runWithAuthContextAsync({ userId: seed.memberA.id, companyId: seed.companyA.id }, async () =>
-      requireProjectAccess(seed.projectB.id, { id: seed.memberA.id, companyId: seed.companyA.id, role: "MEMBER" })
+      requireProjectAccess(seed.projectB.id, { id: seed.memberA.id, companyId: seed.companyA.id, role: "VIEWER" })
     )
   );
 });

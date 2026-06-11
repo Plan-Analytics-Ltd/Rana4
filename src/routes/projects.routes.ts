@@ -41,6 +41,10 @@ router.get(
   projectIntelligenceController.getSimilarDeliverablesForDeliverable
 );
 router.get(
+  "/:projectId/intelligence/analysis/:deliverableId",
+  projectIntelligenceController.getDeliverableIntelligenceAnalysisForDeliverable
+);
+router.get(
   "/:projectId/intelligence/benchmark/:deliverableId",
   projectIntelligenceController.getDeliverableBenchmarkForDeliverable
 );
@@ -55,6 +59,10 @@ router.get(
 router.get(
   "/:projectId/intelligence/recommendations/:deliverableId",
   projectIntelligenceController.getDeliverableRecommendationsForDeliverable
+);
+router.get(
+  "/:projectId/intelligence/trust/:deliverableId",
+  projectIntelligenceController.getDeliverableTrustForDeliverable
 );
 router.get("/:projectId/programme-export", programmeIntelligenceController.exportProgrammeJson);
 router.get("/:id/full-data", projectsController.getFullData);

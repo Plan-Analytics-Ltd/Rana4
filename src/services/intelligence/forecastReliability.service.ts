@@ -7,6 +7,8 @@ import {
   stddev,
   type PlannedVsActualSample,
 } from "./durationEvidence.service.js";
+import { MIN_INSIGHT_SAMPLE, MIN_PROFILE_SAMPLE } from "./intelligenceConstants.js";
+import { clamp01 } from "./intelligenceMath.js";
 import { confidenceLevelFromScore, predictabilityFromDurations } from "./learningMaturity.service.js";
 
 export type DeliverableReliabilityProfileDto = {
@@ -33,12 +35,6 @@ export type DeliverableReliabilityProfileDto = {
 
 /** Accepted tolerance for "on target" (±10%). */
 const ON_TARGET_TOLERANCE = 0.1;
-const MIN_PROFILE_SAMPLE = 3;
-const MIN_INSIGHT_SAMPLE = 10;
-
-function clamp01(x: number): number {
-  return Math.max(0, Math.min(1, x));
-}
 
 function pctFrequency(fraction: number, _total: number): number {
   if (!Number.isFinite(fraction)) return 0;

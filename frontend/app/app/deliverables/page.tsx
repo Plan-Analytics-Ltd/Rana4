@@ -159,9 +159,22 @@ export default function DeliverablesPage() {
     })();
   }, []);
 
+  const refreshDeliverablesOnly = useCallback(async () => {
+    if (!selectedProjectId) return;
+    setRefreshing(true);
+    try {
+      const { data } = await deliverablesApi.list(selectedProjectId);
+      setDeliverables(data);
+    } catch (err: unknown) {
+      toast.error(getApiErrorMessage(err) || "Failed to refresh deliverables");
+    } finally {
+      setRefreshing(false);
+    }
+  }, [selectedProjectId]);
+
   const fetchDeliverables = useCallback(
-    () => loadInitialData({ silent: true }),
-    [loadInitialData]
+    () => refreshDeliverablesOnly(),
+    [refreshDeliverablesOnly]
   );
 
   const resetForm = () => {

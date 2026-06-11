@@ -121,6 +121,26 @@ export default function ScheduleWorkspacePage() {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [savingCanonicalId, setSavingCanonicalId] = useState<string | null>(null);
 
+  const applyScheduleNetwork = useCallback((network: Awaited<ReturnType<typeof projectsApi.getScheduleNetwork>>["data"]) => {
+    setActivityRelationships(network.relationships ?? []);
+    setDeliverableRelationships(network.deliverableRelationships ?? []);
+    setDeliverableActivityRelationships(network.deliverableActivityRelationships ?? []);
+    setActivityToDeliverableRelationships(network.activityToDeliverableRelationships ?? []);
+    setCpmActivities(cpmActivityMap(network.activities ?? []));
+    setProjectScheduleStart(network.projectStart ?? null);
+    setDiagnostics(network.diagnostics ?? []);
+  }, []);
+
+  const reloadScheduleMetrics = useCallback(async () => {
+    if (!selectedProjectId) return;
+    const [network, critical] = await Promise.all([
+      projectsApi.getScheduleNetwork(selectedProjectId),
+      projectsApi.getCriticalPath(selectedProjectId),
+    ]);
+    applyScheduleNetwork(network.data);
+    setCriticalIds(new Set(critical.data.activities.map((a) => a.id)));
+  }, [applyScheduleNetwork, selectedProjectId]);
+
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!selectedProjectId) return;
     setError(null);
@@ -134,13 +154,7 @@ export default function ScheduleWorkspacePage() {
         rateCardApi.get().catch(() => ({ data: { entries: [] as RateCardEntry[] } })),
       ]);
       setFullData(parseFullData(tree.data));
-      setActivityRelationships(network.data.relationships ?? []);
-      setDeliverableRelationships(network.data.deliverableRelationships ?? []);
-      setDeliverableActivityRelationships(network.data.deliverableActivityRelationships ?? []);
-      setActivityToDeliverableRelationships(network.data.activityToDeliverableRelationships ?? []);
-      setCpmActivities(cpmActivityMap(network.data.activities ?? []));
-      setProjectScheduleStart(network.data.projectStart ?? null);
-      setDiagnostics(network.data.diagnostics ?? []);
+      applyScheduleNetwork(network.data);
       setCriticalIds(new Set(critical.data.activities.map((a) => a.id)));
       setRateCard(rc.data.entries ?? []);
     } catch (err) {
@@ -148,7 +162,7 @@ export default function ScheduleWorkspacePage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedProjectId]);
+  }, [applyScheduleNetwork, selectedProjectId]);
 
   useEffect(() => {
     if (selectedProjectId) setCollapse(loadCollapse(selectedProjectId));
@@ -235,7 +249,7 @@ export default function ScheduleWorkspacePage() {
       setSavingCanonicalId(canonicalId);
       try {
         await activitiesApi.update(canonicalId, patch);
-        await load({ silent: true });
+        await reloadScheduleMetrics();
         toast.success("Activity saved");
       } catch (err) {
         toast.error(getApiErrorMessage(err));
@@ -243,7 +257,7 @@ export default function ScheduleWorkspacePage() {
         setSavingCanonicalId(null);
       }
     },
-    [mayEdit, load]
+    [mayEdit, reloadScheduleMetrics]
   );
 
   const expandAll = () => {

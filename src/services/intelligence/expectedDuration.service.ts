@@ -6,6 +6,7 @@ import {
   round1,
   stddev,
   type DurationEvidenceFilters,
+  type HistoricalDurationSampleWithMeta,
 } from "./durationEvidence.service.js";
 import {
   confidenceLevelFromScore,
@@ -43,6 +44,7 @@ export async function computeExpectedDuration(args: {
   filters: DurationEvidenceFilters;
   projectIds?: string[];
   excludeProjectId?: string;
+  preloadedSamples?: HistoricalDurationSampleWithMeta[];
 }): Promise<ExpectedDurationResult> {
   const samples = await loadHistoricalDeliverableDurations(args);
   const durations = samples.map((s) => s.durationDays).sort((a, b) => a - b);
