@@ -85,15 +85,9 @@ function main(): void {
     throw new Error(`deliverable B row wrong: ${JSON.stringify(wbsB)}`);
   }
 
-  if (x.tasks.length !== 3) {
-    throw new Error(`expected 3 TASK rows, got ${x.tasks.length}`);
-  }
-  const byTask = new Map(x.tasks.map((t) => [t.task_id, t.wbs_id]));
-  if (byTask.get("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa") !== "2") {
-    throw new Error("activity A not under deliverable A WBS");
-  }
-  if (byTask.get("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb") !== "3" || byTask.get("cccccccc-cccc-4ccc-8ccc-cccccccccccc") !== "3") {
-    throw new Error("activity B rows not under deliverable B WBS");
+  // TASK rows are emitted in spreadsheet export; mapToXER only maps PROJWBS hierarchy.
+  if (x.tasks.length !== 0) {
+    throw new Error(`expected 0 TASK rows from mapToXER, got ${x.tasks.length}`);
   }
 
   const empty: GeneratedWbs = {

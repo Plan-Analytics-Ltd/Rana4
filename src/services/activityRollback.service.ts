@@ -30,8 +30,14 @@ export async function rollbackActivityToVersion(input: {
     throw err;
   }
 
-  // Respect contextual rules: cannot rollback LOCKED.
-  requirePermission(membership.role, "activity", "update", { status: current.status, operation: "rollback" });
+  // Cannot rollback workflow-locked activities.
+  if (current.status === "LOCKED") {
+    const err = new Error("Cannot rollback a locked activity");
+    (err as any).status = 409;
+    throw err;
+  }
+
+  requirePermission(membership.role, "activity", "update");
 
   const versions = await getActivityVersions(activityId, actor);
   const fromVersion = versions.length;

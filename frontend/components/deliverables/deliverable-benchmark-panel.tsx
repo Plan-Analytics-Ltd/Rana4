@@ -18,6 +18,7 @@ import { DeliverableFindingsSection } from "@/components/deliverables/deliverabl
 import { DeliverableDriversSection } from "@/components/deliverables/deliverable-drivers-section";
 import { DeliverableRecommendationsSection } from "@/components/deliverables/deliverable-recommendations-section";
 import { DeliverableTrustSection } from "@/components/deliverables/deliverable-trust-section";
+import { DeliverableExplanationPanel } from "@/components/deliverables/deliverable-explanation-panel";
 
 type Props = {
   projectId: string;
@@ -153,6 +154,12 @@ export function DeliverableBenchmarkPanel({
         ) : (
           <>
             <DeliverableTrustSection trust={trust} />
+
+            <DeliverableExplanationPanel
+              projectId={projectId}
+              deliverableId={deliverableId}
+              enabled={enabled && !loading && !err}
+            />
 
             {(expected?.confidenceLevel === "LOW" || confidenceLevel === "LOW") && sampleSize + (expected?.evidenceCount ?? 0) > 0 ? (
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">

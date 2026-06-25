@@ -532,6 +532,102 @@ export type IntelligenceDashboard = {
   trustProfiles: IntelligenceTrustProfile[];
 };
 
+export const EXPLANATION_TYPES = [
+  "FLAGGED_DELIVERABLE",
+  "RECOMMENDATION",
+  "PREDICTED_OUTCOME",
+  "BENCHMARK",
+  "FORECAST_RELIABILITY",
+  "TRUST_SCORE",
+  "KEY_FACTORS",
+  "DELIVERABLE_SUMMARY",
+] as const;
+
+export type ExplanationType = (typeof EXPLANATION_TYPES)[number];
+
+export type ExplanationCitation = {
+  id: string;
+  layer: string;
+  label: string;
+  summary: string;
+  evidenceCount?: number | null;
+  confidenceLevel?: string | null;
+  confidenceScore?: number | null;
+};
+
+export type ExplanationSource = {
+  layer: string;
+  reference: string;
+  detail?: string;
+};
+
+export type ExplanationContextSummary = {
+  deliverableId: string;
+  deliverableName: string;
+  classification: string | null;
+  currentDurationDays: number | null;
+  outlierStatus: string | null;
+  benchmarkSampleSize: number;
+  observationCount: number;
+  keyFactorCount: number;
+  recommendationCount: number;
+  trustBand: string | null;
+  trustScore: number | null;
+  hasForecastReliability: boolean;
+  hasPredictedOutcome: boolean;
+};
+
+export type ExplanationReadiness = "READY" | "LIMITED" | "NOT_READY";
+
+export type ValidationCheck = {
+  id: string;
+  label: string;
+  result: "PASS" | "WARNING" | "FAIL";
+  message: string;
+};
+
+export type ExplanationValidationReport = {
+  readiness: ExplanationReadiness;
+  score: number;
+  issues: string[];
+  passedChecks: ValidationCheck[];
+  warningChecks: ValidationCheck[];
+  failedChecks: ValidationCheck[];
+};
+
+export type DeliverableExplanationResult = {
+  status: "success" | "provider_not_configured" | "mock" | "disabled" | "not_ready" | "error";
+  explanationType: ExplanationType;
+  question: string | null;
+  explanation: string | null;
+  confidence: string | null;
+  citations: ExplanationCitation[];
+  sources: ExplanationSource[];
+  supportingEvidence: { label: string; value: string | number }[];
+  generatedPrompt: { system: string; user: string };
+  contextSummary: ExplanationContextSummary;
+  validation: ExplanationValidationReport;
+  providerCalled: boolean;
+  message?: string;
+  providerId?: string;
+};
+
+export type DeliverableExplanationValidationResult = {
+  validation: ExplanationValidationReport;
+  contextSummary: ExplanationContextSummary;
+};
+
+export const EXPLANATION_TYPE_LABELS: Record<ExplanationType, string> = {
+  FLAGGED_DELIVERABLE: "Why is this flagged?",
+  RECOMMENDATION: "Explain recommendations",
+  PREDICTED_OUTCOME: "Explain predicted outcome",
+  BENCHMARK: "Explain benchmark",
+  FORECAST_RELIABILITY: "Explain forecast reliability",
+  TRUST_SCORE: "Explain trust score",
+  KEY_FACTORS: "Explain key factors",
+  DELIVERABLE_SUMMARY: "Summarise deliverable",
+};
+
 export const intelligenceApi = {
   getDeliverableIntelligenceAnalysis: (
     projectId: string,
@@ -545,6 +641,35 @@ export const intelligenceApi = {
       {
         params: projectIds.length ? { projectIds: projectIds.join(",") } : undefined,
       }
+    );
+  },
+  explainDeliverable: (
+    projectId: string,
+    body: {
+      deliverableId: string;
+      explanationType: ExplanationType;
+      question?: string | null;
+      projectIds?: string[];
+    }
+  ) => {
+    const pid = requireProjectId(projectId);
+    return api.post<DeliverableExplanationResult>(
+      `/projects/${encodeURIComponent(pid)}/intelligence/explain`,
+      body
+    );
+  },
+  validateDeliverableExplanation: (
+    projectId: string,
+    body: {
+      deliverableId: string;
+      explanationType: ExplanationType;
+      projectIds?: string[];
+    }
+  ) => {
+    const pid = requireProjectId(projectId);
+    return api.post<DeliverableExplanationValidationResult>(
+      `/projects/${encodeURIComponent(pid)}/intelligence/explain/validate`,
+      body
     );
   },
   getDeliverableBenchmark: (projectId: string, deliverableId: string, opts?: { projectIds?: string[] }) => {

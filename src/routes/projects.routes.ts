@@ -5,6 +5,7 @@ import * as scheduleController from "../controllers/schedule.controller.js";
 import * as importController from "../controllers/import.controller.js";
 import * as programmeIntelligenceController from "../controllers/programmeIntelligence.controller.js";
 import * as projectIntelligenceController from "../controllers/projectIntelligence.controller.js";
+import * as explanationController from "../controllers/explanation.controller.js";
 import { requireAuth } from "../middleware/auth.middleware.js";
 
 const router = Router();
@@ -64,6 +65,8 @@ router.get(
   "/:projectId/intelligence/trust/:deliverableId",
   projectIntelligenceController.getDeliverableTrustForDeliverable
 );
+router.post("/:projectId/intelligence/explain/validate", explanationController.postValidateDeliverableExplanation);
+router.post("/:projectId/intelligence/explain", explanationController.postDeliverableExplanation);
 router.get("/:projectId/programme-export", programmeIntelligenceController.exportProgrammeJson);
 router.get("/:id/full-data", projectsController.getFullData);
 router.get("/:id/suggested-activity-code", projectsController.getSuggestedActivityCode);
