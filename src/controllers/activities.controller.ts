@@ -8,7 +8,7 @@ import { auditLog } from "../services/audit.service.js";
 import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
 import { transitionActivityStatus } from "../services/activityStatus.service.js";
-import { auditUpdateIfChanged } from "../services/auditDiff.service.js";
+import { auditUpdateIfChanged } from "../services/shared/auditDiff.service.js";
 import { getActivityVersions } from "../services/activityVersions.service.js";
 import { rollbackActivityToVersion } from "../services/activityRollback.service.js";
 import { changeApprovalState } from "../services/activityApproval.service.js";

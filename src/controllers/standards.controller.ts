@@ -5,7 +5,7 @@ import { auditLog } from "../services/audit.service.js";
 import { isPrismaForeignKeyViolation } from "../utils/prismaErrors.js";
 import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
-import { auditUpdateIfChanged } from "../services/auditDiff.service.js";
+import { auditUpdateIfChanged } from "../services/shared/auditDiff.service.js";
 import { importAssignmentsSheetForStandard } from "../services/import/assignmentsImport.service.js";
 import { PROJECT_LEVEL_STANDARD_NAME } from "../services/projectLevelActivityContext.service.js";
 

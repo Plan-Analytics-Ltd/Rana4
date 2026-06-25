@@ -76,7 +76,7 @@ Your `.env` still has the **placeholder** URL (`ep-xxx.region.aws.neon.tech`). U
 
 ### Fix: “Drift detected” / schema not in sync
 
-Your database already has tables (e.g. from `db/apply_schema.sql`), but Prisma’s migration history doesn’t. Choose one:
+Your database already has tables (e.g. from `database/legacy-schema/apply_schema.sql`), but Prisma’s migration history doesn’t. Choose one:
 
 **Option A – Keep existing DB and data (baseline)**  
 Mark the initial migration as applied without running it:

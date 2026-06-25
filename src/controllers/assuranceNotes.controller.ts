@@ -5,7 +5,7 @@ import { isPrismaForeignKeyViolation } from "../utils/prismaErrors.js";
 import { auditLog } from "../services/audit.service.js";
 import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
-import { auditUpdateIfChanged } from "../services/auditDiff.service.js";
+import { auditUpdateIfChanged } from "../services/shared/auditDiff.service.js";
 
 export async function create(req: AuthRequest, res: Response): Promise<void> {
   try {

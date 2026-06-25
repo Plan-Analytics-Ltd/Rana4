@@ -2,24 +2,24 @@ import {
   buildExplanationIntelligencePackage,
   buildContextSummary,
   type ExplanationIntelligencePackage,
-} from "./explanationContext.builder.js";
+} from "./context/explanationContext.builder.js";
 import { getAiExplanationConfig, resolveSystemPrompt } from "./explanationConfig.js";
-import { buildExplanationSources, flattenSupportingEvidence } from "./explanationCitations.js";
-import { logExplanationEvent } from "./explanationLogger.js";
-import { buildExplanationPrompt } from "./explanationPrompt.builder.js";
+import { buildExplanationSources, flattenSupportingEvidence } from "./citations/explanationCitations.js";
+import { logExplanationEvent } from "./logging/explanationLogger.js";
+import { buildExplanationPrompt } from "./prompt/explanationPrompt.builder.js";
 import type {
   ExplanationRequest,
   ExplanationResult,
   ExplanationType,
   ExplanationValidationReport,
-} from "./explanationTypes.js";
-import { parseExplanationType } from "./explanationTypes.js";
+} from "./types/explanationTypes.js";
+import { parseExplanationType } from "./types/explanationTypes.js";
 import {
   NOT_READY_EXPLANATION_MESSAGE,
   shouldInvokeExplanationProvider,
   validateExplanationContext,
-} from "./explanationValidator.service.js";
-import { resolveLlmProvider } from "./llm/llmProviderRegistry.js";
+} from "./validation/explanationValidator.service.js";
+import { resolveLlmProvider } from "./providers/llmProviderRegistry.js";
 
 export function parseExplanationRequestBody(body: unknown): {
   deliverableId: string;

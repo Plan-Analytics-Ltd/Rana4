@@ -1,4 +1,4 @@
-import { DEFAULT_SYSTEM_PROMPT } from "./explanationPrompt.builder.js";
+import { DEFAULT_SYSTEM_PROMPT } from "./prompt/explanationPrompt.builder.js";
 
 export type AiExplanationConfig = {
   enabled: boolean;

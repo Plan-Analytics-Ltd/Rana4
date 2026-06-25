@@ -7,11 +7,11 @@ import { isPrismaForeignKeyViolation } from "../utils/prismaErrors.js";
 import { auditLog } from "../services/audit.service.js";
 import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
-import { auditUpdateIfChanged } from "../services/auditDiff.service.js";
+import { auditUpdateIfChanged } from "../services/shared/auditDiff.service.js";
 import { replaceActivityCodeAssignmentsForDeliverable } from "../services/activityCodeAssignments.service.js";
 import { materializeTemplatesForDeliverable } from "../services/fragnetActivityTemplate.service.js";
 import type { DeliverableClassification } from "@prisma/client";
-import { classifyDeliverableName } from "../services/intelligence/deliverableClassification.service.js";
+import { classifyDeliverableName } from "../services/intelligence/profiles/deliverableClassification.service.js";
 
 /**
  * Prisma `DeliverableInclude` must list `activityCodeAssignments` (schema + `npx prisma generate`).

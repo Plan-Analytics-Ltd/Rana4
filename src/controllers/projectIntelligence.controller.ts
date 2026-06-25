@@ -6,13 +6,13 @@ import {
   autoPopulateFromImportedProgrammeMetadata,
   getProfile,
   updateProfile,
-} from "../services/intelligence/intelligenceProfile.service.js";
-import { getSimilarDeliverables, getSimilarProjects } from "../services/intelligence/similarity.service.js";
-import { getDeliverableBenchmark } from "../services/intelligence/benchmark.service.js";
-import { getDeliverableFindings } from "../services/intelligence/findings.service.js";
-import { getDeliverableDrivers } from "../services/intelligence/driverAnalysis.service.js";
-import { getDeliverableIntelligenceAnalysis } from "../services/intelligence/intelligenceOrchestrator.service.js";
-import { getDeliverableRecommendations } from "../services/intelligence/recommendationEngine.service.js";
+} from "../services/intelligence/profiles/intelligenceProfile.service.js";
+import { getSimilarDeliverables, getSimilarProjects } from "../services/intelligence/shared/similarity.service.js";
+import { getDeliverableBenchmark } from "../services/intelligence/benchmark/benchmark.service.js";
+import { getDeliverableFindings } from "../services/intelligence/findings/findings.service.js";
+import { getDeliverableDrivers } from "../services/intelligence/drivers/driverAnalysis.service.js";
+import { getDeliverableIntelligenceAnalysis } from "../services/intelligence/orchestration/intelligenceOrchestrator.service.js";
+import { getDeliverableRecommendations } from "../services/intelligence/recommendations/recommendationEngine.service.js";
 
 /** GET /projects/:projectId/intelligence/profile */
 export async function getIntelligenceProfile(req: AuthRequest, res: Response): Promise<void> {

@@ -17,7 +17,7 @@ test("Swagger CSP exception is scoped to /api-docs only", async () => {
 });
 
 test("Swagger documentation explains development-only CSP exception", async () => {
-  const testing = await readRepoFile("TESTING.md");
+  const testing = await readRepoFile("docs/testing/TESTING.md");
   assert.match(testing, /disabled when `NODE_ENV=production`/);
   assert.match(testing, /CSP exception scoped only to `\/api-docs`/);
 });

@@ -15,5 +15,5 @@ frontend/.next/
 *.pfx
 *credentials*.json
 *secret*.json
-scripts/reconcile-to-migrations.generated.sql
-scripts/reconcile-to-migrations.no-drops.sql
+scripts/database/reconcile/reconcile-to-migrations.generated.sql
+scripts/database/reconcile/reconcile-to-migrations.no-drops.sql

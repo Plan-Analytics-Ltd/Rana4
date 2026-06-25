@@ -2,26 +2,26 @@ import type { Response } from "express";
 import type { AuthRequest } from "../middleware/auth.middleware.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
 import { auditLog } from "../services/audit.service.js";
-import { importProgrammeSchedule } from "../services/intelligence/programmeImport.service.js";
+import { importProgrammeSchedule } from "../services/intelligence/shared/programmeImport.service.js";
 import {
   captureLiveBaselineSnapshot,
   listProjectSnapshots,
-} from "../services/intelligence/programmeSnapshotCapture.service.js";
+} from "../services/intelligence/shared/programmeSnapshotCapture.service.js";
 import {
   compareBaselineToLive,
   compareSnapshots,
-} from "../services/intelligence/plannedVsActual.service.js";
+} from "../services/intelligence/shared/plannedVsActual.service.js";
 import {
   getProjectIntelligenceProfile,
   refreshProjectIntelligenceMetadata,
   upsertProjectIntelligenceProfile,
-} from "../services/intelligence/intelligenceMetadata.service.js";
-import { computePortfolioBenchmarks } from "../services/intelligence/portfolioBenchmark.service.js";
+} from "../services/intelligence/orchestration/intelligenceMetadata.service.js";
+import { computePortfolioBenchmarks } from "../services/intelligence/benchmark/portfolioBenchmark.service.js";
 import {
   generateLessonsLearned,
   listLessonsLearned,
-} from "../services/intelligence/lessonsLearned.service.js";
-import { buildRana4ProgrammeExport } from "../services/intelligence/rana4ScheduleExport.service.js";
+} from "../services/intelligence/learning/lessonsLearned.service.js";
+import { buildRana4ProgrammeExport } from "../services/intelligence/shared/rana4ScheduleExport.service.js";
 import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { prisma } from "../utils/prisma.js";
 import type { ProgrammeSnapshotRole } from "@prisma/client";

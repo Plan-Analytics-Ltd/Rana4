@@ -1,34 +1,34 @@
 import type { LearnedInsightType } from "@prisma/client";
 import type { Response } from "express";
 import type { AuthRequest } from "../middleware/auth.middleware.js";
-import { listDeliverableKnowledgeProfiles } from "../services/intelligence/deliverableKnowledgeProfile.service.js";
+import { listDeliverableKnowledgeProfiles } from "../services/intelligence/profiles/deliverableKnowledgeProfile.service.js";
 import {
   getReliabilityProfileByClassification,
   listReliabilityProfiles,
   refreshDeliverableReliabilityProfiles,
-} from "../services/intelligence/forecastReliability.service.js";
+} from "../services/intelligence/prediction/forecastReliability.service.js";
 import {
   getOutcomeProfileByClassification,
   listOutcomeProfiles,
   refreshDeliverableOutcomeProfiles,
-} from "../services/intelligence/outcomePrediction.service.js";
+} from "../services/intelligence/prediction/outcomePrediction.service.js";
 import {
   getLearnedInsightById,
   listLearnedInsights,
   type LearnedInsightFilters,
-} from "../services/intelligence/learningEngine.service.js";
+} from "../services/intelligence/learning/learningEngine.service.js";
 import {
   getIntelligenceTrustProfileByClassification,
   listIntelligenceTrustProfiles,
   refreshIntelligenceTrustProfiles,
-} from "../services/intelligence/intelligenceTrust.service.js";
+} from "../services/intelligence/trust/intelligenceTrust.service.js";
 import {
   getRecommendationProfilesByClassification,
   groupRecommendationTrends,
   listRecommendationProfiles,
   refreshRecommendationProfiles,
-} from "../services/intelligence/recommendationEngine.service.js";
-import { runPostImportLearningRefresh } from "../services/intelligence/learningRefresh.service.js";
+} from "../services/intelligence/recommendations/recommendationEngine.service.js";
+import { runPostImportLearningRefresh } from "../services/intelligence/learning/learningRefresh.service.js";
 
 const INSIGHT_TYPES: LearnedInsightType[] = [
   "DURATION_OVERRUN",

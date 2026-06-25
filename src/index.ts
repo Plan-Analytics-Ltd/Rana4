@@ -21,7 +21,7 @@ import importRoutes from "./routes/import.routes.js";
 import intelligenceRoutes from "./routes/intelligence.routes.js";
 import fragnetsRoutes from "./routes/fragnets.routes.js";
 import healthRoutes from "./routes/healthRoutes.js";
-import { openApiSpec } from "./openapi.js";
+import { openApiSpec } from "./api/openapi.js";
 import rateCardRoutes from "./routes/rateCard.routes.js";
 import relationshipsRoutes from "./routes/relationships.routes.js";
 import deliverableRelationshipsRoutes from "./routes/deliverableRelationships.routes.js";

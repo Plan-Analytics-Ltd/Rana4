@@ -3,7 +3,7 @@ import type { AuthedUser } from "./projectAccess.service.js";
 import { requireProjectAccess } from "./projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
 import { auditLog } from "./audit.service.js";
-import { auditUpdateIfChanged } from "./auditDiff.service.js";
+import { auditUpdateIfChanged } from "./shared/auditDiff.service.js";
 import { getActivityVersions } from "./activityVersions.service.js";
 
 const ROLLBACK_FIELDS = ["name", "deliverableId", "bestDuration", "likelyDuration", "assuranceNoteId", "assignedResources"] as const;
