@@ -1,0 +1,21 @@
+ERMHDR	18.8	2024-01-01	Project	admin	
+%T	PROJECT
+%F	proj_id	proj_short_name	proj_name	plan_start_date	plan_end_date
+%R	ROAD1	J10	M25 Junction 10 Improvement	2024-01-01 08:00	2025-06-30 17:00
+%T	PROJWBS
+%F	wbs_id	parent_wbs_id	wbs_name
+%R	1		Root Project
+%R	2	1	Earthworks
+%R	3	1	Carriageway
+%T	TASK
+%F	task_id	task_code	task_name	wbs_id	status_code	phys_complete_pct
+%R	1	C1	Highway earthworks phase 1	2	TK_Active	35
+%R	2	C2	Carriageway pavement construction	3	TK_Active	20
+%R	3	C3	Motorway junction tie-in	3	TK_Active	25
+%R	4	C4	Road drainage installation	2	TK_Active	30
+%R	5	C5	Traffic management setup	2	TK_NotStart	0
+%T	TASKPRED
+%F	task_id	pred_task_id	pred_type
+%T	CALENDAR
+%F	clndr_id	clndr_name
+%R	1	Standard

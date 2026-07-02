@@ -1,4 +1,5 @@
 import { prisma } from "../../../utils/prisma.js";
+import { isPrismaUniqueViolation } from "../../../utils/prismaErrors.js";
 
 export type IntelligenceProfilePatch = {
   sector?: string | null;
@@ -32,28 +33,36 @@ function isEmptyTags(v: unknown): boolean {
 }
 
 export async function createProfile(projectId: string, companyId: string) {
-  return prisma.projectIntelligenceProfile.upsert({
-    where: { projectId },
-    create: {
-      projectId,
-      companyId,
-      sector: null,
-      projectType: null,
-      procurementRoute: null,
-      stage: null,
-      region: null,
-      clientType: null,
-      complexity: null,
-      classificationTagsList: [],
-      disciplineTags: [],
-      // Keep legacy fields intact/empty for backwards compatibility
-      primaryRibaStage: null,
-      complexityScore: null,
-      classificationTags: {},
-      complexityMetrics: {},
-    },
-    update: {},
-  });
+  try {
+    return await prisma.projectIntelligenceProfile.upsert({
+      where: { projectId },
+      create: {
+        projectId,
+        companyId,
+        sector: null,
+        projectType: null,
+        procurementRoute: null,
+        stage: null,
+        region: null,
+        clientType: null,
+        complexity: null,
+        classificationTagsList: [],
+        disciplineTags: [],
+        // Keep legacy fields intact/empty for backwards compatibility
+        primaryRibaStage: null,
+        complexityScore: null,
+        classificationTags: {},
+        complexityMetrics: {},
+      },
+      update: {},
+    });
+  } catch (err) {
+    // Concurrent requests can both miss findFirst and race on create.
+    if (isPrismaUniqueViolation(err)) {
+      return prisma.projectIntelligenceProfile.findUniqueOrThrow({ where: { projectId } });
+    }
+    throw err;
+  }
 }
 
 export async function getProfile(projectId: string, companyId: string) {

@@ -1,5 +1,9 @@
-import type { OutlierStatus } from "../shared/outlier.service.js";
-import { OUTLIER_THRESHOLDS } from "../shared/outlier.service.js";
+import type { DurationPosition } from "../shared/outlier.service.js";
+import {
+  MEDIAN_DEVIATION_THRESHOLDS,
+  plannerPositionLabel,
+  type OutlierStatus,
+} from "../shared/outlier.service.js";
 import { getDeliverableBenchmark, type BenchmarkReport } from "../benchmark/benchmark.service.js";
 
 export type FindingSeverity = "LOW" | "MEDIUM" | "HIGH";
@@ -20,60 +24,28 @@ function durationEvidenceBlock(
   outlier: BenchmarkReport["outlier"],
   deliverable: BenchmarkReport["deliverable"]
 ): { label: string; value: string | number }[] {
-  return [
+  const items: { label: string; value: string | number }[] = [
     { label: "Deliverable", value: deliverable.name },
-    { label: "Current Duration (days)", value: outlier.currentDurationDays ?? "—" },
-    { label: "Historical Average (days)", value: benchmark.averageDuration ?? "—" },
-    { label: "Historical Median (days)", value: benchmark.medianDuration ?? "—" },
-    { label: "Historical Maximum (days)", value: benchmark.maximumDuration ?? "—" },
-    { label: "Historical Minimum (days)", value: benchmark.minimumDuration ?? "—" },
-    { label: "Sample Size", value: benchmark.sampleSize },
-    { label: "Benchmark Confidence", value: benchmark.confidenceLevel ?? "—" },
+    { label: "Current duration (days)", value: outlier.currentDurationDays ?? "—" },
+    { label: "Historical median (days)", value: benchmark.medianDuration ?? "—" },
+    { label: "Typical range — IQR (days)", value:
+      benchmark.percentile25 != null && benchmark.percentile75 != null
+        ? `${benchmark.percentile25}–${benchmark.percentile75}`
+        : "—" },
+    { label: "Sample size", value: benchmark.sampleSize },
+    { label: "Distinct projects", value: benchmark.benchmarkQuality?.distinctProjects ?? "—" },
+    { label: "Benchmark confidence", value: benchmark.confidenceLevel ?? "—" },
   ];
+  if (outlier.percentilePosition != null) {
+    items.push({ label: "Percentile position", value: `${outlier.percentilePosition}%` });
+  }
+  return items;
 }
 
-function severityFromHighOutlierStatus(status: OutlierStatus): FindingSeverity {
-  if (status === "SLIGHTLY_HIGH") return "LOW";
-  if (status === "HIGH") return "MEDIUM";
-  if (status === "RED_FLAG" || status === "EXTREME_OUTLIER") return "HIGH";
+function severityFromPosition(position: DurationPosition): FindingSeverity {
+  if (position === "WELL_BELOW" || position === "WELL_ABOVE") return "HIGH";
+  if (position === "SLIGHTLY_BELOW" || position === "SLIGHTLY_ABOVE") return "MEDIUM";
   return "LOW";
-}
-
-function severityFromLowDeviation(pctBelow: number): FindingSeverity {
-  const abs = Math.abs(pctBelow);
-  if (abs >= OUTLIER_THRESHOLDS.extremePctVsMedian * 100) return "HIGH";
-  if (abs >= OUTLIER_THRESHOLDS.redFlagPctVsMedian * 100) return "HIGH";
-  if (abs >= OUTLIER_THRESHOLDS.highPctVsMedian * 100) return "MEDIUM";
-  if (abs >= OUTLIER_THRESHOLDS.slightlyHighPctVsMedian * 100) return "LOW";
-  return "LOW";
-}
-
-function isDurationTooLow(outlier: BenchmarkReport["outlier"]): { triggered: boolean; pctBelow: number | null } {
-  const cur = outlier.currentDurationDays;
-  if (cur == null || !Number.isFinite(cur)) return { triggered: false, pctBelow: null };
-
-  const diffMed = outlier.differenceFromMedianPercent;
-  const diffAvg = outlier.differenceFromAveragePercent;
-
-  // Negative percent means current is below benchmark reference.
-  const ref = diffMed ?? diffAvg;
-  if (ref == null || !Number.isFinite(ref)) return { triggered: false, pctBelow: null };
-
-  const thresholdPct = OUTLIER_THRESHOLDS.slightlyHighPctVsMedian * 100;
-  if (ref <= -thresholdPct) return { triggered: true, pctBelow: ref };
-  return { triggered: false, pctBelow: ref };
-}
-
-function detectHistoricalDurationOutliers(durations: number[]): number[] {
-  if (durations.length < 4) return [];
-  const sorted = [...durations].sort((a, b) => a - b);
-  const q1 = sorted[Math.floor((sorted.length - 1) * 0.25)]!;
-  const q3 = sorted[Math.floor((sorted.length - 1) * 0.75)]!;
-  const iqr = q3 - q1;
-  if (iqr <= 0) return [];
-  const lower = q1 - 1.5 * iqr;
-  const upper = q3 + 1.5 * iqr;
-  return sorted.filter((d) => d < lower || d > upper);
 }
 
 function mapBenchmarkConfidence(confidenceLevel: string | undefined): FindingConfidence {
@@ -82,84 +54,87 @@ function mapBenchmarkConfidence(confidenceLevel: string | undefined): FindingCon
   return "LOW";
 }
 
+function buildDeviationReasoning(
+  outlier: BenchmarkReport["outlier"],
+  benchmark: BenchmarkReport["benchmark"]
+): string[] {
+  const reasoning: string[] = [];
+  const position = outlier.position ?? "TYPICAL";
+  const med = benchmark.medianDuration;
+
+  reasoning.push(plannerPositionLabel(position) + ".");
+
+  if (med != null && outlier.currentDurationDays != null) {
+    if (position === "WELL_BELOW" || position === "SLIGHTLY_BELOW") {
+      reasoning.push(
+        `The planned duration (${outlier.currentDurationDays} days) is shorter than the historical median (${med} days).`
+      );
+      if (benchmark.minimumDuration === 0 || benchmark.allSampleDurations?.includes(0)) {
+        reasoning.push(
+          "Although zero-duration examples exist in the historical record, the typical duration is considerably higher."
+        );
+      }
+    } else if (position === "WELL_ABOVE" || position === "SLIGHTLY_ABOVE") {
+      reasoning.push(
+        `The planned duration (${outlier.currentDurationDays} days) is longer than the historical median (${med} days).`
+      );
+    }
+  }
+
+  if (outlier.percentilePosition != null) {
+    reasoning.push(
+      `This duration sits at the ${outlier.percentilePosition}th percentile of comparable historical observations.`
+    );
+  }
+
+  const effectiveStatus = outlier.status as OutlierStatus;
+  const rawStatus = (outlier.rawStatus ?? outlier.status) as OutlierStatus;
+  if (effectiveStatus !== rawStatus) {
+    reasoning.push(
+      `Deviation severity is capped to ${effectiveStatus} due to limited sample size (raw=${rawStatus}).`
+    );
+  }
+
+  return reasoning;
+}
+
 export function generateFindings(report: BenchmarkReport): IntelligenceFinding[] {
-  const { benchmark, outlier, evidence, deliverable } = report;
+  const { benchmark, outlier, deliverable } = report;
   const findings: IntelligenceFinding[] = [];
   const benchConfidence = mapBenchmarkConfidence(benchmark.confidenceLevel);
   const evBlock = durationEvidenceBlock(benchmark, outlier, deliverable);
+  const position = outlier.position ?? "TYPICAL";
 
-  const rawStatus = (outlier.rawStatus ?? outlier.status) as OutlierStatus;
-  const effectiveStatus = outlier.status as OutlierStatus;
-
-  // DURATION_TOO_HIGH — use raw outlier status (pre sample-size cap) for detection & severity
-  if (
-    rawStatus !== "NORMAL" &&
-    outlier.currentDurationDays != null &&
-    benchmark.sampleSize > 0
-  ) {
-    const reasoning: string[] = [];
-    if (outlier.differenceFromAveragePercent != null && outlier.differenceFromAveragePercent > 0) {
-      reasoning.push(
-        `Current duration exceeds historical average by ${outlier.differenceFromAveragePercent}%.`
-      );
-    } else {
-      reasoning.push("Current duration exceeds historical average.");
-    }
-    if (outlier.differenceFromMedianPercent != null && outlier.differenceFromMedianPercent > 0) {
-      reasoning.push(
-        `Current duration exceeds historical median by ${outlier.differenceFromMedianPercent}%.`
-      );
-    } else {
-      reasoning.push("Current duration exceeds historical median.");
-    }
-    if (
-      benchmark.maximumDuration != null &&
-      outlier.currentDurationDays != null &&
-      outlier.currentDurationDays > benchmark.maximumDuration
-    ) {
-      reasoning.push("Current duration exceeds the highest comparable duration in the evidence set.");
-    }
-    if (effectiveStatus !== rawStatus) {
-      reasoning.push(
-        `Effective outlier status is capped to ${effectiveStatus} due to limited sample size (raw=${rawStatus}).`
-      );
-    }
-
+  if (benchmark.sampleSize > 0 && (position === "WELL_ABOVE" || position === "SLIGHTLY_ABOVE")) {
     findings.push({
       findingType: "DURATION_TOO_HIGH",
-      severity: severityFromHighOutlierStatus(rawStatus),
+      severity: severityFromPosition(position),
       confidence: benchConfidence,
-      title: "Duration significantly exceeds benchmark",
-      summary: "The current deliverable duration is higher than comparable historical programmes.",
-      reasoning,
+      title:
+        position === "WELL_ABOVE"
+          ? "Duration well above historical benchmark"
+          : "Duration slightly above historical benchmark",
+      summary: "The current deliverable duration is longer than comparable historical programmes.",
+      reasoning: buildDeviationReasoning(outlier, benchmark),
       evidence: evBlock,
     });
   }
 
-  // DURATION_TOO_LOW
-  const lowCheck = isDurationTooLow(outlier);
-  if (lowCheck.triggered && benchmark.sampleSize > 0) {
-    const reasoning = [
-      "Current duration is substantially lower than comparable programmes.",
-      "Historical evidence suggests this estimate may be optimistic.",
-    ];
-    if (lowCheck.pctBelow != null) {
-      reasoning.unshift(
-        `Current duration is ${Math.abs(lowCheck.pctBelow)}% below the historical median or average reference.`
-      );
-    }
+  if (benchmark.sampleSize > 0 && (position === "WELL_BELOW" || position === "SLIGHTLY_BELOW")) {
     findings.push({
       findingType: "DURATION_TOO_LOW",
-      severity: severityFromLowDeviation(lowCheck.pctBelow ?? 0),
+      severity: severityFromPosition(position),
       confidence: benchConfidence,
-      title: "Duration significantly below benchmark",
-      summary: "The current deliverable duration is lower than comparable historical programmes.",
-      reasoning,
+      title:
+        position === "WELL_BELOW"
+          ? "Duration well below historical benchmark"
+          : "Duration slightly below historical benchmark",
+      summary: "The current deliverable duration is shorter than comparable historical programmes.",
+      reasoning: buildDeviationReasoning(outlier, benchmark),
       evidence: evBlock,
     });
   }
 
-  // LIMITED_HISTORICAL_EVIDENCE
   if (benchmark.sampleSize > 0 && benchmark.sampleSize < 5) {
     findings.push({
       findingType: "LIMITED_HISTORICAL_EVIDENCE",
@@ -170,16 +145,18 @@ export function generateFindings(report: BenchmarkReport): IntelligenceFinding[]
       reasoning: [
         "Benchmark is based on a limited number of comparable deliverables.",
         "Statistical confidence is reduced.",
+        ...(benchmark.benchmarkQuality?.distinctProjects === 1
+          ? ["Evidence comes from a single project — multiple revisions do not count as independent projects."]
+          : []),
       ],
       evidence: [
-        { label: "Sample Size", value: benchmark.sampleSize },
-        { label: "Benchmark Confidence", value: benchmark.confidenceLevel ?? "—" },
-        { label: "Sample Size Tier", value: benchmark.sampleSizeConfidenceTier ?? "—" },
+        { label: "Sample size", value: benchmark.sampleSize },
+        { label: "Distinct projects", value: benchmark.benchmarkQuality?.distinctProjects ?? "—" },
+        { label: "Benchmark confidence", value: benchmark.confidenceLevel ?? "—" },
       ],
     });
   }
 
-  // LOW_CONFIDENCE_BENCHMARK
   if (benchmark.confidenceLevel === "LOW" && benchmark.sampleSize > 0) {
     const bq = benchmark.benchmarkQuality;
     findings.push({
@@ -190,30 +167,25 @@ export function generateFindings(report: BenchmarkReport): IntelligenceFinding[]
       summary: "Historical evidence quality is limited for this comparison.",
       reasoning: [
         "Historical evidence quality is limited.",
-        "Similarity, sample size, or data completeness reduce confidence.",
+        "Similarity, sample size, or project diversity reduce confidence.",
+        ...(bq?.distinctProjects === 1 && (bq.revisionRatio ?? 0) > 1
+          ? [`Evidence is drawn from one project with ${bq.distinctSnapshots ?? bq.sampleSize} programme revisions.`]
+          : []),
         ...(bq
           ? [
               `Average project similarity: ${bq.averageProjectSimilarity}%.`,
               `Classification match rate: ${Math.round((bq.classificationMatchRate ?? 0) * 100)}%.`,
-              `Data completeness: ${Math.round((bq.dataCompleteness ?? 0) * 100)}%.`,
             ]
           : []),
       ],
       evidence: [
-        { label: "Confidence Score", value: benchmark.confidenceScore ?? "—" },
-        { label: "Confidence Level", value: benchmark.confidenceLevel },
-        { label: "Sample Size", value: benchmark.sampleSize },
-        ...(bq
-          ? [
-              { label: "Average Project Similarity", value: `${bq.averageProjectSimilarity}%` },
-              { label: "Data Completeness", value: bq.dataCompleteness },
-            ]
-          : []),
+        { label: "Confidence score", value: benchmark.confidenceScore ?? "—" },
+        { label: "Distinct projects", value: bq?.distinctProjects ?? "—" },
+        { label: "Sample size", value: benchmark.sampleSize },
       ],
     });
   }
 
-  // STRONG_BENCHMARK
   if (benchmark.confidenceLevel === "HIGH" && benchmark.sampleSize >= 10) {
     const bq = benchmark.benchmarkQuality;
     findings.push({
@@ -224,43 +196,39 @@ export function generateFindings(report: BenchmarkReport): IntelligenceFinding[]
       summary: "Historical evidence for this comparison is considered reliable.",
       reasoning: [
         "Large sample size available.",
-        "Comparable projects show strong alignment.",
+        `${bq?.distinctProjects ?? 0} independent project(s) contributed evidence.`,
         "Historical evidence is considered reliable.",
       ],
       evidence: [
-        { label: "Sample Size", value: benchmark.sampleSize },
-        { label: "Confidence Level", value: benchmark.confidenceLevel },
-        { label: "Confidence Score", value: benchmark.confidenceScore ?? "—" },
-        ...(bq
-          ? [
-              { label: "Average Project Similarity", value: `${bq.averageProjectSimilarity}%` },
-              { label: "Classification Match Rate", value: bq.classificationMatchRate },
-            ]
-          : []),
+        { label: "Sample size", value: benchmark.sampleSize },
+        { label: "Distinct projects", value: bq?.distinctProjects ?? "—" },
+        { label: "Median duration (days)", value: benchmark.medianDuration ?? "—" },
       ],
     });
   }
 
-  // HISTORICAL_OUTLIER_PRESENT
-  const durations = benchmark.allSampleDurations ?? [];
-  const histOutliers = detectHistoricalDurationOutliers(durations);
-  if (histOutliers.length > 0) {
+  const histOutlierCount = benchmark.historicalOutlierCount ?? 0;
+  const histOutlierValues = benchmark.historicalOutlierValues ?? [];
+  if (histOutlierCount > 0) {
     findings.push({
       findingType: "HISTORICAL_OUTLIER_PRESENT",
       severity: "MEDIUM",
       confidence: benchConfidence,
-      title: "Historical outliers in evidence set",
-      summary: `${histOutliers.length} historical duration value${histOutliers.length === 1 ? "" : "s"} appear statistically unusual.`,
+      title: "Unusual durations in historical evidence",
+      summary: `${histOutlierCount} unusually long duration${histOutlierCount === 1 ? "" : "s"} detected in the evidence set.`,
       reasoning: [
-        "One or more historical projects contain unusual duration values.",
-        "Benchmark averages may be influenced by exceptional cases.",
-        `Outlier durations (days): ${histOutliers.join(", ")}.`,
+        histOutlierCount === 1
+          ? `One unusually long duration was detected (${histOutlierValues.join(", ")} days). It was retained but given lower influence during benchmarking.`
+          : `${histOutlierCount} unusually long durations were detected (${histOutlierValues.join(", ")} days). They were retained but given lower influence during benchmarking.`,
+        "The benchmark reference is primarily the historical median.",
       ],
       evidence: [
-        { label: "Sample Size", value: benchmark.sampleSize },
-        { label: "Historical Outlier Count", value: histOutliers.length },
-        { label: "Historical Average (days)", value: benchmark.averageDuration ?? "—" },
-        { label: "Historical Median (days)", value: benchmark.medianDuration ?? "—" },
+        { label: "Historical median (days)", value: benchmark.medianDuration ?? "—" },
+        { label: "IQR range (days)", value:
+          benchmark.percentile25 != null && benchmark.percentile75 != null
+            ? `${benchmark.percentile25}–${benchmark.percentile75}`
+            : "—" },
+        { label: "Outlier count", value: histOutlierCount },
       ],
     });
   }
@@ -278,3 +246,6 @@ export async function getDeliverableFindings(args: {
   const findings = generateFindings(report);
   return { findings };
 }
+
+// Re-export threshold for tests
+export { MEDIAN_DEVIATION_THRESHOLDS };

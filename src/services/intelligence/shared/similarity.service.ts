@@ -1,6 +1,10 @@
 import { prisma } from "../../../utils/prisma.js";
 import { autoPopulateFromImportedProgrammeMetadata, getProfile } from "../profiles/intelligenceProfile.service.js";
 import type { ProgrammeState } from "@prisma/client";
+import { buildDeliverableFingerprint, fingerprintCacheKey } from "../matching/deliverableFingerprint.service.js";
+import { buildHistoricalDeliverableFingerprint } from "../matching/historicalFingerprint.service.js";
+import { computeWeightedDeliverableSimilarity } from "../matching/weightedDeliverableSimilarity.service.js";
+import { DEFAULT_MIN_COMPARABLE_SIMILARITY } from "../matching/similarityWeights.config.js";
 
 export type ConfidenceLevel = "LOW" | "MEDIUM" | "HIGH";
 
@@ -19,14 +23,20 @@ export type SimilarDeliverableMatch = {
   deliverableName: string;
   classification: string | null;
   matchedClassification: string | null;
+  snapshotId?: string;
+  fingerprintKey?: string;
+  similaritySignals?: Record<string, number>;
   evidence?: {
     projectId: string;
     projectName: string;
     programmeState: ProgrammeState | null;
+    snapshotId?: string;
     plannedStart: string | null;
     plannedFinish: string | null;
     actualStart: string | null;
     actualFinish: string | null;
+    workPackageDurationDays: number | null;
+    durationBasis: string | null;
   };
   similarityScore: number;
   confidenceScore: number;
@@ -217,7 +227,20 @@ async function getDeliverableSignal(projectId: string, companyId: string, delive
       id: true,
       name: true,
       classification: true,
+      likelyDuration: true,
+      bestDuration: true,
+      fragnetId: true,
+      fragnet: { select: { name: true } },
       activityCodeAssignments: { include: { type: true, code: true } },
+      activities: {
+        select: {
+          activityCode: true,
+          name: true,
+          likelyDuration: true,
+          bestDuration: true,
+          isCritical: true,
+        },
+      },
     },
   });
   if (!deliverable) {
@@ -241,6 +264,37 @@ async function getDeliverableSignal(projectId: string, companyId: string, delive
     if (slug.includes("class")) classificationTags.add(val.toLowerCase());
   }
 
+  if (!stage) {
+    const profile = await prisma.projectIntelligenceProfile.findUnique({
+      where: { projectId },
+      select: { stage: true, primaryRibaStage: true },
+    });
+    stage = profile?.stage?.trim() || profile?.primaryRibaStage?.trim() || null;
+  }
+
+  const plannerDurationDays =
+    deliverable.likelyDuration != null && deliverable.likelyDuration > 0
+      ? deliverable.likelyDuration
+      : deliverable.bestDuration != null && deliverable.bestDuration > 0
+        ? deliverable.bestDuration
+        : null;
+
+  const fingerprint = buildDeliverableFingerprint({
+    deliverableName: deliverable.name,
+    classification: deliverable.classification,
+    discipline: [...disciplineTags][0] ?? deliverableType,
+    parentWbs: deliverable.fragnet?.name ?? null,
+    fragnetId: deliverable.fragnetId,
+    stage,
+    durationDaysOverride: plannerDurationDays,
+    activities: deliverable.activities.map((a) => ({
+      activityCode: a.activityCode,
+      name: a.name,
+      originalDuration: a.likelyDuration ?? a.bestDuration,
+      isCritical: a.isCritical,
+    })),
+  });
+
   return {
     deliverableId: deliverable.id,
     deliverableName: deliverable.name,
@@ -249,6 +303,8 @@ async function getDeliverableSignal(projectId: string, companyId: string, delive
     stage,
     disciplineTags,
     classificationTags,
+    fingerprint,
+    fingerprintKey: fingerprintCacheKey(fingerprint),
   };
 }
 
@@ -366,8 +422,10 @@ export async function getSimilarDeliverables(args: {
   limit?: number;
   selectedProjectIds?: string[];
   allowedProgrammeStates?: ProgrammeState[];
+  minSimilarity?: number;
 }) {
-  const limit = Math.max(1, Math.min(50, args.limit ?? 20));
+  const limit = Math.max(1, Math.min(200, args.limit ?? 50));
+  const minSimilarity = args.minSimilarity ?? 0;
 
   const base = await getDeliverableSignal(args.projectId, args.companyId, args.deliverableId);
 
@@ -375,9 +433,11 @@ export async function getSimilarDeliverables(args: {
     where: {
       snapshot: {
         companyId: args.companyId,
-        projectId: args.selectedProjectIds?.length
-          ? { in: args.selectedProjectIds.filter(Boolean).map((s) => String(s)) }
-          : { not: args.projectId },
+        ...(args.selectedProjectIds?.length
+          ? { projectId: { in: args.selectedProjectIds.filter(Boolean).map((s) => String(s)) } }
+          : args.allowedProgrammeStates?.length
+            ? {}
+            : { projectId: { not: args.projectId } }),
         ...(args.allowedProgrammeStates?.length
           ? { programmeState: { in: args.allowedProgrammeStates } }
           : {}),
@@ -385,71 +445,150 @@ export async function getSimilarDeliverables(args: {
       },
     },
     select: {
+      id: true,
       deliverableId: true,
       name: true,
       classification: true,
       classificationTags: true,
+      fragnetId: true,
+      parentWbs: true,
+      wbsPath: true,
+      stage: true,
+      discipline: true,
+      workPackageDurationDays: true,
+      durationBasis: true,
       plannedStart: true,
       plannedFinish: true,
       actualStart: true,
       actualFinish: true,
       snapshot: {
         select: {
+          id: true,
           projectId: true,
           programmeState: true,
           stage: true,
           disciplineTags: true,
           classificationTagsList: true,
-          project: { select: { name: true } },
+          importedAt: true,
+          project: { select: { name: true, intelligenceProfile: { select: { stage: true, primaryRibaStage: true } } } },
         },
       },
     },
     take: 2000,
   });
 
+  const snapshotIds = [...new Set(historical.map((h) => h.snapshot.id))];
+  const activitySnapshots = snapshotIds.length
+    ? await prisma.activitySnapshot.findMany({
+        where: { snapshotId: { in: snapshotIds } },
+        select: {
+          snapshotId: true,
+          deliverableId: true,
+          fragnetId: true,
+          activityCode: true,
+          name: true,
+          originalDuration: true,
+          remainingDuration: true,
+          isCritical: true,
+          classificationTags: true,
+        },
+      })
+    : [];
+
+  const activitiesBySnapshotDeliverable = new Map<string, typeof activitySnapshots>();
+  for (const a of activitySnapshots) {
+    const key = `${a.snapshotId}\x1d${a.deliverableId ?? ""}`;
+    const bucket = activitiesBySnapshotDeliverable.get(key) ?? [];
+    bucket.push(a);
+    activitiesBySnapshotDeliverable.set(key, bucket);
+  }
+
   const scored = historical
     .map((h) => {
-      const derived = {
+      const actKey = `${h.snapshot.id}\x1d${h.deliverableId ?? ""}`;
+      const linkedActivities = activitiesBySnapshotDeliverable.get(actKey) ?? [];
+
+      const candidateFingerprint = buildHistoricalDeliverableFingerprint({
+        deliverableSnapshot: {
+          name: h.name,
+          classification: h.classification,
+          fragnetId: h.fragnetId,
+          parentWbs: h.parentWbs,
+          wbsPath: h.wbsPath,
+          stage: h.stage,
+          discipline: h.discipline,
+          classificationTags: h.classificationTags as Record<string, unknown>,
+          deliverableId: h.deliverableId,
+        },
+        programmeSnapshot: {
+          programmeState: h.snapshot.programmeState,
+          stage: h.snapshot.stage,
+          disciplineTags: h.snapshot.disciplineTags,
+          projectProfileStage: h.snapshot.project.intelligenceProfile?.stage ?? null,
+          projectProfilePrimaryRibaStage: h.snapshot.project.intelligenceProfile?.primaryRibaStage ?? null,
+        },
+        linkedActivities: linkedActivities.map((a) => ({
+          activityCode: a.activityCode,
+          name: a.name,
+          originalDuration: a.originalDuration ?? a.remainingDuration,
+          isCritical: a.isCritical,
+          classificationTags: a.classificationTags as Record<string, unknown>,
+        })),
+        activityFragnetLinks: linkedActivities.map((a) => ({
+          deliverableId: a.deliverableId,
+          fragnetId: a.fragnetId,
+        })),
+      });
+
+      const weighted = computeWeightedDeliverableSimilarity(base.fingerprint, candidateFingerprint);
+      const matchedClassification =
+        base.classification && candidateFingerprint.classification && norm(base.classification) === norm(candidateFingerprint.classification)
+          ? base.classification
+          : null;
+
+      return {
         deliverableId: h.deliverableId ?? null,
         deliverableName: h.name,
         classification: h.classification ?? null,
-        stage: h.snapshot.stage ?? null,
-        disciplineTags: toStringSet(h.snapshot.disciplineTags),
-        classificationTags: new Set<string>([
-          ...toStringSet(h.snapshot.classificationTagsList),
-          ...flattenJsonTags(h.classificationTags),
-        ]),
-      };
-      const { similarityScore, matchedFields, explanations } = deliverableSimilarity(base, derived);
-      const matchedClassification =
-        base.classification && derived.classification && norm(base.classification) === norm(derived.classification)
-          ? base.classification
-          : null;
-      return {
-        deliverableId: derived.deliverableId,
-        deliverableName: derived.deliverableName,
-        classification: derived.classification,
         matchedClassification,
+        snapshotId: h.snapshot.id,
+        fingerprintKey: fingerprintCacheKey(candidateFingerprint),
+        similaritySignals: weighted.signals as unknown as Record<string, number>,
         evidence: {
           projectId: h.snapshot.projectId,
           projectName: h.snapshot.project?.name ?? "Unknown project",
           programmeState: h.snapshot.programmeState ?? null,
+          snapshotId: h.snapshot.id,
           plannedStart: h.plannedStart ? h.plannedStart.toISOString().slice(0, 10) : null,
           plannedFinish: h.plannedFinish ? h.plannedFinish.toISOString().slice(0, 10) : null,
           actualStart: h.actualStart ? h.actualStart.toISOString().slice(0, 10) : null,
           actualFinish: h.actualFinish ? h.actualFinish.toISOString().slice(0, 10) : null,
+          workPackageDurationDays: h.workPackageDurationDays ?? null,
+          durationBasis: h.durationBasis ?? null,
         },
-        similarityScore,
-        matchedFields,
-        explanations,
+        similarityScore: weighted.overallScore,
+        matchedFields: weighted.matchedSignals,
+        explanations: weighted.explanations,
+        importedAt: h.snapshot.importedAt,
       };
     })
+    .filter((m) => m.similarityScore >= minSimilarity)
     .sort((a, b) => b.similarityScore - a.similarityScore)
     .slice(0, limit);
 
-  const conf = confidenceFromSampleSize(scored.filter((m) => m.similarityScore > 0).length);
+  const conf = confidenceFromSampleSize(scored.filter((m) => m.similarityScore >= DEFAULT_MIN_COMPARABLE_SIMILARITY).length);
   const matches: SimilarDeliverableMatch[] = scored.map((m) => ({
-    ...m,
+    deliverableId: m.deliverableId,
+    deliverableName: m.deliverableName,
+    classification: m.classification,
+    matchedClassification: m.matchedClassification,
+    snapshotId: m.snapshotId,
+    fingerprintKey: m.fingerprintKey,
+    similaritySignals: m.similaritySignals,
+    evidence: m.evidence,
+    similarityScore: m.similarityScore,
+    matchedFields: m.matchedFields,
+    explanations: m.explanations,
     confidenceScore: conf.confidenceScore,
     confidenceLevel: conf.confidenceLevel,
   }));
@@ -457,9 +596,11 @@ export async function getSimilarDeliverables(args: {
   return {
     deliverableId: base.deliverableId,
     deliverableName: base.deliverableName,
+    fingerprintKey: base.fingerprintKey,
     matches,
     confidence: conf.confidenceScore,
     explanations: [...new Set(matches.flatMap((m) => m.explanations))],
+    minComparableSimilarity: DEFAULT_MIN_COMPARABLE_SIMILARITY,
   };
 }
 

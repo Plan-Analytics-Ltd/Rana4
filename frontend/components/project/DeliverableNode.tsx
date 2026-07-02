@@ -5,6 +5,8 @@ import { formatDeliverableRelationshipSummary } from "@/lib/schedule-workspace-d
 import type { RateCardEntry } from "@/lib/api";
 import type { ScheduleDeliverable } from "@/lib/schedule-types";
 import { ActivityRow } from "./ActivityRow";
+import { DeliverableStatusBadge } from "@/components/intelligence/deliverable-status-badge";
+import type { DeliverableStatusSnapshot } from "@/lib/deliverable-intelligence-status";
 
 export function DeliverableNode(props: {
   deliverable: ScheduleDeliverable;
@@ -15,6 +17,8 @@ export function DeliverableNode(props: {
   rateCard: RateCardEntry[];
   searchQuery: string;
   highlightActivityId?: string | null;
+  intelSnapshot?: DeliverableStatusSnapshot;
+  onIntelClick?: () => void;
 }) {
   const d = props.deliverable;
   const q = props.searchQuery.trim().toLowerCase();
@@ -42,6 +46,11 @@ export function DeliverableNode(props: {
       >
         {props.open ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
         <span className="min-w-0 truncate font-medium text-slate-800 dark:text-slate-100">{d.name}</span>
+        <DeliverableStatusBadge
+          snapshot={props.intelSnapshot}
+          compact
+          onClick={props.onIntelClick}
+        />
         <span className="shrink-0 text-slate-500 dark:text-slate-400">({activities.length})</span>
         {hasLogic ? (
           <span

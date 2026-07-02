@@ -3,6 +3,36 @@ import { getAuthContext } from "./requestContext.js";
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
 
+function explicitCompanyIdFromArgs(args: unknown): string | undefined {
+  if (!args || typeof args !== "object") return undefined;
+  const a = args as Record<string, unknown>;
+  const where = a.where;
+  if (where && typeof where === "object" && where !== null) {
+    const w = where as Record<string, unknown>;
+    if (typeof w.companyId === "string" && w.companyId.trim()) return w.companyId.trim();
+  }
+  const data = a.data;
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const d = data as Record<string, unknown>;
+    if (typeof d.companyId === "string" && d.companyId.trim()) return d.companyId.trim();
+  }
+  const create = a.create;
+  if (create && typeof create === "object" && !Array.isArray(create)) {
+    const c = create as Record<string, unknown>;
+    if (typeof c.companyId === "string" && c.companyId.trim()) return c.companyId.trim();
+  }
+  return undefined;
+}
+
+/** Tenant id from ALS, or from an explicit companyId on the query (background jobs, transactions). */
+function resolveCompanyId(args: unknown): string {
+  const fromCtx = getAuthContext()?.companyId?.trim();
+  if (fromCtx && fromCtx !== "unknown") return fromCtx;
+  const explicit = explicitCompanyIdFromArgs(args);
+  if (explicit) return explicit;
+  throw new Error("Missing company context");
+}
+
 function buildPrismaClient(): PrismaClient {
   const isProd = process.env.NODE_ENV === "production";
   // Use event-based logs so we can throttle noisy connection errors in dev/non-prod.
@@ -45,11 +75,7 @@ function buildPrismaClient(): PrismaClient {
   // Prisma v6: use query extensions instead of `$use`.
   const withCompanyScope = (modelName: string) => ({
     async $allOperations({ args, operation, query }: { args: any; operation: string; query: (args: any) => Promise<any> }) {
-      const ctx = getAuthContext();
-      if (!ctx || !ctx.companyId) {
-        throw new Error("Missing company context");
-      }
-      const companyId = ctx.companyId;
+      const companyId = resolveCompanyId(args);
 
       const mergeWhere = (where: any) => {
         const base = where && typeof where === "object" ? where : {};
@@ -101,16 +127,13 @@ function buildPrismaClient(): PrismaClient {
       // Token is a high-entropy secret and unique.
       const tokenWhere = args?.where && typeof args.where === "object" ? args.where.token : undefined;
       if (
-        (!ctx || !ctx.companyId) &&
+        (!ctx || !ctx.companyId || ctx.companyId === "unknown") &&
         (operation === "findUnique" || operation === "findFirst" || operation === "delete") &&
         typeof tokenWhere === "string"
       ) {
         return query(args);
       }
-      if (!ctx || !ctx.companyId) {
-        throw new Error("Missing company context");
-      }
-      const companyId = ctx.companyId;
+      const companyId = resolveCompanyId(args);
 
       const mergeWhere = (where: any) => {
         const base = where && typeof where === "object" ? where : {};
@@ -160,16 +183,13 @@ function buildPrismaClient(): PrismaClient {
       const tokenWhere = args?.where && typeof args.where === "object" ? args.where.token : undefined;
       // Allow verifying by token before we know companyId.
       if (
-        (!ctx || !ctx.companyId) &&
+        (!ctx || !ctx.companyId || ctx.companyId === "unknown") &&
         (operation === "findUnique" || operation === "findFirst" || operation === "delete" || operation === "deleteMany") &&
         typeof tokenWhere === "string"
       ) {
         return query(args);
       }
-      if (!ctx || !ctx.companyId) {
-        throw new Error("Missing company context");
-      }
-      const companyId = ctx.companyId;
+      const companyId = resolveCompanyId(args);
 
       const mergeWhere = (where: any) => {
         const base = where && typeof where === "object" ? where : {};
@@ -216,10 +236,13 @@ function buildPrismaClient(): PrismaClient {
   const projectMemberScope = () => ({
     async $allOperations({ args, operation, query }: { args: any; operation: string; query: (args: any) => Promise<any> }) {
       const ctx = getAuthContext();
-      if (!ctx || !ctx.companyId) {
+      const fromCtx = ctx?.companyId?.trim();
+      const fromWhere =
+        args?.where?.project?.companyId != null ? String(args.where.project.companyId).trim() : "";
+      const companyId = fromCtx && fromCtx !== "unknown" ? fromCtx : fromWhere;
+      if (!companyId) {
         throw new Error("Missing company context");
       }
-      const companyId = ctx.companyId;
 
       const mergeWhere = (where: any) => {
         const base = where && typeof where === "object" ? where : {};

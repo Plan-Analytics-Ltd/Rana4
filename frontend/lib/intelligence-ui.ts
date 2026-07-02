@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Brain, CalendarRange, Package, Upload } from "lucide-react";
+import { Brain, CalendarRange, LayoutDashboard, Package, Upload } from "lucide-react";
 
 export type AppUIMode = "platform" | "intelligence";
 
@@ -7,16 +7,17 @@ export type AppUIMode = "platform" | "intelligence";
 export const INTELLIGENCE_HUB_PREFIX = "/app/intelligence";
 
 /** Shared routes: available in both modes; sidebar follows active mode. */
-export const INTELLIGENCE_SHARED_PREFIXES = ["/app/schedule", "/app/deliverables", "/app/import"] as const;
+export const INTELLIGENCE_SHARED_PREFIXES = ["/app", "/app/schedule", "/app/deliverables", "/app/import"] as const;
 
 export const INTELLIGENCE_NAV: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/app", label: "Dashboard", icon: LayoutDashboard },
   { href: "/app/intelligence", label: "What We've Learned", icon: Brain },
   { href: "/app/schedule", label: "Project History", icon: CalendarRange },
   { href: "/app/deliverables", label: "Deliverable Analysis", icon: Package },
   { href: "/app/import", label: "Import History", icon: Upload },
 ];
 
-export const INTELLIGENCE_DEFAULT_ROUTE = "/app/intelligence";
+export const INTELLIGENCE_DEFAULT_ROUTE = "/app";
 export const PLATFORM_DEFAULT_ROUTE = "/app";
 
 const STORAGE_KEY = "rana4-ui-mode";
@@ -33,6 +34,7 @@ export function isSharedIntelligencePath(pathname: string): boolean {
 
 export function isPlatformWorkspacePath(pathname: string): boolean {
   if (!pathname.startsWith("/app")) return false;
+  if (pathname === "/app") return false;
   if (isIntelligenceHubPath(pathname) || isSharedIntelligencePath(pathname)) return false;
   return true;
 }

@@ -77,8 +77,8 @@ export function DeliverableRecommendationsSection({
 }) {
   if (recommendations.length === 0) {
     return (
-      <div className="rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
-        No recommendations for this deliverable yet (insufficient historical evidence).
+      <div className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-400">
+        Rana4 has not identified any areas requiring review on this deliverable.
       </div>
     );
   }

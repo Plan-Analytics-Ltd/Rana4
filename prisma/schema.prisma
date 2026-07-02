@@ -763,6 +763,20 @@ model DeliverableSnapshot {
   totalFloat    Int?      @map("total_float")
   status        String?   @db.VarChar(32)
   classificationTags Json @default("{}") @map("classification_tags")
+  /// Dominant work package at capture (from linked activities or live deliverable)
+  fragnetId     String?   @map("fragnet_id")
+  /// Fragnet / WBS label frozen at capture time
+  parentWbs     String?   @map("parent_wbs") @db.VarChar(255)
+  /// WBS path frozen at capture time (fragnet name when hierarchy unavailable)
+  wbsPath       String?   @map("wbs_path") @db.VarChar(512)
+  /// Resolved planning stage frozen at capture time
+  stage         String?   @db.VarChar(64)
+  /// Resolved discipline frozen at capture time
+  discipline    String?   @db.VarChar(64)
+  /// Canonical planner-equivalent work-package duration (Phase 10 normalisation)
+  workPackageDurationDays Int?  @map("work_package_duration_days")
+  /// How workPackageDurationDays was derived: WORK_PACKAGE | MILESTONE | CALENDAR_SPAN_FALLBACK
+  durationBasis String?   @map("duration_basis") @db.VarChar(32)
 
   snapshot ProgrammeSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
 

@@ -79,8 +79,8 @@ function FindingCard({ finding }: { finding: IntelligenceFinding }) {
 export function DeliverableFindingsSection({ findings }: { findings: IntelligenceFinding[] }) {
   if (findings.length === 0) {
     return (
-      <div className="rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
-        No observations for this deliverable yet.
+      <div className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-400">
+        No observations yet. Import completed project history to help Rana4 compare this deliverable with similar work.
       </div>
     );
   }

@@ -4,7 +4,7 @@ import { P6_HOURS_PER_DAY } from "./types.js";
 
 type XerTable = { fields: string[]; rows: Record<string, string>[] };
 
-function parseXerTables(content: string): Map<string, XerTable> {
+export function parseXerTables(content: string): Map<string, XerTable> {
   const tables = new Map<string, XerTable>();
   let currentName: string | null = null;
   let currentFields: string[] = [];
@@ -115,6 +115,8 @@ export function parseXerProgramme(content: string | Buffer): ParsedProgrammeImpo
       percentComplete: Number.isFinite(pct) ? pct : undefined,
       startDate: parseP6Date(r.act_start_date ?? r.early_start_date ?? r.target_start_date),
       finishDate: parseP6Date(r.act_end_date ?? r.early_end_date ?? r.target_end_date),
+      actualStart: actStart,
+      actualFinish: actEnd,
       earlyStart: parseP6Date(r.early_start_date),
       earlyFinish: parseP6Date(r.early_end_date),
       lateStart: parseP6Date(r.late_start_date),

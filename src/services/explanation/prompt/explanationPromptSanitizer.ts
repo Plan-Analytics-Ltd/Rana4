@@ -1,6 +1,7 @@
 import type { ExplanationIntelligencePackage } from "../context/explanationContext.builder.js";
 import type { ExplanationType } from "../types/explanationTypes.js";
 import { formatClassificationLabel } from "../../intelligence/shared/durationEvidence.service.js";
+import { plannerPositionLabel } from "../../intelligence/shared/outlier.service.js";
 import { trustBandLabel } from "../../intelligence/trust/intelligenceTrust.service.js";
 
 const UUID_PATTERN =
@@ -19,11 +20,14 @@ export const EXPLANATION_TYPE_PLANNER_LABELS: Record<ExplanationType, string> = 
 };
 
 const OUTLIER_STATUS_LABELS: Record<string, string> = {
-  NORMAL: "Within normal range",
-  SLIGHTLY_HIGH: "Slightly above historical norms",
-  HIGH: "Above historical norms",
-  RED_FLAG: "Significantly above historical norms (red flag)",
-  EXTREME_OUTLIER: "Extreme outlier compared to historical norms",
+  NORMAL: "Typical for comparable deliverables",
+  TYPICAL: "Typical for comparable deliverables",
+  SLIGHTLY_LOW: "Slightly below historical benchmark",
+  WELL_BELOW: "Well below historical benchmark",
+  SLIGHTLY_HIGH: "Slightly above historical benchmark",
+  HIGH: "Above historical benchmark",
+  RED_FLAG: "Well above historical benchmark",
+  EXTREME_OUTLIER: "Well above historical benchmark",
 };
 
 const CONFIDENCE_LABELS: Record<string, string> = {
@@ -61,6 +65,16 @@ export function formatSeverityLevel(value: string | null | undefined): string {
 export function formatOutlierStatus(value: string | null | undefined): string {
   const key = String(value ?? "").trim().toUpperCase();
   return OUTLIER_STATUS_LABELS[key] ?? formatPlannerLabel(value);
+}
+
+/** Planner-readable comparison phrase — avoids raw percentage jargon. */
+export function formatDurationComparison(pkg: ExplanationIntelligencePackage): string | null {
+  const o = pkg.outlier;
+  if (!o) return null;
+  if (o.positionLabel) return o.positionLabel;
+  const pos = o.position;
+  if (pos) return plannerPositionLabel(pos);
+  return formatOutlierStatus(o.status);
 }
 
 function line(label: string, value: string | number | null | undefined): string | null {
@@ -132,14 +146,15 @@ export function buildLlmBriefingContext(pkg: ExplanationIntelligencePackage): st
   );
 
   if (pkg.outlier) {
+    const comparisonPhrase = formatDurationComparison(pkg);
     sections.push(
       section("Schedule Comparison", [
-        line("Status", formatOutlierStatus(pkg.outlier.status)),
-        pkg.outlier.differenceFromAveragePercent != null
-          ? line("Difference from historical average", `${pkg.outlier.differenceFromAveragePercent}%`)
+        line("Assessment", comparisonPhrase),
+        pkg.benchmark?.medianDuration != null
+          ? line("Historical median", `${pkg.benchmark.medianDuration} days`)
           : null,
-        pkg.outlier.differenceFromMedianPercent != null
-          ? line("Difference from historical median", `${pkg.outlier.differenceFromMedianPercent}%`)
+        pkg.benchmark?.percentile25 != null && pkg.benchmark?.percentile75 != null
+          ? line("Typical range (middle 50%)", `${pkg.benchmark.percentile25}–${pkg.benchmark.percentile75} days`)
           : null,
       ])
     );
@@ -149,10 +164,14 @@ export function buildLlmBriefingContext(pkg: ExplanationIntelligencePackage): st
     const b = pkg.benchmark;
     sections.push(
       section("Historical Benchmark", [
-        line("Sample size", b.sampleSize),
-        line("Average duration", b.averageDuration != null ? `${b.averageDuration} days` : null),
-        line("Median duration", b.medianDuration != null ? `${b.medianDuration} days` : null),
-        line("Typical range", b.minimumDuration != null && b.maximumDuration != null ? `${b.minimumDuration}–${b.maximumDuration} days` : null),
+        line("Comparable observations", b.sampleSize),
+        line("Historical median", b.medianDuration != null ? `${b.medianDuration} days` : null),
+        line(
+          "Typical range",
+          b.percentile25 != null && b.percentile75 != null
+            ? `${b.percentile25}–${b.percentile75} days`
+            : null
+        ),
         line("Confidence", formatConfidenceLevel(b.confidenceLevel)),
         b.notes?.length ? line("Notes", b.notes.join("; ")) : null,
       ])
@@ -160,7 +179,10 @@ export function buildLlmBriefingContext(pkg: ExplanationIntelligencePackage): st
   }
 
   const evidenceLines = dedupeLines([
-    pkg.evidenceSummary.sampleSize > 0 ? `Comparable observations: ${pkg.evidenceSummary.sampleSize}` : "",
+    (pkg.evidence as { plannerSummary?: string } | undefined)?.plannerSummary ?? "",
+    pkg.evidenceSummary.sampleSize > 0
+      ? `Comparable observations: ${pkg.evidenceSummary.sampleSize}`
+      : "",
     pkg.evidenceSummary.matchedProjectCount > 0
       ? `Historical projects compared: ${pkg.evidenceSummary.matchedProjectCount}`
       : "",

@@ -6,6 +6,10 @@ import {
   generateRecommendations,
   type IntelligenceRecommendation,
 } from "../recommendations/recommendationEngine.service.js";
+import {
+  checkIntelligenceConsistency,
+  type IntelligenceConsistencyReport,
+} from "../shared/intelligenceConsistency.service.js";
 
 export type DeliverableIntelligenceContext = {
   report: BenchmarkReport;
@@ -13,11 +17,13 @@ export type DeliverableIntelligenceContext = {
   keyFactors: DriverFinding[];
   recommendations: IntelligenceRecommendation[];
   trust: IntelligenceTrustExplanation;
+  consistency: IntelligenceConsistencyReport;
 };
 
 export type DeliverableIntelligenceAnalysis = {
   deliverable: BenchmarkReport["deliverable"];
   currentDurationDays: BenchmarkReport["currentDurationDays"];
+  currentDurationSource?: BenchmarkReport["currentDurationSource"];
   benchmark: BenchmarkReport["benchmark"];
   outlier: BenchmarkReport["outlier"];
   evidence: BenchmarkReport["evidence"];
@@ -27,6 +33,7 @@ export type DeliverableIntelligenceAnalysis = {
   predictedOutcome: BenchmarkReport["benchmark"]["predictedOutcome"];
   recommendations: IntelligenceRecommendation[];
   trust: IntelligenceTrustExplanation;
+  consistency?: IntelligenceConsistencyReport;
 };
 
 /**
@@ -48,6 +55,7 @@ export async function runDeliverableIntelligencePipeline(args: {
     projectId: args.projectId,
   });
   const recommendations = generateRecommendations(report, observations);
+  const consistency = checkIntelligenceConsistency({ report, findings: observations, recommendations });
   const trust = buildTrustExplanation({
     classification: report.deliverable.classification,
     report,
@@ -62,6 +70,7 @@ export async function runDeliverableIntelligencePipeline(args: {
     keyFactors,
     recommendations,
     trust,
+    consistency,
   };
 }
 
@@ -78,6 +87,7 @@ export async function getDeliverableIntelligenceAnalysis(args: {
   return {
     deliverable: report.deliverable,
     currentDurationDays: report.currentDurationDays,
+    currentDurationSource: report.currentDurationSource,
     benchmark: report.benchmark,
     outlier: report.outlier,
     evidence: report.evidence,
@@ -87,5 +97,6 @@ export async function getDeliverableIntelligenceAnalysis(args: {
     predictedOutcome: report.benchmark.predictedOutcome,
     recommendations: ctx.recommendations,
     trust: ctx.trust,
+    consistency: ctx.consistency,
   };
 }

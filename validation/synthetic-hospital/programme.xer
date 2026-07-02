@@ -1,0 +1,20 @@
+ERMHDR	18.8	2024-01-01	Project	admin	
+%T	PROJECT
+%F	proj_id	proj_short_name	proj_name	plan_start_date	plan_end_date
+%R	HOSP1	RHSE	Riverside Hospital Extension	2024-01-01 08:00	2026-12-31 17:00
+%T	PROJWBS
+%F	wbs_id	parent_wbs_id	wbs_name
+%R	1		Root Project
+%R	2	1	Ward Block
+%R	3	1	MRI Suite
+%T	TASK
+%F	task_id	task_code	task_name	wbs_id	status_code	phys_complete_pct
+%R	1	A1	ICU fit-out	2	TK_NotStart	0
+%R	2	A2	Theatre construction	2	TK_NotStart	0
+%R	3	A3	Hospital ward finishes	3	TK_NotStart	0
+%R	4	A4	NHS clinical commissioning planning	2	TK_NotStart	0
+%T	TASKPRED
+%F	task_id	pred_task_id	pred_type
+%T	CALENDAR
+%F	clndr_id	clndr_name
+%R	1	Standard

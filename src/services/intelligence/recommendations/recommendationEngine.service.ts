@@ -96,40 +96,39 @@ export function generateRecommendations(
   const recommendations: IntelligenceRecommendation[] = [];
   const hasDurationTooLow = findings.some((f) => f.findingType === "DURATION_TOO_LOW");
 
-  // 1. DURATION_REVIEW
+  // 1. DURATION_REVIEW — observation → evidence → suggested review
+  const belowPosition =
+    outlier.position === "WELL_BELOW" || outlier.position === "SLIGHTLY_BELOW";
   if (
     evidenceCount >= MIN_EVIDENCE &&
-    (hasDurationTooLow ||
-      isMateriallyBelowExpected(current, expected?.minimumExpectedDays ?? null))
+    (hasDurationTooLow || belowPosition || isMateriallyBelowExpected(current, expected?.minimumExpectedDays ?? null))
   ) {
     const conf = computeRecommendationConfidence({
       evidenceCount,
       benchmarkConfidence: benchmark.confidenceScore,
       expectedConfidence: expected?.confidenceScore,
     });
-    if (passesEvidenceGate(evidenceCount, conf.confidenceLevel) || hasDurationTooLow) {
+    if (passesEvidenceGate(evidenceCount, conf.confidenceLevel) || hasDurationTooLow || belowPosition) {
+      const med = benchmark.medianDuration;
       const supportingEvidence: IntelligenceRecommendation["supportingEvidence"] = [
         { label: "Current duration (days)", value: current ?? "—" },
-        { label: "Expected range", value: expected?.rangeLabel ?? "—" },
-        { label: "Evidence count", value: evidenceCount },
+        { label: "Historical median (days)", value: med ?? "—" },
+        { label: "Comparable observations", value: evidenceCount },
+        { label: "Distinct projects", value: benchmark.benchmarkQuality?.distinctProjects ?? "—" },
       ];
       if (expected?.minimumExpectedDays != null) {
         supportingEvidence.push({
-          label: "Expected minimum (days)",
+          label: "Typical range — lower bound (days)",
           value: expected.minimumExpectedDays,
         });
       }
       recommendations.push({
         recommendationType: "DURATION_REVIEW",
-        title: "Duration may warrant review",
-        summary: "Historical evidence suggests the current duration may be lower than comparable deliverables.",
+        title: "Review duration assumption",
+        summary: "The planned duration is shorter than most comparable historical deliverables.",
         recommendation:
-          "Historical evidence suggests this duration may be lower than comparable deliverables.",
-        severity:
-          outlier.differenceFromMedianPercent != null &&
-          outlier.differenceFromMedianPercent <= -25
-            ? "HIGH"
-            : "MEDIUM",
+          "Observation: the current duration sits below the historical median. Evidence: based on comparable deliverables from previous programmes. Suggested action: review the duration assumption with the delivery team before finalising.",
+        severity: outlier.position === "WELL_BELOW" ? "HIGH" : "MEDIUM",
         ...conf,
         evidenceCount,
         supportingEvidence,

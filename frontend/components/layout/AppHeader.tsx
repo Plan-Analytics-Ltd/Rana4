@@ -28,6 +28,7 @@ function getBreadcrumbs(pathname: string): { label: string; href: string }[] {
 
 const pageTitles: Record<string, string> = {
   "/app": "Dashboard",
+  "/app/projects/new": "New project",
   "/app/standards": "Standards",
   "/app/fragnets": "Fragnets",
   "/app/activities": "Activities",
@@ -48,7 +49,15 @@ export function AppHeader() {
   const { query, setQuery, clear } = useSearch();
   const { isIntelligenceMode } = useIntelligenceMode();
   const breadcrumbs = pathname.startsWith("/app") ? getBreadcrumbs(pathname) : [];
-  const pageTitle = pageTitles[pathname] ?? breadcrumbs[breadcrumbs.length - 1]?.label ?? "Rana4";
+  const pageTitle = isIntelligenceMode
+    ? pathname === "/app/schedule"
+      ? "Project History"
+      : pathname === "/app/import"
+        ? "Import History"
+        : pathname === "/app/deliverables"
+          ? "Deliverable Analysis"
+          : pageTitles[pathname] ?? breadcrumbs[breadcrumbs.length - 1]?.label ?? "Rana4"
+    : pageTitles[pathname] ?? breadcrumbs[breadcrumbs.length - 1]?.label ?? "Rana4";
 
   return (
     <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-6 py-4 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/95">

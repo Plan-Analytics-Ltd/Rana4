@@ -14,6 +14,14 @@ import {
   type IntelligenceRecommendation,
   type IntelligenceTrustExplanation,
 } from "@/lib/api";
+import {
+  buildDeliverableSummary,
+  humanConfidenceLevel,
+  humanDurationPosition,
+  humanOutlierStatus,
+  INTELLIGENCE_LABELS,
+} from "@/lib/intelligence-terminology";
+import { IntelligenceSection } from "@/components/intelligence/intelligence-section";
 import { DeliverableFindingsSection } from "@/components/deliverables/deliverable-findings-section";
 import { DeliverableDriversSection } from "@/components/deliverables/deliverable-drivers-section";
 import { DeliverableRecommendationsSection } from "@/components/deliverables/deliverable-recommendations-section";
@@ -30,10 +38,20 @@ type Props = {
 type Status = BenchmarkOutlierStatus;
 
 function statusVariant(s: Status): "default" | "secondary" | "destructive" | "outline" {
-  if (s === "RED_FLAG" || s === "EXTREME_OUTLIER") return "destructive";
-  if (s === "HIGH") return "default";
+  if (s === "RED_FLAG" || s === "EXTREME_OUTLIER" || s === "WELL_BELOW") return "destructive";
+  if (s === "HIGH" || s === "SLIGHTLY_LOW") return "default";
   if (s === "SLIGHTLY_HIGH") return "secondary";
   return "outline";
+}
+
+function MetricTile({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-900/40">
+      <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</div>
+      <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">{value}</div>
+      {sub ? <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{sub}</div> : null}
+    </div>
+  );
 }
 
 export function DeliverableBenchmarkPanel({
@@ -44,7 +62,8 @@ export function DeliverableBenchmarkPanel({
 }: Props) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [benchmarkOpen, setBenchmarkOpen] = useState(false);
   const [data, setData] = useState<DeliverableAnalysisCore | null>(null);
   const [findings, setFindings] = useState<IntelligenceFinding[]>([]);
   const [drivers, setDrivers] = useState<IntelligenceDriver[]>([]);
@@ -80,7 +99,7 @@ export function DeliverableBenchmarkPanel({
           setTrust(analysis.trust ?? null);
         }
       } catch (e: unknown) {
-        if (!cancelled) setErr(getApiErrorMessage(e) || "Failed to load comparison");
+        if (!cancelled) setErr(getApiErrorMessage(e) || "Failed to load analysis");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -98,187 +117,211 @@ export function DeliverableBenchmarkPanel({
   const evidence = data?.evidence;
 
   const status: Status = outlier?.status ?? "NORMAL";
+  const positionLabel =
+    outlier?.effectivePositionLabel ??
+    humanDurationPosition(outlier?.effectivePosition ?? outlier?.position ?? null) ??
+    humanOutlierStatus(status);
+  const positionCapped =
+    (outlier?.rawPosition != null &&
+      outlier?.effectivePosition != null &&
+      outlier.rawPosition !== outlier.effectivePosition) ||
+    (outlier?.rawStatus != null && outlier.rawStatus !== status);
   const current = outlier?.currentDurationDays ?? null;
   const avg = benchmark?.averageDuration ?? null;
   const med = benchmark?.medianDuration ?? null;
+  const p25 = benchmark?.percentile25 ?? null;
+  const p75 = benchmark?.percentile75 ?? null;
   const min = benchmark?.minimumDuration ?? null;
   const max = benchmark?.maximumDuration ?? null;
   const sampleSize = benchmark?.sampleSize ?? 0;
   const diffAvg = outlier?.differenceFromAveragePercent ?? null;
   const confidenceLevel = benchmark?.confidenceLevel ?? null;
-  const confidenceScore = benchmark?.confidenceScore ?? null;
   const notes: string[] = benchmark?.notes ?? [];
-  const sampleTier = benchmark?.sampleSizeConfidenceTier ?? null;
-  const avgProjSim = benchmark?.benchmarkQuality?.averageProjectSimilarity ?? null;
 
-  const subtitle = useMemo(() => {
-    const expectedCount = expected?.evidenceCount ?? 0;
-    if (expectedCount > 0) {
-      return `Based on ${expectedCount} comparable deliverable${expectedCount === 1 ? "" : "s"}`;
-    }
-    if (sampleSize > 0) return `Based on ${sampleSize} comparable deliverables`;
-    return "No comparable historical deliverables found yet";
-  }, [expected?.evidenceCount, sampleSize]);
+  const confidenceLabel = humanConfidenceLevel(expected?.confidenceLevel ?? confidenceLevel);
+  const statusLabel = positionLabel;
+
+  const historicalAlignment = useMemo(() => {
+    if (sampleSize === 0 && (expected?.evidenceCount ?? 0) === 0) return "No historical comparison yet";
+    return positionLabel;
+  }, [sampleSize, expected?.evidenceCount, positionLabel]);
+
+  const summaryText = useMemo(
+    () =>
+      buildDeliverableSummary({
+        outlierLabel: statusLabel,
+        confidenceLabel,
+        sampleSize: sampleSize || (expected?.evidenceCount ?? 0),
+        observationCount: findings.length,
+        recommendationCount: recommendations.length,
+        trustLabel: trust?.trustLabel ?? null,
+        positionCapped,
+        evidenceLimited: confidenceLabel === "Limited" || sampleSize <= 2,
+      }),
+    [statusLabel, confidenceLabel, sampleSize, expected?.evidenceCount, findings.length, recommendations.length, trust?.trustLabel, positionCapped]
+  );
+
+  if (loading) {
+    return (
+      <Card className="border-slate-200 dark:border-slate-700">
+        <CardContent className="flex items-center gap-2 py-8 text-sm text-slate-600 dark:text-slate-300">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading deliverable analysis…
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (err) {
+    return (
+      <Card className="border-red-200 dark:border-red-900/50">
+        <CardContent className="py-6 text-sm text-red-600 dark:text-red-400">{err}</CardContent>
+      </Card>
+    );
+  }
 
   return (
-    <Card className="border-slate-200 dark:border-slate-700">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between gap-3">
-          <CardTitle className="text-base">Comparison</CardTitle>
-          <Badge variant={statusVariant(status)}>{status}</Badge>
-        </div>
-        <div className="space-y-1">
-          <p className="text-xs text-slate-500 dark:text-slate-400">{subtitle}</p>
-          {expected?.maturityLabel ? (
-            <p className="text-xs font-medium text-slate-700 dark:text-slate-200">{expected.maturityLabel}</p>
-          ) : null}
-          {confidenceLevel ? (
-            <p className="text-xs text-slate-600 dark:text-slate-300">
-              Confidence: <span className="font-medium">{expected?.confidenceLevel ?? confidenceLevel}</span>
-              {(expected?.confidenceScore ?? confidenceScore) != null ? (
-                <span className="text-slate-500"> ({expected?.confidenceScore ?? confidenceScore})</span>
-              ) : null}
-              {sampleTier ? <span className="text-slate-500"> · evidence tier {sampleTier}</span> : null}
-              {avgProjSim != null ? <span className="text-slate-500"> · avg project similarity {avgProjSim}%</span> : null}
-            </p>
-          ) : null}
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {loading ? (
-          <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading comparison…
+    <div className="space-y-4">
+      {/* 1. Overall Assessment */}
+      <Card className="border-violet-200/80 bg-violet-50/30 dark:border-violet-900/40 dark:bg-violet-950/20">
+        <CardHeader className="pb-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <CardTitle className="text-lg">Overall assessment</CardTitle>
+            <Badge variant={statusVariant(status)}>{statusLabel}</Badge>
           </div>
-        ) : err ? (
-          <div className="text-sm text-red-600">{err}</div>
-        ) : (
-          <>
-            <DeliverableTrustSection trust={trust} />
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-3">
+          <MetricTile label="Status" value={statusLabel} />
+          <MetricTile label={INTELLIGENCE_LABELS.confidence} value={confidenceLabel} />
+          <MetricTile label="Historical alignment" value={historicalAlignment} />
+        </CardContent>
+      </Card>
 
-            <DeliverableExplanationPanel
-              projectId={projectId}
-              deliverableId={deliverableId}
-              enabled={enabled && !loading && !err}
-            />
+      {/* 2. Key metrics row */}
+      <div className="grid gap-3 lg:grid-cols-3">
+        {expected?.rangeLabel ? (
+          <MetricTile
+            label="Expected duration"
+            value={expected.rangeLabel}
+            sub={expected.mostLikelyDays != null ? `Most likely: ${expected.mostLikelyDays} days` : undefined}
+          />
+        ) : null}
+        {predicted?.rangeLabel ? (
+          <MetricTile
+            label={INTELLIGENCE_LABELS.prediction}
+            value={predicted.rangeLabel}
+            sub={
+              predicted.predictedMostLikelyDuration != null
+                ? `Most likely: ${Math.round(predicted.predictedMostLikelyDuration)} days`
+                : undefined
+            }
+          />
+        ) : null}
+        {reliability?.reliabilityLabel ? (
+          <MetricTile
+            label={INTELLIGENCE_LABELS.forecastReliability}
+            value={reliability.reliabilityLabel}
+            sub={
+              reliability.overrunFrequency != null
+                ? `${Math.round(reliability.overrunFrequency)}% historically overran`
+                : undefined
+            }
+          />
+        ) : null}
+      </div>
 
-            {(expected?.confidenceLevel === "LOW" || confidenceLevel === "LOW") && sampleSize + (expected?.evidenceCount ?? 0) > 0 ? (
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
-                Limited historical evidence. Use these figures as guidance only.
-              </div>
-            ) : null}
+      {(expected?.confidenceLevel === "LOW" || confidenceLevel === "LOW") &&
+      sampleSize + (expected?.evidenceCount ?? 0) > 0 ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+          Limited historical evidence. Treat these figures as guidance and review supporting evidence below.
+        </div>
+      ) : null}
 
-            {expected?.rangeLabel ? (
-              <div className="grid gap-3 rounded-lg border border-cyan-200/60 bg-cyan-50/50 p-3 dark:border-cyan-900/40 dark:bg-cyan-950/20 sm:grid-cols-2">
-                <div>
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Expected duration
-                  </div>
-                  <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">{expected.rangeLabel}</div>
-                </div>
-                <div>
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Most likely
-                  </div>
-                  <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
-                    {expected.mostLikelyDays != null ? `${expected.mostLikelyDays} Days` : "—"}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">Confidence</div>
-                  <div className="font-medium">{expected.confidenceLevel ?? "—"}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">Evidence</div>
+      {/* 3. Summary */}
+      <IntelligenceSection title="Summary" description="What Rana4 found at a glance.">
+        <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200">{summaryText}</p>
+      </IntelligenceSection>
+
+      {/* 4. Why? / Observations */}
+      <IntelligenceSection
+        title="Why?"
+        description="Observations that explain how this deliverable compares to previous projects."
+        helpTopic="observations"
+      >
+        <DeliverableFindingsSection findings={findings} />
+      </IntelligenceSection>
+
+      {/* 5. Key Factors */}
+      <IntelligenceSection
+        title="Key factors"
+        description="Patterns from comparable projects that may influence duration."
+        helpTopic="keyFactors"
+      >
+        <DeliverableDriversSection drivers={drivers} />
+      </IntelligenceSection>
+
+      {/* 6. Recommendations */}
+      <IntelligenceSection
+        title="Recommendations"
+        description="Evidence-based items you may wish to review. Rana4 does not change your schedule."
+        helpTopic="recommendations"
+      >
+        <DeliverableRecommendationsSection recommendations={recommendations} />
+      </IntelligenceSection>
+
+      {/* 7. Supporting Evidence */}
+      {sampleSize > 0 ? (
+        <IntelligenceSection
+          title={INTELLIGENCE_LABELS.evidence}
+          description="Similar deliverables from imported project history."
+          collapsible
+          defaultOpen={false}
+        >
+          <button
+            type="button"
+            className="mb-3 flex w-full items-center justify-between rounded-md border border-slate-200 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-900/30"
+            onClick={() => setEvidenceOpen((v) => !v)}
+          >
+            <span>
+              {sampleSize} comparable deliverable{sampleSize === 1 ? "" : "s"} matched
+            </span>
+            {evidenceOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+          </button>
+          {evidenceOpen ? (
+            <ul className="space-y-2 text-sm">
+              {(evidence?.matchedDeliverables ?? []).slice(0, 20).map((m, idx) => (
+                <li key={idx} className="rounded-md border border-slate-100 px-3 py-2 dark:border-slate-800">
                   <div className="font-medium">
-                    {expected.evidenceCount ?? 0} Comparable Deliverable{(expected.evidenceCount ?? 0) === 1 ? "" : "s"}
+                    {m.projectName} — {m.deliverableName}
                   </div>
-                </div>
-              </div>
-            ) : null}
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    {m.durationDays} days · {Number(m.similarityScore).toFixed(1)}% similarity
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </IntelligenceSection>
+      ) : null}
 
-            {reliability?.reliabilityLabel ? (
-              <div className="grid gap-3 rounded-lg border border-violet-200/60 bg-violet-50/50 p-3 dark:border-violet-900/40 dark:bg-violet-950/20 sm:grid-cols-2">
-                <div className="sm:col-span-2">
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Forecast reliability
-                  </div>
-                  <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
-                    {reliability.reliabilityLabel}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">Historical overrun frequency</div>
-                  <div className="font-medium">
-                    {reliability.overrunFrequency != null
-                      ? `${Math.round(reliability.overrunFrequency)}%`
-                      : "—"}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">Average variance</div>
-                  <div className="font-medium">
-                    {reliability.averageVariancePercent != null
-                      ? `${reliability.averageVariancePercent > 0 ? "+" : ""}${Math.round(reliability.averageVariancePercent)}%`
-                      : "—"}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">Sample size</div>
-                  <div className="font-medium">{reliability.sampleSize ?? "—"}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">Confidence</div>
-                  <div className="font-medium">{reliability.confidenceLevel ?? "—"}</div>
-                </div>
-              </div>
-            ) : null}
-
-            {predicted?.rangeLabel ? (
-              <div className="grid gap-3 rounded-lg border border-emerald-200/60 bg-emerald-50/50 p-3 dark:border-emerald-900/40 dark:bg-emerald-950/20 sm:grid-cols-2">
-                <div>
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Predicted outcome
-                  </div>
-                  <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">{predicted.rangeLabel}</div>
-                </div>
-                <div>
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    Most likely
-                  </div>
-                  <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-white">
-                    {predicted.predictedMostLikelyDuration != null
-                      ? `${Math.round(predicted.predictedMostLikelyDuration)} Days`
-                      : "—"}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">Confidence</div>
-                  <div className="font-medium">{predicted.predictionConfidenceLevel ?? "—"}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">Evidence</div>
-                  <div className="font-medium">
-                    {predicted.evidenceCount ?? 0} Comparable Deliverable
-                    {(predicted.evidenceCount ?? 0) === 1 ? "" : "s"}
-                  </div>
-                </div>
-                {(predicted.reasoning ?? []).length > 0 ? (
-                  <div className="sm:col-span-2">
-                    <div className="text-xs font-medium text-slate-500 dark:text-slate-400">Reasoning</div>
-                    <ul className="mt-1 list-inside list-disc space-y-0.5 text-xs text-slate-600 dark:text-slate-300">
-                      {predicted.reasoning.map((line: string, i: number) => (
-                        <li key={i}>{line}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : (
-                  <div className="sm:col-span-2 text-xs text-slate-500 dark:text-slate-400">
-                    Based on historical outcomes from comparable projects.
-                  </div>
-                )}
-              </div>
-            ) : null}
-
+      {/* 8. Detailed Historical Comparison (collapsible) */}
+      <IntelligenceSection
+        title={`Detailed ${INTELLIGENCE_LABELS.benchmark.toLowerCase()}`}
+        description="Raw statistics from historical deliverables. Expand when you need the detail."
+        helpTopic="historicalComparison"
+        collapsible
+        defaultOpen={false}
+      >
+        <button
+          type="button"
+          className="mb-3 flex w-full items-center justify-between rounded-md border border-slate-200 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-900/30"
+          onClick={() => setBenchmarkOpen((v) => !v)}
+        >
+          <span>View statistics</span>
+          {benchmarkOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </button>
+        {benchmarkOpen ? (
+          <div className="space-y-3">
             {notes.length > 0 ? (
               <div className="space-y-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900/20 dark:text-slate-300">
                 {notes.map((n, i) => (
@@ -286,73 +329,38 @@ export function DeliverableBenchmarkPanel({
                 ))}
               </div>
             ) : null}
-
             <div className="grid grid-cols-2 gap-2 text-sm">
-              <div className="rounded-md bg-slate-50 p-2 dark:bg-slate-900/40">
-                <div className="text-xs text-slate-500 dark:text-slate-400">Current</div>
-                <div className="font-semibold">{current != null ? `${current} days` : "—"}</div>
-              </div>
-              <div className="rounded-md bg-slate-50 p-2 dark:bg-slate-900/40">
-                <div className="text-xs text-slate-500 dark:text-slate-400">Difference vs Avg</div>
-                <div className="font-semibold">{diffAvg != null ? `+${diffAvg}%` : "—"}</div>
-              </div>
-              <div className="rounded-md bg-slate-50 p-2 dark:bg-slate-900/40">
-                <div className="text-xs text-slate-500 dark:text-slate-400">Historical Min</div>
-                <div className="font-semibold">{min != null ? `${min}` : "—"}</div>
-              </div>
-              <div className="rounded-md bg-slate-50 p-2 dark:bg-slate-900/40">
-                <div className="text-xs text-slate-500 dark:text-slate-400">Historical Max</div>
-                <div className="font-semibold">{max != null ? `${max}` : "—"}</div>
-              </div>
-              <div className="rounded-md bg-slate-50 p-2 dark:bg-slate-900/40">
-                <div className="text-xs text-slate-500 dark:text-slate-400">Historical Avg</div>
-                <div className="font-semibold">{avg != null ? `${avg}` : "—"}</div>
-              </div>
-              <div className="rounded-md bg-slate-50 p-2 dark:bg-slate-900/40">
-                <div className="text-xs text-slate-500 dark:text-slate-400">Historical Median</div>
-                <div className="font-semibold">{med != null ? `${med}` : "—"}</div>
-              </div>
+              <MetricTile label="Current duration" value={current != null ? `${current} days` : "—"} />
+              <MetricTile label="Difference vs average" value={diffAvg != null ? `${diffAvg > 0 ? "+" : ""}${diffAvg}%` : "—"} />
+              <MetricTile label="Historical minimum" value={min != null ? `${min} days` : "—"} />
+              <MetricTile label="Historical maximum" value={max != null ? `${max} days` : "—"} />
+              <MetricTile label="Historical average" value={avg != null ? `${avg} days` : "—"} />
+              <MetricTile label="Historical median" value={med != null ? `${med} days` : "—"} />
             </div>
+          </div>
+        ) : null}
+      </IntelligenceSection>
 
-            {sampleSize > 0 && (
-              <button
-                type="button"
-                className="flex w-full items-center justify-between rounded-md border border-slate-200 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-900/30"
-                onClick={() => setOpen((v) => !v)}
-              >
-                <span className="font-medium">Evidence</span>
-                {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-              </button>
-            )}
+      {/* 9. Trust & Explainability */}
+      <IntelligenceSection
+        title="Evidence quality"
+        description="How much you can rely on this analysis, based on evidence volume and coverage."
+        helpTopic="evidenceQuality"
+      >
+        <DeliverableTrustSection trust={trust} />
+      </IntelligenceSection>
 
-            {open && sampleSize > 0 ? (
-              <div className="space-y-2 rounded-md border border-slate-200 p-3 text-sm dark:border-slate-700">
-                <div className="text-xs text-slate-500 dark:text-slate-400">
-                  Matched deliverables (showing up to {Math.min(20, evidence?.matchedDeliverables?.length ?? 0)})
-                </div>
-                <ul className="space-y-1">
-                  {(evidence?.matchedDeliverables ?? []).slice(0, 20).map((m, idx) => (
-                    <li key={idx} className="flex flex-col gap-0.5">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium">{m.projectName}</span>
-                        <span className="text-slate-500 dark:text-slate-400">—</span>
-                        <span>{m.deliverableName}</span>
-                      </div>
-                      <div className="text-xs text-slate-500 dark:text-slate-400">
-                        {m.programmeState ?? "UNKNOWN"} · {m.durationDays} days · similarity {m.similarityScore}%
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-
-            <DeliverableFindingsSection findings={findings} />
-            <DeliverableDriversSection drivers={drivers} />
-            <DeliverableRecommendationsSection recommendations={recommendations} />
-          </>
-        )}
-      </CardContent>
-    </Card>
+      {/* 10. Ask Rana4 */}
+      <IntelligenceSection
+        title="Ask Rana4"
+        description="Get a plain-language explanation grounded in the analysis above."
+      >
+        <DeliverableExplanationPanel
+          projectId={projectId}
+          deliverableId={deliverableId}
+          enabled={enabled && !loading && !err}
+        />
+      </IntelligenceSection>
+    </div>
   );
 }

@@ -1,0 +1,12 @@
+{
+  "description": "Synthetic highway junction improvement",
+  "primaryFile": "programme.xer",
+  "minAccuracy": 1,
+  "expected": {
+    "projectName": "M25 Junction 10 Improvement",
+    "projectType": "Road",
+    "stage": "Construction",
+    "complexity": "Low"
+  },
+  "notes": "No client in ground truth — client detection not evaluated for this dataset."
+}

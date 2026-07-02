@@ -1,0 +1,20 @@
+ERMHDR	18.8	2024-01-01	Project	admin	
+%T	PROJECT
+%F	proj_id	proj_short_name	proj_name	plan_start_date	plan_end_date
+%R	RAIL1	NLU	Northern Line Station Upgrade	2024-01-01 08:00	2025-12-31 17:00
+%T	PROJWBS
+%F	wbs_id	parent_wbs_id	wbs_name
+%R	1		Root Project
+%R	2	1	Station Works
+%R	3	1	Track Renewals
+%T	TASK
+%F	task_id	task_code	task_name	wbs_id	status_code	phys_complete_pct
+%R	1	R1	Platform extension	2	TK_Active	40
+%R	2	R2	Signalling commissioning	2	TK_Active	25
+%R	3	R3	Rail track installation	3	TK_Active	30
+%R	4	R4	Network Rail possession works	3	TK_Active	15
+%T	TASKPRED
+%F	task_id	pred_task_id	pred_type
+%T	CALENDAR
+%F	clndr_id	clndr_name
+%R	1	Standard

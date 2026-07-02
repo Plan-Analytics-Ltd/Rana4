@@ -19,7 +19,7 @@ import { useProject } from "@/contexts/project-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Moon, Sun } from "lucide-react";
+import { Moon, Sun, FolderPlus } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 const BACKEND_URL =
@@ -634,12 +634,20 @@ export default function SettingsPage() {
           <CardHeader>
             <CardTitle className="text-base">Projects</CardTitle>
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              Create and manage projects (admins and editors).
+              Create and manage projects (admins and editors). To import a Primavera baseline, use the guided new
+              project flow.
             </p>
           </CardHeader>
           <CardContent className="space-y-6">
+            <Button asChild variant="outline" size="sm">
+              <Link href="/app/projects/new">
+                <FolderPlus className="mr-2 h-4 w-4" />
+                New project (blank or Primavera XER)
+              </Link>
+            </Button>
+
             <form onSubmit={handleCreateProject} className="grid gap-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Create project</label>
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Quick create (blank)</label>
               <div className="flex gap-2">
                 <Input
                   placeholder="New project name"

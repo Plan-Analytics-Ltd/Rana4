@@ -7,6 +7,7 @@ import { DeliverableNode } from "./DeliverableNode";
 import { SharedActivitiesSection } from "./SharedActivitiesSection";
 import { isProjectLevelGroupName } from "@/lib/schedule-types";
 import { collectFragnetSharedActivities } from "@/lib/schedule-workspace-data";
+import type { DeliverableStatusSnapshot } from "@/lib/deliverable-intelligence-status";
 
 export function FragnetNode(props: {
   fragnet: ScheduleFragnet;
@@ -18,6 +19,8 @@ export function FragnetNode(props: {
   rateCard: RateCardEntry[];
   searchQuery: string;
   highlightActivityId?: string | null;
+  deliverableIntelById?: Map<string, DeliverableStatusSnapshot>;
+  onDeliverableIntelClick?: (deliverableId: string, deliverableName: string) => void;
 }) {
   const f = props.fragnet;
   const sharedActivities = collectFragnetSharedActivities(f);
@@ -59,6 +62,12 @@ export function FragnetNode(props: {
               rateCard={props.rateCard}
               searchQuery={props.searchQuery}
               highlightActivityId={props.highlightActivityId}
+              intelSnapshot={props.deliverableIntelById?.get(d.id)}
+              onIntelClick={
+                props.onDeliverableIntelClick
+                  ? () => props.onDeliverableIntelClick!(d.id, d.name)
+                  : undefined
+              }
             />
           ))
         )}
@@ -104,6 +113,12 @@ export function FragnetNode(props: {
                 rateCard={props.rateCard}
                 searchQuery={props.searchQuery}
                 highlightActivityId={props.highlightActivityId}
+                intelSnapshot={props.deliverableIntelById?.get(d.id)}
+                onIntelClick={
+                  props.onDeliverableIntelClick
+                    ? () => props.onDeliverableIntelClick!(d.id, d.name)
+                    : undefined
+                }
               />
             ))
           )}

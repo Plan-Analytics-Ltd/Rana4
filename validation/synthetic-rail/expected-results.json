@@ -1,0 +1,12 @@
+{
+  "description": "Synthetic rail station upgrade programme",
+  "primaryFile": "programme.xer",
+  "minAccuracy": 1,
+  "expected": {
+    "projectName": "Northern Line Station Upgrade",
+    "projectType": "Rail",
+    "client": "Network Rail",
+    "stage": "Construction",
+    "complexity": "Low"
+  }
+}

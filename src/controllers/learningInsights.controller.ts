@@ -29,6 +29,7 @@ import {
   refreshRecommendationProfiles,
 } from "../services/intelligence/recommendations/recommendationEngine.service.js";
 import { runPostImportLearningRefresh } from "../services/intelligence/learning/learningRefresh.service.js";
+import { buildOrganisationKnowledge } from "../services/intelligence/matching/organisationKnowledge.service.js";
 
 const INSIGHT_TYPES: LearnedInsightType[] = [
   "DURATION_OVERRUN",
@@ -411,5 +412,20 @@ export async function postRegenerateInsights(req: AuthRequest, res: Response): P
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err instanceof Error ? err.message : "Regeneration failed" });
+  }
+}
+
+/** GET /intelligence/organisation-knowledge */
+export async function getOrganisationKnowledge(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const report = await buildOrganisationKnowledge(req.user.companyId);
+    res.json(report);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to load organisation knowledge" });
   }
 }

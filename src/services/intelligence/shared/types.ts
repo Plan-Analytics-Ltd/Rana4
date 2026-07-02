@@ -15,6 +15,8 @@ export type ImportedActivityRow = {
   percentComplete?: number;
   startDate?: Date;
   finishDate?: Date;
+  actualStart?: Date;
+  actualFinish?: Date;
   earlyStart?: Date;
   earlyFinish?: Date;
   lateStart?: Date;

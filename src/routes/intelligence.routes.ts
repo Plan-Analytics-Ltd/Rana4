@@ -28,5 +28,6 @@ router.get("/insights/by-type/:type", learningInsightsController.getLearnedInsig
 router.post("/insights/regenerate", learningInsightsController.postRegenerateInsights);
 router.get("/insights/:id", learningInsightsController.getLearnedInsight);
 router.get("/insights", learningInsightsController.getLearnedInsights);
+router.get("/organisation-knowledge", learningInsightsController.getOrganisationKnowledge);
 
 export default router;

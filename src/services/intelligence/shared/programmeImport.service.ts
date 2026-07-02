@@ -210,7 +210,11 @@ export async function importProgrammeSchedule(
 
   // Learning feedback loop: profiles + organisational insights.
   const { runPostImportLearningRefresh } = await import("../learning/learningRefresh.service.js");
-  void runPostImportLearningRefresh(options.companyId).catch((err) => {
+  const { runWithAuthContextAsync } = await import("../../../utils/requestContext.js");
+  void runWithAuthContextAsync(
+    { userId: options.userId ?? "system", companyId: options.companyId },
+    () => runPostImportLearningRefresh(options.companyId)
+  ).catch((err) => {
     console.error("[programmeImport] post-import learning refresh failed", err);
   });
 

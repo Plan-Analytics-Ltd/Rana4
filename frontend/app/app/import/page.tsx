@@ -1,11 +1,28 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { BookOpen, Loader2, Upload } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useProject } from "@/contexts/project-context";
-import { api, getApiErrorMessage, isAxiosError, programmeIntelligenceApi, type ProgrammeImportResult } from "@/lib/api";
+import {
+  api,
+  getApiErrorMessage,
+  isAxiosError,
+  organisationalIntelligenceApi,
+  programmeIntelligenceApi,
+  type ProgrammeImportResult,
+  type ProgrammeSnapshotSummary,
+} from "@/lib/api";
+import { computeOrgKpis } from "@/lib/intelligence-terminology";
+import { IntelligenceSection } from "@/components/intelligence/intelligence-section";
+import { IntelligenceEmptyState } from "@/components/intelligence/intelligence-empty-state";
+import { SummaryKpiGrid } from "@/components/intelligence/dashboard/summary-kpi-grid";
+import { RecentActivityCard } from "@/components/intelligence/dashboard/recent-activity-card";
+import { humanSnapshotRole, humanSourceType, snapshotKnowledgeBadges } from "@/lib/intelligence-terminology";
+import { Badge } from "@/components/ui/badge";
 
 type ImportSuccessResponse =
   | {
@@ -35,7 +52,7 @@ type ImportErrorResponse = { error: string };
 
 function asErrorMessage(err: unknown): string {
   if (isAxiosError(err)) {
-    const data = err.response?.data as any;
+    const data = err.response?.data as { error?: string };
     if (data && typeof data === "object" && typeof data.error === "string") return data.error;
   }
   return getApiErrorMessage(err);
@@ -47,12 +64,51 @@ export default function ImportPage() {
 
   const [file, setFile] = useState<File | null>(null);
   const [programmeFile, setProgrammeFile] = useState<File | null>(null);
-  const [programmeRole, setProgrammeRole] = useState<"LIVE_IMPORT" | "AS_BUILT">("LIVE_IMPORT");
+  const [programmeRole, setProgrammeRole] = useState<"LIVE_IMPORT" | "AS_BUILT">("AS_BUILT");
   const [dryRun, setDryRun] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [libraryLoading, setLibraryLoading] = useState(true);
   const [result, setResult] = useState<ImportSuccessResponse | null>(null);
   const [programmeResult, setProgrammeResult] = useState<ProgrammeImportResult | null>(null);
+  const [snapshots, setSnapshots] = useState<ProgrammeSnapshotSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [knowledgeMessage, setKnowledgeMessage] = useState<string | null>(null);
+
+  const [orgKpis, setOrgKpis] = useState(() =>
+    computeOrgKpis({
+      insights: [],
+      deliverableProfiles: [],
+      reliabilityProfiles: [],
+      outcomeProfiles: [],
+      recommendationProfiles: [],
+      recommendationTrends: [],
+      trustProfiles: [],
+    })
+  );
+
+  const loadLibrary = useCallback(async () => {
+    if (!projectId) {
+      setLibraryLoading(false);
+      return;
+    }
+    setLibraryLoading(true);
+    try {
+      const [snapRes, dashRes] = await Promise.all([
+        programmeIntelligenceApi.listSnapshots(projectId),
+        organisationalIntelligenceApi.dashboard(),
+      ]);
+      setSnapshots(snapRes.data.snapshots ?? []);
+      setOrgKpis(computeOrgKpis(dashRes.data));
+    } catch {
+      setSnapshots([]);
+    } finally {
+      setLibraryLoading(false);
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    void loadLibrary();
+  }, [loadLibrary]);
 
   const canSubmit = useMemo(() => !!file && !!projectId && !loading, [file, projectId, loading]);
   const canProgrammeImport = useMemo(
@@ -60,12 +116,17 @@ export default function ImportPage() {
     [programmeFile, projectId, loading]
   );
 
+  const recentSnapshots = useMemo(
+    () => [...snapshots].sort((a, b) => new Date(b.importedAt).getTime() - new Date(a.importedAt).getTime()).slice(0, 5),
+    [snapshots]
+  );
+
   const downloadTemplate = async () => {
     setError(null);
     setResult(null);
     try {
       setLoading(true);
-      const res = await api.get<Blob>("/import/template", { responseType: "blob" as any });
+      const res = await api.get<Blob>("/import/template", { responseType: "blob" as never });
       const blob = new Blob([res.data], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       });
@@ -87,6 +148,7 @@ export default function ImportPage() {
   const uploadProgrammeImport = async () => {
     setError(null);
     setProgrammeResult(null);
+    setKnowledgeMessage(null);
     if (!projectId || !programmeFile) return;
     try {
       setLoading(true);
@@ -94,6 +156,8 @@ export default function ImportPage() {
         snapshotRole: programmeRole,
       });
       setProgrammeResult(res.data);
+      setKnowledgeMessage("This project has improved organisational knowledge.");
+      await loadLibrary();
     } catch (err) {
       setError(asErrorMessage(err));
     } finally {
@@ -104,12 +168,9 @@ export default function ImportPage() {
   const uploadAndImport = async () => {
     setError(null);
     setResult(null);
-    if (!projectId) {
-      setError("Project not selected");
-      return;
-    }
-    if (!file) {
-      setError("No file selected");
+    setKnowledgeMessage(null);
+    if (!projectId || !file) {
+      setError(projectId ? "No file selected" : "Project not selected");
       return;
     }
 
@@ -123,12 +184,16 @@ export default function ImportPage() {
         formData
       );
 
-      const data = res.data as any;
-      if (data && typeof data === "object" && data.success === true) {
+      const data = res.data as ImportSuccessResponse | ImportErrorResponse;
+      if (data && typeof data === "object" && "success" in data && data.success === true) {
         setResult(data as ImportSuccessResponse);
+        if (!dryRun) {
+          setKnowledgeMessage("This project has improved organisational knowledge.");
+          await loadLibrary();
+        }
         return;
       }
-      if (data && typeof data === "object" && typeof data.error === "string") {
+      if (data && typeof data === "object" && "error" in data && typeof data.error === "string") {
         setError(data.error);
         return;
       }
@@ -141,164 +206,201 @@ export default function ImportPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
+    <div className="mx-auto w-full max-w-5xl space-y-6 p-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">Import</h1>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          Project: <span className="font-medium">{selectedProject?.name ?? "—"}</span>
+        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">
+          <Upload className="h-7 w-7 text-violet-600 dark:text-violet-400" />
+          Import history
+        </h1>
+        <p className="mt-1 max-w-2xl text-sm text-slate-600 dark:text-slate-400">
+          Build organisational knowledge by importing completed programme revisions for an existing project. This is
+          separate from creating a new project from Primavera — use{" "}
+          <Link href="/app/projects/new" className="font-medium text-violet-700 underline dark:text-violet-300">
+            New project
+          </Link>{" "}
+          for your first baseline import.
         </p>
       </div>
 
-      <Card className="p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900 dark:text-white">Template</h2>
+      {libraryLoading ? (
+        <div className="flex items-center gap-2 text-sm text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading knowledge summary…
+        </div>
+      ) : (
+        <IntelligenceSection title="Knowledge growth" description="How much your organisation has learned so far.">
+          <SummaryKpiGrid kpis={orgKpis} variant="compact" />
+        </IntelligenceSection>
+      )}
+
+      {knowledgeMessage ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
+          {knowledgeMessage}
+        </div>
+      ) : null}
+
+      <IntelligenceSection
+        title="Import new history"
+        description="Add completed programmes or structured project data to grow the learning library."
+      >
+        <div className="space-y-6">
+          <Card className="border-slate-200 p-5 dark:border-slate-700">
+            <h3 className="text-base font-semibold text-slate-900 dark:text-white">Excel project data</h3>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-              Download the latest Hybrid Import Excel template. On the Deliverables sheet, leave{" "}
-              <span className="font-medium">fragnet_name</span> blank to create unassigned deliverables (no fragnet).
+              Import standards, fragnets, deliverables, and activities from the hybrid Excel template.
             </p>
-          </div>
-          <Button onClick={downloadTemplate} disabled={loading} className="shrink-0">
-            {loading ? "Loading…" : "Download Template"}
-          </Button>
-        </div>
-      </Card>
-
-      <Card className="p-5">
-        <h2 className="text-base font-semibold text-slate-900 dark:text-white">Upload</h2>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          Deliverables without a fragnet: leave <span className="font-medium">fragnet_name</span> empty on the
-          Deliverables sheet. They appear under unassigned deliverables after import. Activity rows still require a
-          fragnet and a deliverable on that fragnet.
-        </p>
-        <div className="mt-4 space-y-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Excel file (.xlsx)</label>
-            <Input
-              type="file"
-              accept=".xlsx"
-              onChange={(e) => {
-                setError(null);
-                setResult(null);
-                setFile(e.target.files?.[0] ?? null);
-              }}
-              disabled={loading}
-            />
-          </div>
-
-          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-            <input
-              type="checkbox"
-              className="h-4 w-4"
-              checked={dryRun}
-              onChange={(e) => setDryRun(e.target.checked)}
-              disabled={loading}
-            />
-            Dry Run (validate only, no data saved)
-          </label>
-
-          <div className="flex items-center gap-3">
-            <Button onClick={uploadAndImport} disabled={!canSubmit}>
-              {loading ? "Uploading…" : "Upload & Import"}
-            </Button>
-            {!projectId && <span className="text-sm text-slate-500">Select a project first.</span>}
-            {!file && projectId && <span className="text-sm text-slate-500">Choose an .xlsx file to continue.</span>}
-          </div>
-        </div>
-      </Card>
-
-      <Card className="p-5">
-        <h2 className="text-base font-semibold text-slate-900 dark:text-white">Programme schedule import</h2>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          Import live or as-built schedules (XER or Rana4 JSON). Creates a historical snapshot — your live programme is not overwritten.
-        </p>
-        <div className="mt-4 space-y-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-              Schedule file (.xer or .json)
-            </label>
-            <Input
-              type="file"
-              accept=".xer,.json,application/json"
-              onChange={(e) => {
-                setError(null);
-                setProgrammeResult(null);
-                setProgrammeFile(e.target.files?.[0] ?? null);
-              }}
-              disabled={loading}
-            />
-          </div>
-          <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-            Snapshot type
-            <select
-              value={programmeRole}
-              onChange={(e) => setProgrammeRole(e.target.value as "LIVE_IMPORT" | "AS_BUILT")}
-              className="mt-1 block w-full max-w-xs rounded border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
-              disabled={loading}
-            >
-              <option value="LIVE_IMPORT">Live update</option>
-              <option value="AS_BUILT">As-built</option>
-            </select>
-          </label>
-          <Button onClick={uploadProgrammeImport} disabled={!canProgrammeImport}>
-            {loading ? "Importing…" : "Import programme snapshot"}
-          </Button>
-        </div>
-        {programmeResult && (
-          <div className="mt-4 rounded-md border border-cyan-200 bg-cyan-50 p-3 text-sm text-cyan-900 dark:border-cyan-900/50 dark:bg-cyan-950/30 dark:text-cyan-200">
-            <div className="font-semibold">Snapshot saved (v{programmeResult.summary.snapshotVersion})</div>
-            <div className="mt-1">
-              Matched {programmeResult.matchResult.matchedActivities} activities by activity code.
-              {programmeResult.matchResult.unmatchedActivityCodes.length > 0 && (
-                <span>
-                  {" "}
-                  Unmatched: {programmeResult.matchResult.unmatchedActivityCodes.slice(0, 8).join(", ")}
-                  {programmeResult.matchResult.unmatchedActivityCodes.length > 8 ? "…" : ""}
-                </span>
-              )}
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Button onClick={downloadTemplate} disabled={loading} variant="outline" size="sm">
+                Download template
+              </Button>
             </div>
-          </div>
-        )}
-      </Card>
+            <div className="mt-4 space-y-4">
+              <Input
+                type="file"
+                accept=".xlsx"
+                onChange={(e) => {
+                  setError(null);
+                  setResult(null);
+                  setFile(e.target.files?.[0] ?? null);
+                }}
+                disabled={loading}
+              />
+              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={dryRun}
+                  onChange={(e) => setDryRun(e.target.checked)}
+                  disabled={loading}
+                />
+                Validate only (no data saved)
+              </label>
+              <Button onClick={uploadAndImport} disabled={!canSubmit}>
+                {loading ? "Uploading…" : dryRun ? "Validate import" : "Import project data"}
+              </Button>
+            </div>
+          </Card>
+
+          <Card className="border-slate-200 p-5 dark:border-slate-700">
+            <h3 className="text-base font-semibold text-slate-900 dark:text-white">Programme schedule</h3>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+              Import a completed or live schedule (XER or Rana4 JSON). Completed programmes contribute most to
+              organisational learning.
+            </p>
+            <div className="mt-4 space-y-4">
+              <Input
+                type="file"
+                accept=".xer,.json,application/json"
+                onChange={(e) => {
+                  setError(null);
+                  setProgrammeResult(null);
+                  setProgrammeFile(e.target.files?.[0] ?? null);
+                }}
+                disabled={loading}
+              />
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Programme type
+                <select
+                  value={programmeRole}
+                  onChange={(e) => setProgrammeRole(e.target.value as "LIVE_IMPORT" | "AS_BUILT")}
+                  className="mt-1 block w-full max-w-xs rounded border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
+                  disabled={loading}
+                >
+                  <option value="AS_BUILT">Completed project (recommended for learning)</option>
+                  <option value="LIVE_IMPORT">Live programme update</option>
+                </select>
+              </label>
+              <Button onClick={uploadProgrammeImport} disabled={!canProgrammeImport}>
+                {loading ? "Importing…" : "Import programme"}
+              </Button>
+            </div>
+            {programmeResult ? (
+              <div className="mt-4 rounded-md border border-cyan-200 bg-cyan-50 p-3 text-sm text-cyan-900 dark:border-cyan-900/50 dark:bg-cyan-950/30 dark:text-cyan-200">
+                <p className="font-semibold">Added to learning library</p>
+                <p className="mt-1">
+                  Matched {programmeResult.matchResult.matchedActivities} activities from previous knowledge.
+                </p>
+              </div>
+            ) : null}
+          </Card>
+        </div>
+      </IntelligenceSection>
 
       {(error || result) && (
         <Card className="p-5">
-          <h2 className="text-base font-semibold text-slate-900 dark:text-white">Result</h2>
-
           {error && (
-            <div className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
-              <div className="font-semibold">Import Failed</div>
-              <div className="mt-1 whitespace-pre-wrap">{error}</div>
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
+              {error}
             </div>
           )}
-
-          {result && (
-            <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
-              <div className="font-semibold">Import Successful</div>
-              {"created" in result ? (
-                <div className="mt-2 space-y-1">
-                  <div>Standards: {result.created.standards}</div>
-                  <div>Fragnets: {result.created.fragnets}</div>
-                  <div>Deliverables: {result.created.deliverables}</div>
-                  <div>Activities: {result.created.activities}</div>
-                  <div>Relationships: {result.created.relationships}</div>
-                  <div>Assignments: {result.assignmentsApplied}</div>
-                </div>
-              ) : (
-                <div className="mt-2 space-y-1">
-                  <div>Standards: {result.counts.standards}</div>
-                  <div>Fragnets: {result.counts.fragnets}</div>
-                  <div>Deliverables: {result.counts.deliverables}</div>
-                  <div>Activities: {result.counts.activities}</div>
-                  <div>Relationships: {result.counts.relationships}</div>
-                  <div>Assignments: {result.counts.assignments}</div>
-                </div>
-              )}
+          {result && !dryRun && (
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
+              <p className="font-semibold">Project data imported successfully</p>
+            </div>
+          )}
+          {result && dryRun && (
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-900/40">
+              <p className="font-semibold">Validation passed — no data was saved</p>
             </div>
           )}
         </Card>
       )}
+
+      <IntelligenceSection
+        title="Existing historical library"
+        description={`Snapshots stored for ${selectedProject?.name ?? "this project"}.`}
+      >
+        {recentSnapshots.length === 0 ? (
+          <IntelligenceEmptyState
+            icon={BookOpen}
+            title="No historical library for this project yet"
+            description="Import a completed programme to start building knowledge. Rana4 will use it to compare deliverables and improve guidance across the organisation."
+          />
+        ) : (
+          <div className="space-y-4">
+            {recentSnapshots.map((s) => (
+              <div
+                key={s.id}
+                className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/50"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="font-medium text-slate-900 dark:text-white">
+                      {s.label || `Snapshot v${s.snapshotVersion}`}
+                    </p>
+                    <p className="text-sm text-slate-500">
+                      {humanSourceType(s.sourceType)} · {new Date(s.importedAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <Badge variant="outline">{humanSnapshotRole(s.snapshotRole)}</Badge>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {snapshotKnowledgeBadges(s).map((b) => (
+                    <Badge key={b} variant="secondary" className="text-[10px] font-normal">
+                      {b}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </IntelligenceSection>
+
+      {recentSnapshots.length > 0 ? (
+        <IntelligenceSection title="Recent imports" description="Latest additions to the learning library.">
+          <div className="grid gap-3 sm:grid-cols-2">
+            {recentSnapshots.map((s) => (
+              <RecentActivityCard
+                key={s.id}
+                title={s.label || `Snapshot v${s.snapshotVersion}`}
+                subtitle={`${humanSnapshotRole(s.snapshotRole)} · ${s.activityCount} activities`}
+                date={new Date(s.importedAt).toLocaleDateString()}
+              />
+            ))}
+          </div>
+        </IntelligenceSection>
+      ) : null}
     </div>
   );
 }
-

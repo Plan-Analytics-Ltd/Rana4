@@ -6,6 +6,7 @@ import * as importController from "../controllers/import.controller.js";
 import * as programmeIntelligenceController from "../controllers/programmeIntelligence.controller.js";
 import * as projectIntelligenceController from "../controllers/projectIntelligence.controller.js";
 import * as explanationController from "../controllers/explanation.controller.js";
+import * as xerProjectImportController from "../controllers/xerProjectImport.controller.js";
 import { requireAuth } from "../middleware/auth.middleware.js";
 
 const router = Router();
@@ -17,6 +18,8 @@ const upload = multer({
 router.use(requireAuth);
 router.get("/", projectsController.listMyProjects);
 router.post("/", projectsController.createProject);
+router.post("/from-xer/preview", upload.single("file"), xerProjectImportController.previewXerProject);
+router.post("/from-xer", upload.single("file"), xerProjectImportController.createProjectFromXer);
 router.put("/:id", projectsController.updateProject);
 router.delete("/:id", projectsController.deleteProject);
 router.post("/:projectId/import", upload.single("file"), importController.importProjectTemplate);

@@ -14,6 +14,9 @@ import { validateProjectSchedule, readinessScore } from "@/lib/schedule-validati
 import { ValidationPanel } from "@/components/schedule/validation-panel";
 import { ReadinessDisplay } from "@/components/schedule/readiness-display";
 import { CostSummaryCards } from "@/components/schedule/cost-summary-cards";
+import { ProjectHealthBar } from "@/components/intelligence/project-health-bar";
+import { useDeliverableIntelligenceCache } from "@/lib/use-deliverable-intelligence-cache";
+import { useIntelligenceDrawer } from "@/contexts/intelligence-drawer-context";
 import { cn } from "@/lib/utils";
 
 const COLLAPSE_KEY = "rana4-viewer-collapse";
@@ -110,6 +113,17 @@ export default function ProjectViewerPage() {
     return rollupCosts(data, rateCard, scenario);
   }, [data, rateCard, scenario]);
 
+  const projectDeliverableIds = useMemo(() => {
+    if (!data) return [];
+    return data.fragnets.flatMap((f) => f.deliverables.map((d) => d.id));
+  }, [data]);
+
+  const { snapshots: deliverableIntelById } = useDeliverableIntelligenceCache(
+    projectId,
+    projectDeliverableIds
+  );
+  const { openInsight } = useIntelligenceDrawer();
+
   const expandAll = () => {
     if (!data) return;
     const fragnets: Record<string, boolean> = {};
@@ -157,6 +171,8 @@ export default function ProjectViewerPage() {
           </select>
         </div>
       </div>
+
+      <ProjectHealthBar projectId={projectId} />
 
       {costRollup && <CostSummaryCards project={costRollup.project} byFragnet={[...costRollup.byFragnet.entries()].map(([id, r]) => ({ id, name: r.name, rollup: r }))} />}
 
@@ -216,6 +232,11 @@ export default function ProjectViewerPage() {
                   rateCard={rateCard}
                   searchQuery={search}
                   highlightActivityId={highlightId}
+                  deliverableIntelById={deliverableIntelById}
+                  onDeliverableIntelClick={(deliverableId, deliverableName) => {
+                    if (!projectId) return;
+                    openInsight({ projectId, deliverableId, deliverableName });
+                  }}
                 />
               ))}
             </div>

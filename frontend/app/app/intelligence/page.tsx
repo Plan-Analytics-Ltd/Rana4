@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Brain, Loader2, RefreshCw, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   organisationalIntelligenceApi,
   getApiErrorMessage,
@@ -16,6 +15,11 @@ import {
   type RecommendationTrendGroup,
   type IntelligenceTrustProfile,
 } from "@/lib/api";
+import { IntelligenceSection } from "@/components/intelligence/intelligence-section";
+import { IntelligenceEmptyState, IntelligenceEmptyStateButton } from "@/components/intelligence/intelligence-empty-state";
+import { SummaryKpiGrid } from "@/components/intelligence/dashboard/summary-kpi-grid";
+import { ProjectHealthBar } from "@/components/intelligence/project-health-bar";
+import { computeOrgKpis } from "@/lib/intelligence-terminology";
 import { cn } from "@/lib/utils";
 
 const SECTIONS: {
@@ -315,6 +319,28 @@ export default function IntelligencePage() {
     void loadData();
   }, [loadData]);
 
+  const kpis = useMemo(
+    () =>
+      computeOrgKpis({
+        insights,
+        deliverableProfiles: profiles,
+        reliabilityProfiles,
+        outcomeProfiles,
+        recommendationProfiles: [],
+        recommendationTrends,
+        trustProfiles,
+      }),
+    [insights, profiles, reliabilityProfiles, outcomeProfiles, recommendationTrends, trustProfiles]
+  );
+
+  const hasAnyData =
+    insights.length > 0 ||
+    profiles.length > 0 ||
+    reliabilityProfiles.length > 0 ||
+    outcomeProfiles.length > 0 ||
+    recommendationTrends.length > 0 ||
+    trustProfiles.length > 0;
+
   const byType = useMemo(() => {
     const map = new Map<LearnedInsightType, LearnedInsight[]>();
     for (const s of SECTIONS) map.set(s.type, []);
@@ -337,7 +363,11 @@ export default function IntelligencePage() {
       setOutcomeProfiles(dash.outcomeProfiles ?? []);
       setRecommendationTrends(dash.recommendationTrends ?? []);
       setTrustProfiles(dash.trustProfiles ?? []);
-      toast.success(`Updated ${regen.count} insight(s) from project history`);
+      toast.success(
+        regen.count > 0
+          ? "Historical learning has been refreshed using the latest project information."
+          : "Historical learning is up to date — no new patterns were found in recent project data."
+      );
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err) || "Update failed (admin role may be required)");
     } finally {
@@ -364,147 +394,130 @@ export default function IntelligencePage() {
         </Button>
       </div>
 
+      <ProjectHealthBar />
+
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-slate-500">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading…
+          Loading organisational knowledge…
         </div>
       ) : (
         <>
-          {trustProfiles.length > 0 ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <Shield className="h-5 w-5 text-slate-600 dark:text-slate-300" />
-                  Trust &amp; explainability
-                </CardTitle>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  How much you can rely on intelligence for each deliverable type — based on evidence, not AI.
-                </p>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-4 lg:grid-cols-2">
-                  {trustProfiles.map((p) => (
-                    <TrustProfileCard key={p.id} profile={p} />
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+          <IntelligenceSection
+            title="Organisation overview"
+            description="A snapshot of what Rana4 has learned from imported project history."
+          >
+            <SummaryKpiGrid kpis={kpis} />
+          </IntelligenceSection>
+
+          {!hasAnyData ? (
+            <IntelligenceEmptyState
+              icon={Brain}
+              title="No organisational knowledge has been built yet"
+              description="Import completed project history to allow Rana4 to learn from previous projects. Once enough evidence is available, insights and comparisons will appear here."
+              action={
+                <IntelligenceEmptyStateButton onClick={() => void loadData(true)} disabled={loading}>
+                  Refresh knowledge
+                </IntelligenceEmptyStateButton>
+              }
+            />
+          ) : null}
+
+          {insights.length > 0 ? (
+            <IntelligenceSection
+              title="Learning highlights"
+              description="Patterns Rana4 has noticed across your previous projects."
+            >
+              <div className="space-y-8">
+                {SECTIONS.map((section) => {
+                  const items = byType.get(section.type) ?? [];
+                  if (items.length === 0) return null;
+                  return (
+                    <div key={section.type}>
+                      <h3 className="text-base font-semibold text-slate-900 dark:text-white">{section.title}</h3>
+                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{section.description}</p>
+                      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                        {items.map((insight) => (
+                          <InsightCard key={insight.id} insight={insight} />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </IntelligenceSection>
+          ) : hasAnyData ? (
+            <IntelligenceSection title="Learning highlights" description="Patterns across previous projects.">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                Not enough comparable examples yet for detailed learning highlights. Keep importing completed programmes.
+              </p>
+            </IntelligenceSection>
           ) : null}
 
           {reliabilityProfiles.length > 0 ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Forecast reliability</CardTitle>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  How often original duration estimates matched what actually happened on previous projects.
-                </p>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-4 lg:grid-cols-2">
-                  {reliabilityProfiles.map((p) => (
-                    <ReliabilityProfileCard key={p.id} profile={p} />
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+            <IntelligenceSection
+              title="Reliability trends"
+              description="How often original duration estimates matched what actually happened."
+            >
+              <div className="grid gap-4 lg:grid-cols-2">
+                {reliabilityProfiles.map((p) => (
+                  <ReliabilityProfileCard key={p.id} profile={p} />
+                ))}
+              </div>
+            </IntelligenceSection>
           ) : null}
 
           {outcomeProfiles.length > 0 ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Outcome predictions</CardTitle>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  What is most likely to happen, combining expected duration with historical overrun behaviour.
-                </p>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-4 lg:grid-cols-2">
-                  {outcomeProfiles.map((p) => (
-                    <OutcomeProfileCard key={p.id} profile={p} />
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+            <IntelligenceSection
+              title="Likely outcome trends"
+              description="What typically happens for each deliverable type, based on historical overruns and durations."
+            >
+              <div className="grid gap-4 lg:grid-cols-2">
+                {outcomeProfiles.map((p) => (
+                  <OutcomeProfileCard key={p.id} profile={p} />
+                ))}
+              </div>
+            </IntelligenceSection>
           ) : null}
 
           {recommendationTrends.length > 0 ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Recommendation trends</CardTitle>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Deliverable types that most commonly surface each kind of evidence-based recommendation.
-                </p>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-4 lg:grid-cols-2">
-                  {recommendationTrends.map((g) => (
-                    <RecommendationTrendCard key={g.recommendationType} group={g} />
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+            <IntelligenceSection
+              title="Recommendation trends"
+              description="Deliverable types that most often need review, based on evidence from past projects."
+            >
+              <div className="grid gap-4 lg:grid-cols-2">
+                {recommendationTrends.map((g) => (
+                  <RecommendationTrendCard key={g.recommendationType} group={g} />
+                ))}
+              </div>
+            </IntelligenceSection>
           ) : null}
 
           {profiles.length > 0 ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Deliverable knowledge</CardTitle>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  How long each type of deliverable typically takes, based on imported project history.
-                </p>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-4 lg:grid-cols-2">
-                  {profiles.map((p) => (
-                    <ProfileCard key={p.id} profile={p} />
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+            <IntelligenceSection
+              title="Knowledge coverage"
+              description="How well Rana4 understands each deliverable type from imported history."
+            >
+              <div className="grid gap-4 lg:grid-cols-2">
+                {profiles.map((p) => (
+                  <ProfileCard key={p.id} profile={p} />
+                ))}
+              </div>
+            </IntelligenceSection>
           ) : null}
 
-          {insights.length === 0 ? (
-            <Card>
-              <CardContent className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
-                <p>No insights yet.</p>
-                <p className="mt-2">
-                  Import project history from completed projects, then generate insights to build your learning
-                  library.
-                </p>
-                <Button className="mt-4" variant="outline" onClick={() => void loadData(true)}>
-                  Generate Insights
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-8">
-              {SECTIONS.map((section) => {
-                const items = byType.get(section.type) ?? [];
-                return (
-                  <Card key={section.type}>
-                    <CardHeader>
-                      <CardTitle className="text-lg">{section.title}</CardTitle>
-                      <p className="text-sm text-slate-500 dark:text-slate-400">{section.description}</p>
-                    </CardHeader>
-                    <CardContent>
-                      {items.length === 0 ? (
-                        <p className="text-sm text-slate-500 dark:text-slate-400">
-                          Not enough evidence yet for this category (needs at least 10 comparable examples).
-                        </p>
-                      ) : (
-                        <div className="grid gap-4 lg:grid-cols-2">
-                          {items.map((insight) => (
-                            <InsightCard key={insight.id} insight={insight} />
-                          ))}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-          )}
+          {trustProfiles.length > 0 ? (
+            <IntelligenceSection
+              title="Evidence quality by deliverable type"
+              description="How much you can rely on Rana4's analysis for each type — based on imported evidence, not AI."
+            >
+              <div className="grid gap-4 lg:grid-cols-2">
+                {trustProfiles.map((p) => (
+                  <TrustProfileCard key={p.id} profile={p} />
+                ))}
+              </div>
+            </IntelligenceSection>
+          ) : null}
         </>
       )}
     </div>

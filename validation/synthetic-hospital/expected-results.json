@@ -1,0 +1,13 @@
+{
+  "description": "Synthetic NHS hospital extension programme",
+  "primaryFile": "programme.xer",
+  "minAccuracy": 1,
+  "expected": {
+    "projectName": "Riverside Hospital Extension",
+    "projectType": "Healthcare",
+    "client": "NHS Trust",
+    "stage": "Planning",
+    "complexity": "Low"
+  },
+  "notes": "Minimal synthetic XER for regression testing — not a real Primavera export."
+}

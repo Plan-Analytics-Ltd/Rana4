@@ -255,6 +255,115 @@ export const invitationsApi = {
     ),
 };
 
+export type DetectionConfidence = "high" | "medium" | "low" | "none";
+
+export type DetectionSourceKind =
+  | "project_metadata"
+  | "project_properties"
+  | "wbs"
+  | "activity_names"
+  | "activity_descriptions"
+  | "activity_codes"
+  | "calendars"
+  | "resources"
+  | "filename";
+
+export type SourceSearchResult = {
+  kind: DetectionSourceKind;
+  label: string;
+  searched: boolean;
+  itemCount: number;
+};
+
+export type KeywordHit = {
+  pattern: string;
+  count: number;
+  source: DetectionSourceKind;
+};
+
+export type KeywordMatchEvidence = {
+  label: string;
+  score: number;
+  hits: number;
+  matchedKeywords: KeywordHit[];
+  sources: DetectionSourceKind[];
+};
+
+export type FieldTrace = {
+  sourcesSearched: SourceSearchResult[];
+  matchedKeywords?: KeywordMatchEvidence[];
+  rejectedMatches?: KeywordMatchEvidence[];
+  ignoredMatches?: KeywordMatchEvidence[];
+  conflictResolution?: string;
+  confidenceReasoning: string;
+  evidenceSummary: string[];
+  rawSignals?: Record<string, unknown>;
+};
+
+export type ComplexityDetail = {
+  score: number;
+  maxScore: number;
+  band: string;
+  factors: { name: string; value: number | string; contribution: number; maxContribution: number }[];
+};
+
+export type DetectedField = {
+  value: string | null;
+  confidence: DetectionConfidence;
+  reason: string;
+  source: string;
+  needsConfirmation: boolean;
+  trace?: FieldTrace;
+};
+
+export type ProjectDetectionReadiness = {
+  ready: boolean;
+  summary: string;
+  missingFields: string[];
+};
+
+export type ProjectDetectionResult = {
+  projectName: DetectedField;
+  clientType: DetectedField;
+  projectType: DetectedField;
+  stage: DetectedField;
+  complexity: DetectedField & { complexityDetail?: ComplexityDetail };
+  readiness: ProjectDetectionReadiness;
+  detectionTimeMs?: number;
+};
+
+export type XerProjectPreview = {
+  valid: boolean;
+  errors: { severity: "error" | "warning"; message: string }[];
+  warnings: { severity: "error" | "warning"; message: string }[];
+  projectName: string;
+  programmeName: string;
+  primaveraProjectId: string | null;
+  wbsCount: number;
+  activityCount: number;
+  relationshipCount: number;
+  calendarCount: number;
+  resourceCount: number;
+  projectStart: string | null;
+  projectFinish: string | null;
+  suggestedProjectName: string;
+  duplicateProjectName: boolean;
+  detection: ProjectDetectionResult | null;
+};
+
+export type XerProjectImportResult = {
+  projectId: string;
+  projectName: string;
+  created: {
+    standards: number;
+    fragnets: number;
+    deliverables: number;
+    activities: number;
+    relationships: number;
+  };
+  skippedRelationships: number;
+};
+
 export type Project = {
   id: string;
   name: string;
@@ -280,6 +389,32 @@ export type ActivityCodeAvailability = {
 export const projectsApi = {
   listMine: () => api.get<Project[]>("/projects"),
   create: (data: { name: string }) => api.post<Project>("/projects", data),
+  previewFromXer: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return api.post<XerProjectPreview>("/projects/from-xer/preview", form);
+  },
+  createFromXer: (
+    file: File,
+    details: {
+      name: string;
+      clientType?: string;
+      projectType?: string;
+      stage?: string;
+      complexity?: string;
+      description?: string;
+    }
+  ) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("name", details.name);
+    if (details.clientType) form.append("clientType", details.clientType);
+    if (details.projectType) form.append("projectType", details.projectType);
+    if (details.stage) form.append("stage", details.stage);
+    if (details.complexity) form.append("complexity", details.complexity);
+    if (details.description) form.append("description", details.description);
+    return api.post<XerProjectImportResult>("/projects/from-xer", form);
+  },
   update: (projectId: string, data: { name: string }) =>
     api.put<Project>(`/projects/${encodeURIComponent(projectId)}`, data),
   delete: (projectId: string, opts?: { force?: boolean }) =>
@@ -462,15 +597,33 @@ export type BenchmarkPredictedOutcome = {
 
 export type BenchmarkOutlierStatus =
   | "NORMAL"
+  | "SLIGHTLY_LOW"
+  | "WELL_BELOW"
   | "SLIGHTLY_HIGH"
   | "HIGH"
   | "RED_FLAG"
   | "EXTREME_OUTLIER";
 
+export type DurationPosition =
+  | "WELL_BELOW"
+  | "SLIGHTLY_BELOW"
+  | "TYPICAL"
+  | "SLIGHTLY_ABOVE"
+  | "WELL_ABOVE";
+
 export type BenchmarkOutlier = {
   status: BenchmarkOutlierStatus;
+  rawStatus?: BenchmarkOutlierStatus;
+  position?: DurationPosition;
+  rawPosition?: DurationPosition;
+  effectivePosition?: DurationPosition;
+  positionLabel?: string;
+  rawPositionLabel?: string;
+  effectivePositionLabel?: string;
+  percentilePosition?: number | null;
   currentDurationDays: number | null;
   differenceFromAveragePercent: number | null;
+  differenceFromMedianPercent?: number | null;
 };
 
 export type MatchedDeliverableEvidence = {
@@ -482,6 +635,7 @@ export type MatchedDeliverableEvidence = {
   programmeState: string;
   durationDays: number;
   similarityScore: number;
+  similaritySignals?: Record<string, number>;
 };
 
 export type BenchmarkEvidence = {
@@ -492,6 +646,9 @@ export type BenchmarkEvidence = {
 export type DeliverableBenchmarkBlock = {
   averageDuration: number | null;
   medianDuration: number | null;
+  percentile25?: number | null;
+  percentile75?: number | null;
+  interquartileRange?: number | null;
   minimumDuration: number | null;
   maximumDuration: number | null;
   sampleSize: number;
@@ -502,12 +659,32 @@ export type DeliverableBenchmarkBlock = {
   expectedDuration: BenchmarkExpectedDuration | null;
   forecastReliability: BenchmarkForecastReliability | null;
   predictedOutcome: BenchmarkPredictedOutcome | null;
-  benchmarkQuality?: { averageProjectSimilarity: number | null };
+  benchmarkQuality?: {
+    averageProjectSimilarity: number | null;
+    distinctProjects?: number;
+    distinctSnapshots?: number;
+    revisionRatio?: number;
+  };
+};
+
+export type CurrentDurationSource = {
+  source: string;
+  sourceTable: string;
+  sourceFields: string[];
+  definition: string;
+};
+
+export type IntelligenceConsistencyReport = {
+  consistent: boolean;
+  warnings: Array<{ code: string; message: string; layers: string[] }>;
+  unifiedPosition: DurationPosition | null;
+  unifiedPositionLabel: string | null;
 };
 
 export type DeliverableAnalysisCore = {
   deliverable: { id: string; name: string; classification: string | null };
   currentDurationDays: number | null;
+  currentDurationSource?: CurrentDurationSource;
   benchmark: DeliverableBenchmarkBlock;
   outlier: BenchmarkOutlier;
   evidence: BenchmarkEvidence;
@@ -520,6 +697,7 @@ export type DeliverableIntelligenceAnalysis = DeliverableAnalysisCore & {
   predictedOutcome: BenchmarkPredictedOutcome | null;
   recommendations: IntelligenceRecommendation[];
   trust: IntelligenceTrustExplanation;
+  consistency?: IntelligenceConsistencyReport;
 };
 
 export type IntelligenceDashboard = {

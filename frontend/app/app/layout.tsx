@@ -3,6 +3,7 @@ import { RequireAuth } from "@/components/auth/RequireAuth";
 import { IntelligenceModeProvider } from "@/contexts/intelligence-mode-context";
 import { ProjectProvider } from "@/contexts/project-context";
 import { SearchProvider } from "@/contexts/search-context";
+import { IntelligenceDrawerProvider } from "@/contexts/intelligence-drawer-context";
 
 export default function AppShellLayout({
   children,
@@ -14,7 +15,9 @@ export default function AppShellLayout({
       <ProjectProvider>
         <IntelligenceModeProvider>
           <SearchProvider>
-            <AppLayout>{children}</AppLayout>
+            <IntelligenceDrawerProvider>
+              <AppLayout>{children}</AppLayout>
+            </IntelligenceDrawerProvider>
           </SearchProvider>
         </IntelligenceModeProvider>
       </ProjectProvider>

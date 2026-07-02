@@ -79,8 +79,8 @@ function DriverCard({ driver }: { driver: IntelligenceDriver }) {
 export function DeliverableDriversSection({ drivers }: { drivers: IntelligenceDriver[] }) {
   if (drivers.length === 0) {
     return (
-      <div className="rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
-        No statistically significant historical drivers identified for this deliverable yet.
+      <div className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-400">
+        No key factors identified yet. More imported project history will help Rana4 spot patterns that affect duration.
       </div>
     );
   }

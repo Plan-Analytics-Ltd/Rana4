@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   LayoutDashboard,
+  FolderPlus,
   FileText,
   GitBranch,
   ListTodo,
@@ -30,6 +31,7 @@ import { INTELLIGENCE_DEFAULT_ROUTE, INTELLIGENCE_NAV } from "@/lib/intelligence
 
 const platformNav = [
   { href: "/app", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/app/projects/new", label: "New project", icon: FolderPlus },
   { href: "/app/project", label: "Project Viewer", icon: Package },
   { href: "/app/schedule", label: "Schedule", icon: CalendarRange },
   { href: "/app/standards", label: "Standards", icon: FileText },
@@ -40,7 +42,7 @@ const platformNav = [
   { href: "/app/rate-card", label: "Rate card", icon: TableProperties },
   { href: "/app/export", label: "Export Center", icon: Download },
   { href: "/app/xer-audit", label: "XER Audit", icon: FileSearch },
-  { href: "/app/import", label: "Import", icon: Upload },
+  { href: "/app/import", label: "Import history", icon: Upload },
 ];
 
 const systemNav = [

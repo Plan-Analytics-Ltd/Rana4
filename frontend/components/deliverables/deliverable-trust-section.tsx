@@ -24,7 +24,7 @@ export function DeliverableTrustSection({ trust }: { trust: IntelligenceTrustExp
           <Shield className="mt-0.5 h-4 w-4 shrink-0 text-slate-600 dark:text-slate-300" />
           <div>
             <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Trust &amp; explainability
+              Evidence quality
             </div>
             <div className="text-base font-semibold text-slate-900 dark:text-white">{trust.trustLabel}</div>
             <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">

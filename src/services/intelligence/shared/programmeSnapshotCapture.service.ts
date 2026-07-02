@@ -7,7 +7,15 @@ import type {
   ProgrammeImportMatchResult,
   SnapshotSummary,
 } from "./types.js";
+import { enrichDeliverableRowsFromActivities } from "./deliverableSnapshotEnrichment.service.js";
 import { resolveDeliverableClassification } from "../profiles/deliverableClassification.service.js";
+import { resolveProgrammeState } from "./programmeState.service.js";
+import {
+  buildDeliverableSnapshotContext,
+  buildProgrammeSnapshotMetadataFromProfile,
+} from "./deliverableSnapshotContext.service.js";
+import { resolveWorkPackageDuration } from "./historicalDuration.service.js";
+import { diffDaysFromDates } from "./intelligenceMath.js";
 
 export async function getNextSnapshotVersion(projectId: string, companyId: string): Promise<number> {
   const last = await prisma.programmeSnapshot.findFirst({
@@ -44,13 +52,86 @@ export async function captureProgrammeSnapshot(args: {
     match: args.matchResult,
   };
 
+  const enrichedDeliverables = enrichDeliverableRowsFromActivities(args.deliverables, args.activities);
+
+  const [profile, liveDeliverables, fragnets] = await Promise.all([
+    prisma.projectIntelligenceProfile.findUnique({
+      where: { projectId: args.projectId },
+    }),
+    prisma.deliverable.findMany({
+      where: { projectId: args.projectId, companyId: args.companyId },
+      select: {
+        id: true,
+        fragnetId: true,
+        fragnet: { select: { name: true } },
+      },
+    }),
+    prisma.fragnet.findMany({
+      where: { projectId: args.projectId, companyId: args.companyId },
+      select: { id: true, name: true },
+    }),
+  ]);
+
+  const liveDeliverableById = new Map(liveDeliverables.map((d) => [d.id, d]));
+  const fragnetNamesById = new Map(fragnets.map((f) => [f.id, f.name]));
+  const programmeMetadata = buildProgrammeSnapshotMetadataFromProfile(profile);
+
+  const programmeState = resolveProgrammeState({
+    snapshotRole: args.snapshotRole,
+    sourceType: args.sourceType,
+  });
+
   const deliverableCreates = await Promise.all(
-    args.deliverables.map(async (d) => {
+    enrichedDeliverables.map(async (d) => {
       const classification = await resolveDeliverableClassification({
         companyId: args.companyId,
         deliverableId: d.deliverableId ?? null,
         deliverableName: d.name,
       });
+
+      const linkedActivities = d.deliverableId
+        ? args.activities.filter((a) => a.deliverableId === d.deliverableId)
+        : [];
+      const calendarSpanDays = diffDaysFromDates(
+        (d.actualStart ?? d.plannedStart) ?? null,
+        (d.actualFinish ?? d.plannedFinish) ?? null
+      );
+      const workPackage = resolveWorkPackageDuration(
+        linkedActivities.map((a) => ({
+          originalDuration: a.originalDurationDays ?? null,
+          remainingDuration: a.remainingDurationDays ?? null,
+          actualDuration: a.actualDurationDays ?? null,
+        })),
+        calendarSpanDays
+      );
+
+      const liveDeliverable = d.deliverableId ? liveDeliverableById.get(d.deliverableId) : undefined;
+      const context = d.deliverableId
+        ? buildDeliverableSnapshotContext({
+            deliverableId: d.deliverableId,
+            classificationTags: (d.classificationTags ?? {}) as Record<string, unknown>,
+            activities: args.activities.map((a) => ({
+              deliverableId: a.deliverableId ?? null,
+              fragnetId: a.fragnetId ?? null,
+              classificationTags: (a.classificationTags ?? {}) as Record<string, unknown>,
+            })),
+            liveDeliverableFragnetId: liveDeliverable?.fragnetId ?? null,
+            liveDeliverableFragnetName: liveDeliverable?.fragnet?.name ?? null,
+            fragnetNamesById,
+            programmeSnapshotStage: programmeMetadata.stage,
+            programmeDisciplineTags: programmeMetadata.disciplineTags,
+            projectProfileStage: profile?.stage ?? null,
+            projectProfilePrimaryRibaStage: profile?.primaryRibaStage ?? null,
+            programmeState,
+          })
+        : {
+            fragnetId: null,
+            parentWbs: null,
+            wbsPath: null,
+            stage: programmeMetadata.stage,
+            discipline: null,
+          };
+
       return {
         deliverableId: d.deliverableId ?? null,
         name: d.name,
@@ -62,6 +143,13 @@ export async function captureProgrammeSnapshot(args: {
         totalFloat: d.totalFloatDays != null ? Math.round(d.totalFloatDays) : null,
         status: d.status ?? null,
         classificationTags: (d.classificationTags ?? {}) as object,
+        fragnetId: context.fragnetId,
+        parentWbs: context.parentWbs,
+        wbsPath: context.wbsPath,
+        stage: context.stage,
+        discipline: context.discipline,
+        workPackageDurationDays: workPackage.durationDays,
+        durationBasis: workPackage.basis,
       };
     })
   );
@@ -72,11 +160,22 @@ export async function captureProgrammeSnapshot(args: {
       companyId: args.companyId,
       sourceType: args.sourceType,
       snapshotRole: args.snapshotRole ?? null,
+      programmeState,
       scheduleDate: args.scheduleDate ?? null,
       createdByUserId: args.userId ?? null,
       snapshotVersion: version,
       label: args.label ?? null,
       sourceFileName: args.sourceFileName ?? null,
+      sector: programmeMetadata.sector,
+      projectType: programmeMetadata.projectType,
+      procurementRoute: programmeMetadata.procurementRoute,
+      stage: programmeMetadata.stage,
+      region: programmeMetadata.region,
+      clientType: programmeMetadata.clientType,
+      complexity: programmeMetadata.complexity,
+      disciplineTags: programmeMetadata.disciplineTags,
+      projectTags: programmeMetadata.projectTags,
+      classificationTagsList: programmeMetadata.classificationTagsList,
       metrics: (args.metrics ?? {}) as object,
       importSummary: importSummary as object,
       activitySnapshots: {

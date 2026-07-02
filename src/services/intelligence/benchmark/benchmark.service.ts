@@ -1,9 +1,10 @@
 import { prisma } from "../../../utils/prisma.js";
-import { median, percentile, round1, stddev } from "../shared/durationEvidence.service.js";
+import { resolveCurrentDeliverableDuration } from "../shared/durationSource.service.js";
+import { computeRobustBenchmarkStats } from "../shared/robustStatistics.service.js";
 import { computeExpectedDuration } from "../prediction/expectedDuration.service.js";
 import { getForecastReliabilityForClassification } from "../prediction/forecastReliability.service.js";
 import { ALLOWED_SNAPSHOT_STATES } from "../shared/intelligenceConstants.js";
-import { clamp01, diffDaysFromIso, MS_PER_DAY, round2 } from "../shared/intelligenceMath.js";
+import { clamp01, diffDaysFromIso, round2 } from "../shared/intelligenceMath.js";
 import { confidenceLevelFromScore } from "../learning/learningMaturity.service.js";
 import { computeOutcomePredictionFromLayers } from "../prediction/outcomePrediction.service.js";
 import {
@@ -11,11 +12,21 @@ import {
   getSimilarProjects,
   scoreProjectProfilesSimilarity,
 } from "../shared/similarity.service.js";
-import { computeOutlier } from "../shared/outlier.service.js";
-import type { OutlierStatus } from "../shared/outlier.service.js";
+import {
+  capOutlierStatusForSampleSize,
+  capPositionForSampleSize,
+  computeOutlier,
+  plannerPositionLabel,
+} from "../shared/outlier.service.js";
+import { DEFAULT_MIN_COMPARABLE_SIMILARITY, MIN_AUTO_PROJECT_SIMILARITY } from "../matching/similarityWeights.config.js";
+import { selectBenchmarkEvidence } from "../matching/evidenceSelection.service.js";
+import { revisionDiversityPenalty } from "../matching/evidenceDiversity.service.js";
+import { buildPlannerEvidenceSummary } from "../matching/plannerEvidenceLanguage.service.js";
+import { computeDeliverableTimeline } from "../matching/historicalTimeline.service.js";
+import { groupHistoricalRevisions } from "../matching/revisionGrouping.service.js";
+import { buildDeliverableFingerprint } from "../matching/deliverableFingerprint.service.js";
 
-const MIN_AUTO_PROJECT_SIMILARITY = 50;
-const MIN_DELIVERABLE_SIMILARITY = 30;
+const MIN_DELIVERABLE_SIMILARITY = DEFAULT_MIN_COMPARABLE_SIMILARITY;
 
 const diffDays = diffDaysFromIso;
 
@@ -28,69 +39,6 @@ function confidenceTierFromSampleSize(sampleSize: number): BenchmarkConfidenceTi
   if (sampleSize <= 4) return "LOW";
   if (sampleSize <= 9) return "MEDIUM";
   return "HIGH";
-}
-
-function capOutlierStatusForSampleSize(sampleSize: number, raw: OutlierStatus): OutlierStatus {
-  // Sample Size Behaviour rules:
-  // 0 => NONE: no benchmark available
-  // 1–2 => LOW: statistics only, no red flag generation
-  // 3–4 => LOW: red flag allowed but capped at WATCH (mapped to SLIGHTLY_HIGH)
-  // 5–9 => MEDIUM: normal benchmark behaviour
-  // 10+ => HIGH: full benchmark behaviour
-  if (sampleSize <= 2) return "NORMAL";
-  if (sampleSize <= 4) {
-    if (raw === "RED_FLAG" || raw === "EXTREME_OUTLIER") return "SLIGHTLY_HIGH";
-    return raw;
-  }
-  return raw;
-}
-
-async function getCurrentDeliverableDurationDays(projectId: string, companyId: string, deliverableId: string) {
-  /**
-   * Duration definition (CURRENT project):
-   * We estimate deliverable duration as a date-span across linked activities (not deliverable best/likely durations).
-   * - Start = earliest(plannedStartDate else earlyStart)
-   * - Finish = latest(plannedFinishDate else earlyFinish)
-   */
-  const activities = await prisma.activity.findMany({
-    where: {
-      projectId,
-      companyId,
-      OR: [
-        { deliverableId },
-        { deliverableLinks: { some: { deliverableId, companyId } } },
-      ],
-    },
-    select: {
-      plannedStartDate: true,
-      plannedFinishDate: true,
-      earlyStart: true,
-      earlyFinish: true,
-    },
-  });
-
-  let minStart: Date | null = null;
-  let maxFinish: Date | null = null;
-
-  for (const a of activities) {
-    const s = a.plannedStartDate ?? a.earlyStart ?? null;
-    const f = a.plannedFinishDate ?? a.earlyFinish ?? null;
-    if (s && (!minStart || s.getTime() < minStart.getTime())) minStart = s;
-    if (f && (!maxFinish || f.getTime() > maxFinish.getTime())) maxFinish = f;
-  }
-
-  if (!minStart || !maxFinish) return null;
-  const days = Math.max(0, Math.round((maxFinish.getTime() - minStart.getTime()) / MS_PER_DAY));
-  return days;
-}
-
-function getDurationStrategyMetadata() {
-  const historicalDurationDefinition =
-    "Historical durationDays computed from DeliverableSnapshot dates: (actualFinish-actualStart) else (plannedFinish-plannedStart). Rounded to whole days; negative durations clamped to 0.";
-  const currentDurationDefinition =
-    "Current durationDays computed from live Activity dates linked to the deliverable: earliest(plannedStartDate else earlyStart) to latest(plannedFinishDate else earlyFinish), rounded to whole days.";
-  const durationComparisonType = "ACTIVITY_SPAN";
-  return { historicalDurationDefinition, currentDurationDefinition, durationComparisonType };
 }
 
 export async function getDeliverableBenchmark(args: {
@@ -207,6 +155,7 @@ export async function getDeliverableBenchmark(args: {
       const e = m.evidence;
       return {
         ...m,
+        snapshotId: m.snapshotId ?? e?.snapshotId ?? "",
         programmeState: e?.programmeState ?? null,
         projectId: e?.projectId ?? "",
         projectName: e?.projectName ?? "Unknown project",
@@ -214,14 +163,10 @@ export async function getDeliverableBenchmark(args: {
         plannedFinish: e?.plannedFinish ?? null,
         actualStart: e?.actualStart ?? null,
         actualFinish: e?.actualFinish ?? null,
+        workPackageDurationDays: e?.workPackageDurationDays ?? null,
+        durationBasis: e?.durationBasis ?? null,
+        fingerprintKey: m.fingerprintKey ?? "",
       };
-    })
-    .filter((m) => {
-      if (m.similarityScore < MIN_DELIVERABLE_SIMILARITY) {
-        excludedEvidence.lowDeliverableSimilarity += 1;
-        return false;
-      }
-      return true;
     });
 
   const gatedByClassification = candidates.filter((m) => {
@@ -240,79 +185,115 @@ export async function getDeliverableBenchmark(args: {
 
   const candidateSamples = gatedByClassification.length;
 
-  const samples = gatedByClassification
+  const rawCandidates = gatedByClassification
     .map((m) => {
-      // Duration definition (HISTORICAL samples):
-      // durationDays = actualFinish - actualStart else plannedFinish - plannedStart
+      // Phase 10: benchmark uses the canonical planner-equivalent work-package duration
+      // (max activity original/remaining/actual duration) persisted on the snapshot.
+      // Calendar span (actual/planned finish − start) is only a last-resort fallback,
+      // used when a snapshot has no work-package duration recorded.
       const durationActual = diffDays(m.actualStart, m.actualFinish);
       const durationPlanned = diffDays(m.plannedStart, m.plannedFinish);
-      const durationDays = durationActual ?? durationPlanned;
+      const calendarSpan = durationActual ?? durationPlanned;
+      const durationDays = m.workPackageDurationDays ?? calendarSpan;
       if (durationDays == null || !Number.isFinite(durationDays) || durationDays < 0) {
         excludedEvidence.missingDates += 1;
         return null;
       }
-      return { ...m, durationDays };
+      return {
+        snapshotId: m.snapshotId,
+        projectId: m.projectId,
+        projectName: m.projectName,
+        deliverableId: m.deliverableId,
+        deliverableName: m.deliverableName,
+        classification: m.classification,
+        programmeState: m.programmeState,
+        durationDays,
+        similarityScore: m.similarityScore,
+        fingerprintKey: m.fingerprintKey,
+        similaritySignals: m.similaritySignals,
+      };
     })
     .filter((m): m is NonNullable<typeof m> => !!m);
+
+  excludedEvidence.lowDeliverableSimilarity = rawCandidates.filter(
+    (c) => c.similarityScore < MIN_DELIVERABLE_SIMILARITY
+  ).length;
+
+  const evidenceSelection = selectBenchmarkEvidence(rawCandidates, {
+    minSimilarity: MIN_DELIVERABLE_SIMILARITY,
+    deduplicateForStats: true,
+  });
+
+  const samples = evidenceSelection.deduplicated;
 
   excludedEvidence.unsupportedProgrammeState = Math.max(
     0,
     totalSnapshotCandidatesAcrossStates - candidateAfterProgrammeState
   );
 
-  const durations = samples.map((s) => s.durationDays as number).sort((a, b) => a - b);
-  const sampleSize = durations.length;
-  const avg = sampleSize > 0 ? durations.reduce((a, b) => a + b, 0) / sampleSize : null;
-  const med = median(durations);
-  const p75 = percentile(durations, 0.75);
-  const sd = avg != null ? stddev(durations, avg) : null;
+  const durations = samples.map((s) => s.durationDays as number);
+  const robust = computeRobustBenchmarkStats(durations);
+  const sampleSize = robust.sampleSize;
 
-  const benchmark = {
-    sampleSize,
-    minimumDuration: sampleSize > 0 ? durations[0]! : null,
-    maximumDuration: sampleSize > 0 ? durations[durations.length - 1]! : null,
-    averageDuration: avg != null ? Math.round(avg * 10) / 10 : null,
-    medianDuration: med != null ? Math.round(med * 10) / 10 : null,
-    percentile75: p75 != null ? Math.round(p75 * 10) / 10 : null,
-    standardDeviation: sd != null ? Math.round(sd * 10) / 10 : null,
-    allSampleDurations: durations,
-  };
+  const durationSource = await resolveCurrentDeliverableDuration({
+    projectId: args.projectId,
+    companyId: args.companyId,
+    deliverableId: args.deliverableId,
+  });
+  const currentDurationDays = durationSource.durationDays;
 
-  const durationMeta = getDurationStrategyMetadata();
-
-  const currentDurationDays = await getCurrentDeliverableDurationDays(args.projectId, args.companyId, args.deliverableId);
   const rawOutlier = computeOutlier({
     currentDurationDays,
-    averageDurationDays: benchmark.averageDuration,
-    medianDurationDays: benchmark.medianDuration,
-    standardDeviationDays: benchmark.standardDeviation,
+    medianDurationDays: robust.medianDuration,
+    averageDurationDays: robust.trimmedMean ?? robust.averageDuration,
+    standardDeviationDays: robust.standardDeviation,
+    historicalDurations: durations,
   });
 
   const sampleSizeConfidenceTier = confidenceTierFromSampleSize(sampleSize);
   const cappedStatus = capOutlierStatusForSampleSize(sampleSize, rawOutlier.status);
+  const cappedPosition = capPositionForSampleSize(sampleSize, rawOutlier.position);
   const benchmarkNotes: string[] = [];
+  if (robust.statisticsNote) benchmarkNotes.push(robust.statisticsNote);
   if (sampleSize === 0) {
     benchmarkNotes.push("No benchmark available (no valid historical duration samples).");
   } else if (sampleSize <= 2) {
     benchmarkNotes.push(
-      `Benchmark based on limited historical evidence (${sampleSize} sample${sampleSize === 1 ? "" : "s"}). Statistics only; red flag generation disabled.`
+      `Benchmark based on limited historical evidence (${sampleSize} sample${sampleSize === 1 ? "" : "s"}). Statistics only; strong deviation flags suppressed.`
     );
   } else if (sampleSize <= 4) {
-    benchmarkNotes.push("Benchmark based on limited historical evidence (3–4 samples). Red flag status capped at WATCH.");
+    benchmarkNotes.push("Benchmark based on limited historical evidence (3–4 samples). Extreme deviation flags are capped.");
   }
-  if (cappedStatus !== rawOutlier.status) {
-    benchmarkNotes.push(`Outlier status capped due to limited evidence (raw=${rawOutlier.status}, effective=${cappedStatus}).`);
+  if (cappedStatus !== rawOutlier.status || cappedPosition !== rawOutlier.position) {
+    benchmarkNotes.push(
+      `Deviation severity capped due to limited evidence (raw position=${rawOutlier.position}, effective=${cappedPosition}; raw status=${rawOutlier.status}, effective=${cappedStatus}).`
+    );
   }
 
   const outlier = {
     ...rawOutlier,
     rawStatus: rawOutlier.status,
     status: cappedStatus,
+    rawPosition: rawOutlier.position,
+    effectivePosition: cappedPosition,
+    rawPositionLabel: plannerPositionLabel(rawOutlier.position),
+    effectivePositionLabel: plannerPositionLabel(cappedPosition),
+    position: cappedPosition,
+    positionLabel: plannerPositionLabel(cappedPosition),
   };
 
-  // Benchmark confidence scoring:
-  // Sample Size (40%), Avg Project Similarity (30%), Classification Match Rate (20%), Data Completeness (10%).
-  const sampleSizeScore = clamp01(sampleSize / 10); // 10+ => 1.0
+  const projectEvidence = {
+    distinctProjects: evidenceSelection.diversity.distinctProjects,
+    distinctSnapshots: evidenceSelection.diversity.distinctRevisions,
+    revisionRatio: evidenceSelection.diversity.revisionRatio,
+  };
+  const revisionPenalty = revisionDiversityPenalty(
+    projectEvidence.revisionRatio,
+    projectEvidence.distinctProjects
+  );
+
+  const sampleSizeScore = clamp01(sampleSize / 10);
+  const projectDiversityScore = clamp01(projectEvidence.distinctProjects / 5);
   const avgProjectSimilarity =
     matchedProjects.length > 0
       ? matchedProjects.reduce((acc, p) => acc + (Number(p.similarityScore) || 0), 0) / matchedProjects.length
@@ -323,14 +304,41 @@ export async function getDeliverableBenchmark(args: {
   const dataCompleteness = candidateSamples > 0 ? samples.length / candidateSamples : 0;
 
   const confidenceScore =
-    sampleSizeScore * 0.4 +
-    avgProjectSimilarityScore * 0.3 +
-    clamp01(classificationMatchRate) * 0.2 +
-    clamp01(dataCompleteness) * 0.1;
+    (sampleSizeScore * 0.3 +
+      projectDiversityScore * 0.2 +
+      avgProjectSimilarityScore * 0.25 +
+      clamp01(classificationMatchRate) * 0.15 +
+      clamp01(dataCompleteness) * 0.1) *
+    revisionPenalty;
   const confidenceLevel = confidenceLevelFromScore(confidenceScore);
+
+  const benchmark = {
+    sampleSize,
+    minimumDuration: robust.minimumDuration,
+    maximumDuration: robust.maximumDuration,
+    averageDuration: robust.trimmedMean ?? robust.averageDuration,
+    rawAverageDuration: robust.averageDuration,
+    medianDuration: robust.medianDuration,
+    percentile25: robust.percentile25,
+    percentile75: robust.percentile75,
+    interquartileRange: robust.interquartileRange,
+    standardDeviation: robust.standardDeviation,
+    primaryReference: robust.primaryReference,
+    historicalOutlierCount: robust.historicalOutliers.count,
+    historicalOutlierValues: robust.historicalOutliers.values,
+    allSampleDurations: [...durations].sort((a, b) => a - b),
+  };
 
   const benchmarkQuality = {
     sampleSize,
+    distinctProjects: projectEvidence.distinctProjects,
+    distinctSnapshots: projectEvidence.distinctSnapshots,
+    distinctDeliverables: evidenceSelection.diversity.distinctDeliverables,
+    revisionRatio: round2(projectEvidence.revisionRatio),
+    completedProjects: evidenceSelection.diversity.completedProjects,
+    evidenceQuantity: evidenceSelection.diversity.observationCount,
+    evidenceDiversity: evidenceSelection.diversity.diversityLabel,
+    evidenceMaturity: evidenceSelection.diversity.maturityLabel,
     confidenceLevel,
     confidenceScore: round2(confidenceScore),
     classificationMatchRate: round2(classificationMatchRate),
@@ -338,6 +346,8 @@ export async function getDeliverableBenchmark(args: {
     dataCompleteness: round2(dataCompleteness),
     qualityScore: round2(confidenceScore),
     manuallySelectedProjects: matchedProjects.filter((p) => p.manuallySelected).length,
+    excludedLowSimilarity: evidenceSelection.excludedLowSimilarity,
+    minComparableSimilarity: MIN_DELIVERABLE_SIMILARITY,
   };
 
   const sectorByProjectId = new Map<string, string>();
@@ -390,10 +400,56 @@ export async function getDeliverableBenchmark(args: {
     reliability: forecastReliability,
   });
 
+  const sectorLabel = [...sectorByProjectId.values()][0] ?? null;
+  const plannerEvidenceSummary = buildPlannerEvidenceSummary({
+    diversity: evidenceSelection.diversity,
+    sectorLabel,
+    medianDuration: robust.medianDuration,
+    matchingConfidence: confidenceLevel,
+  });
+
+  const timelineRevisions = groupHistoricalRevisions(
+    evidenceSelection.selected.map((s) => ({
+      snapshotId: s.snapshotId,
+      snapshotVersion: 0,
+      snapshotRole: null,
+      programmeState: s.programmeState,
+      projectId: s.projectId,
+      projectName: s.projectName,
+      deliverableId: s.deliverableId,
+      deliverableName: s.deliverableName,
+      importedAt: s.importedAt ?? new Date(0),
+      durationDays: s.durationDays,
+      fingerprint: buildDeliverableFingerprint({
+        deliverableName: s.deliverableName,
+        classification: s.classification,
+      }),
+    }))
+  );
+  const timelineForDeliverable = timelineRevisions
+    .flatMap((p) => p.deliverables)
+    .find(
+      (d) =>
+        d.deliverableName.toLowerCase() === deliverable.name.toLowerCase() ||
+        d.deliverableId === deliverable.id
+    );
+  const historicalTimeline = timelineForDeliverable
+    ? computeDeliverableTimeline(timelineForDeliverable.revisions)
+    : null;
+
   const evidence = {
     sampleSize,
     projectBreakdown,
     matchedProjects,
+    plannerSummary: plannerEvidenceSummary,
+    evidenceDiversity: evidenceSelection.diversity,
+    historicalTimeline,
+    rankedMatches: evidenceSelection.ranked.slice(0, 10).map((s) => ({
+      deliverableName: s.deliverableName,
+      projectName: s.projectName,
+      similarityScore: s.similarityScore,
+      programmeState: s.programmeState,
+    })),
     projectSelection: {
       includedProjects: projectSimilarityIncluded,
       excludedProjects: projectSimilarityRejected,
@@ -408,22 +464,33 @@ export async function getDeliverableBenchmark(args: {
       deliverableName: s.deliverableName,
       classification: s.classification,
       programmeState: s.programmeState,
+      snapshotId: s.snapshotId,
       durationDays: s.durationDays,
       similarityScore: s.similarityScore,
+      similaritySignals: s.similaritySignals,
     })),
+    allRankedCount: evidenceSelection.ranked.length,
+    selectedCount: evidenceSelection.selected.length,
   };
 
   return {
     deliverable: { id: deliverable.id, name: deliverable.name, classification: deliverable.classification ?? null },
     currentDurationDays,
+    currentDurationSource: {
+      source: durationSource.source,
+      sourceTable: durationSource.sourceTable,
+      sourceFields: durationSource.sourceFields,
+      definition: durationSource.definition,
+    },
     benchmark: {
       ...benchmark,
       confidenceScore: round2(confidenceScore),
       confidenceLevel,
       notes: benchmarkNotes,
-      historicalDurationDefinition: durationMeta.historicalDurationDefinition,
-      currentDurationDefinition: durationMeta.currentDurationDefinition,
-      durationComparisonType: durationMeta.durationComparisonType,
+      historicalDurationDefinition:
+        "Historical duration from DeliverableSnapshot dates: (actualFinish−actualStart) else (plannedFinish−plannedStart). Benchmark reference is the median; outliers are retained but noted.",
+      currentDurationDefinition: durationSource.definition,
+      durationComparisonType: durationSource.source === "ACTIVITY_DATE_SPAN" ? "ACTIVITY_SPAN" : "PLANNER_ESTIMATE",
       benchmarkQuality,
       sampleSizeConfidenceTier,
       expectedDuration: {

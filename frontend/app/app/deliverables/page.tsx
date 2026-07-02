@@ -1,6 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { DeliverableBenchmarkPanel } from "@/components/deliverables/deliverable-benchmark-panel";
+import { DeliverableStatusCell } from "@/components/deliverables/deliverable-status-cell";
+import { ProjectHealthBar } from "@/components/intelligence/project-health-bar";
+import { useDeliverableIntelligenceCache } from "@/lib/use-deliverable-intelligence-cache";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -47,7 +51,6 @@ import { hasPermission } from "@/lib/project-permissions";
 import { cn } from "@/lib/utils";
 import { ActivityBulkActionsBar } from "@/components/activities/ActivityBulkActionsBar";
 import { filterUserVisibleFragnets, filterUserVisibleStandards } from "@/lib/project-level-ui";
-import { DeliverableBenchmarkPanel } from "@/components/deliverables/deliverable-benchmark-panel";
 
 type FragnetOption = { id: string; name: string; standardName?: string };
 
@@ -58,6 +61,11 @@ export default function DeliverablesPage() {
   const mayDelete = hasPermission(selectedProjectRole, "deliverable", "delete");
   const mayEditP6Codes = hasPermission(selectedProjectRole, "activityCode", "update");
   const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
+  const deliverableIds = useMemo(() => deliverables.map((d) => d.id), [deliverables]);
+  const { loading: intelLoading, getSnapshot } = useDeliverableIntelligenceCache(
+    selectedProjectId,
+    deliverableIds
+  );
   const [allFragnets, setAllFragnets] = useState<FragnetOption[]>([]);
   const [fragnetNameById, setFragnetNameById] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -408,6 +416,8 @@ export default function DeliverablesPage() {
         </div>
       </div>
 
+      <ProjectHealthBar projectId={selectedProjectId} />
+
       {mayDelete && filteredDeliverables.length > 0 && (
         <ActivityBulkActionsBar
           selectedCount={selectedIds.size}
@@ -458,6 +468,7 @@ export default function DeliverablesPage() {
                     </TableHead>
                   ) : null}
                   <TableHead>Name</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead>Best</TableHead>
                   <TableHead>Likely</TableHead>
                   <TableHead>P6 codes</TableHead>
@@ -479,6 +490,15 @@ export default function DeliverablesPage() {
                       </TableCell>
                     ) : null}
                     <TableCell className="font-medium">{d.name}</TableCell>
+                    <TableCell>
+                      <DeliverableStatusCell
+                        projectId={selectedProjectId}
+                        deliverableId={d.id}
+                        deliverableName={d.name}
+                        snapshot={getSnapshot(d.id)}
+                        loading={intelLoading}
+                      />
+                    </TableCell>
                     <TableCell>{d.bestDuration}</TableCell>
                     <TableCell>{d.likelyDuration}</TableCell>
                     <TableCell className="max-w-[200px] truncate text-xs text-slate-600 dark:text-slate-400" title={p6Snippet(d)}>
@@ -640,6 +660,7 @@ export default function DeliverablesPage() {
                     </TableHead>
                   ) : null}
                   <TableHead>Name</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead>Best</TableHead>
                   <TableHead>Likely</TableHead>
                   <TableHead>P6 codes</TableHead>
@@ -662,6 +683,15 @@ export default function DeliverablesPage() {
                       </TableCell>
                     ) : null}
                     <TableCell className="font-medium">{d.name}</TableCell>
+                    <TableCell>
+                      <DeliverableStatusCell
+                        projectId={selectedProjectId}
+                        deliverableId={d.id}
+                        deliverableName={d.name}
+                        snapshot={getSnapshot(d.id)}
+                        loading={intelLoading}
+                      />
+                    </TableCell>
                     <TableCell>{d.bestDuration}</TableCell>
                     <TableCell>{d.likelyDuration}</TableCell>
                     <TableCell className="max-w-[200px] truncate text-xs text-slate-600 dark:text-slate-400" title={p6Snippet(d)}>
