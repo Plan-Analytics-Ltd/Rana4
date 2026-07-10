@@ -10,6 +10,7 @@ type DrawerState = {
 } | null;
 
 type ContextValue = {
+  state: DrawerState;
   openInsight: (args: { projectId: string; deliverableId: string; deliverableName?: string }) => void;
   closeInsight: () => void;
 };
@@ -28,7 +29,7 @@ export function IntelligenceDrawerProvider({ children }: { children: ReactNode }
 
   const closeInsight = useCallback(() => setState(null), []);
 
-  const value = useMemo(() => ({ openInsight, closeInsight }), [openInsight, closeInsight]);
+  const value = useMemo(() => ({ state, openInsight, closeInsight }), [state, openInsight, closeInsight]);
 
   return (
     <IntelligenceDrawerContext.Provider value={value}>

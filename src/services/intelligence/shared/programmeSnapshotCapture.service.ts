@@ -17,6 +17,38 @@ import {
 import { resolveWorkPackageDuration } from "./historicalDuration.service.js";
 import { diffDaysFromDates } from "./intelligenceMath.js";
 
+function snapshotSummaryFromRow(s: {
+  id: string;
+  projectId: string;
+  importedAt: Date;
+  sourceType: ProgrammeSnapshotSourceType;
+  snapshotRole: ProgrammeSnapshotRole | null;
+  scheduleDate: Date | null;
+  label: string | null;
+  snapshotVersion: number;
+  metrics: unknown;
+  importSummary: unknown;
+  _count: { activitySnapshots: number; deliverableSnapshots: number };
+}): SnapshotSummary {
+  const importSummary = (s.importSummary ?? {}) as Record<string, unknown>;
+  const programmeDisplayName = String(importSummary.programmeDisplayName ?? "").trim() || null;
+  return {
+    id: s.id,
+    projectId: s.projectId,
+    importedAt: s.importedAt.toISOString(),
+    sourceType: s.sourceType,
+    snapshotRole: s.snapshotRole,
+    scheduleDate: s.scheduleDate?.toISOString().slice(0, 10) ?? null,
+    label: s.label,
+    programmeDisplayName,
+    snapshotVersion: s.snapshotVersion,
+    metrics: s.metrics as Record<string, unknown>,
+    importSummary,
+    activityCount: s._count.activitySnapshots,
+    deliverableCount: s._count.deliverableSnapshots,
+  };
+}
+
 export async function getNextSnapshotVersion(projectId: string, companyId: string): Promise<number> {
   const last = await prisma.programmeSnapshot.findFirst({
     where: { projectId, companyId },
@@ -222,20 +254,7 @@ export async function captureProgrammeSnapshot(args: {
 
   return {
     snapshotId: snapshot.id,
-    summary: {
-      id: snapshot.id,
-      projectId: snapshot.projectId,
-      importedAt: snapshot.importedAt.toISOString(),
-      sourceType: snapshot.sourceType,
-      snapshotRole: snapshot.snapshotRole,
-      scheduleDate: snapshot.scheduleDate?.toISOString().slice(0, 10) ?? null,
-      label: snapshot.label,
-      snapshotVersion: snapshot.snapshotVersion,
-      metrics: snapshot.metrics as Record<string, unknown>,
-      importSummary: snapshot.importSummary as Record<string, unknown>,
-      activityCount: snapshot._count.activitySnapshots,
-      deliverableCount: snapshot._count.deliverableSnapshots,
-    },
+    summary: snapshotSummaryFromRow(snapshot),
   };
 }
 
@@ -250,20 +269,7 @@ export async function listProjectSnapshots(
     take: limit,
     include: { _count: { select: { activitySnapshots: true, deliverableSnapshots: true } } },
   });
-  return rows.map((s) => ({
-    id: s.id,
-    projectId: s.projectId,
-    importedAt: s.importedAt.toISOString(),
-    sourceType: s.sourceType,
-    snapshotRole: s.snapshotRole,
-    scheduleDate: s.scheduleDate?.toISOString().slice(0, 10) ?? null,
-    label: s.label,
-    snapshotVersion: s.snapshotVersion,
-    metrics: s.metrics as Record<string, unknown>,
-    importSummary: s.importSummary as Record<string, unknown>,
-    activityCount: s._count.activitySnapshots,
-    deliverableCount: s._count.deliverableSnapshots,
-  }));
+  return rows.map((s) => snapshotSummaryFromRow(s));
 }
 
 /** Capture live programme state as baseline without file import. */

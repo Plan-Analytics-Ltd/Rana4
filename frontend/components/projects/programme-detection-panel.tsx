@@ -334,7 +334,7 @@ function FieldAnalysisBlock({
         </p>
         {field.confidence !== "none" && field.value ? (
           <p>
-            <span className="font-medium text-slate-700 dark:text-slate-300">Confidence: </span>
+            <span className="font-medium text-slate-700 dark:text-slate-300">How sure: </span>
             {confidencePresentation(field.confidence).title} — {confidencePresentation(field.confidence).explanation}
           </p>
         ) : null}
@@ -507,7 +507,7 @@ function FieldDecisionPanel({
           </p>
           {field.confidence !== "none" && field.value ? (
             <p>
-              <span className="font-medium text-slate-700 dark:text-slate-300">Confidence: </span>
+              <span className="font-medium text-slate-700 dark:text-slate-300">How sure: </span>
               {confidencePresentation(field.confidence).title} — {confidencePresentation(field.confidence).explanation}
             </p>
           ) : null}

@@ -415,8 +415,8 @@ export default function NewProjectPage() {
           <CardContent className="space-y-4">
             <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200">
               Your Primavera programme has been imported successfully into{" "}
-              <strong>{importResult.projectName}</strong>. You can now edit the schedule, analyse it, or begin importing
-              historical programme revisions to build organisational knowledge.
+              <strong>{importResult.projectName}</strong>. Rana is now learning from it. You can open the schedule, or
+              import completed projects so Rana can compare this work with previous projects.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button type="button" onClick={() => router.push("/app/schedule")}>

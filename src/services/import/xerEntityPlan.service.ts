@@ -1,4 +1,8 @@
 import { parseXerProgramme, parseXerTables } from "../intelligence/shared/xerParse.service.js";
+import {
+  extractProgrammeNameSourcesFromTables,
+  resolveCanonicalProgrammeName,
+} from "../intelligence/shared/programmeIdentity.service.js";
 import type { ImportedActivityRow, ImportedRelationshipRow } from "../intelligence/shared/types.js";
 import { detectProjectFromXer, type ProjectDetectionResult } from "./projectDetection.service.js";
 
@@ -233,7 +237,11 @@ export function buildXerPreview(
   const parsed = parseXerProgramme(buffer);
 
   const projectRow = tables.get("PROJECT")?.rows[0];
-  const programmeName = String(projectRow?.proj_short_name ?? projectRow?.proj_id ?? "").trim();
+  const nameSources = extractProgrammeNameSourcesFromTables(tables, fileName);
+  const canonicalProgrammeName = resolveCanonicalProgrammeName(nameSources);
+  const programmeName =
+    canonicalProgrammeName ||
+    String(projectRow?.proj_short_name ?? projectRow?.proj_id ?? "").trim();
   const projectName = String(projectRow?.proj_short_name ?? projectRow?.wbs_name ?? programmeName).trim();
   const primaveraProjectId = projectRow?.proj_id ? String(projectRow.proj_id).trim() : null;
 
@@ -343,7 +351,12 @@ export function buildXerEntityPlan(buffer: Buffer, fileName: string): XerEntityP
   }
 
   const projectRow = tables.get("PROJECT")?.rows[0];
-  const standardName = String(projectRow?.proj_short_name ?? "Primavera Import").trim() || "Primavera Import";
+  const nameSources = extractProgrammeNameSourcesFromTables(tables, fileName);
+  const canonicalProgrammeName = resolveCanonicalProgrammeName(nameSources);
+  const standardName =
+    canonicalProgrammeName ||
+    String(projectRow?.proj_short_name ?? "Primavera Import").trim() ||
+    "Primavera Import";
 
   const fragnets = [...fragnetMap.entries()].map(([fragnetName, delMap]) => ({
     name: fragnetName,

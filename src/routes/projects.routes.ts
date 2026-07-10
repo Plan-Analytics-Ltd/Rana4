@@ -6,6 +6,7 @@ import * as importController from "../controllers/import.controller.js";
 import * as programmeIntelligenceController from "../controllers/programmeIntelligence.controller.js";
 import * as projectIntelligenceController from "../controllers/projectIntelligence.controller.js";
 import * as explanationController from "../controllers/explanation.controller.js";
+import * as askRanaController from "../controllers/askRana.controller.js";
 import * as xerProjectImportController from "../controllers/xerProjectImport.controller.js";
 import { requireAuth } from "../middleware/auth.middleware.js";
 
@@ -45,6 +46,10 @@ router.get(
   projectIntelligenceController.getSimilarDeliverablesForDeliverable
 );
 router.get(
+  "/:projectId/intelligence/project-evolution/:deliverableId",
+  projectIntelligenceController.getDeliverableProjectEvolutionForDeliverable
+);
+router.get(
   "/:projectId/intelligence/analysis/:deliverableId",
   projectIntelligenceController.getDeliverableIntelligenceAnalysisForDeliverable
 );
@@ -70,6 +75,7 @@ router.get(
 );
 router.post("/:projectId/intelligence/explain/validate", explanationController.postValidateDeliverableExplanation);
 router.post("/:projectId/intelligence/explain", explanationController.postDeliverableExplanation);
+router.post("/:projectId/intelligence/ask-rana", askRanaController.postAskRana);
 router.get("/:projectId/programme-export", programmeIntelligenceController.exportProgrammeJson);
 router.get("/:id/full-data", projectsController.getFullData);
 router.get("/:id/suggested-activity-code", projectsController.getSuggestedActivityCode);

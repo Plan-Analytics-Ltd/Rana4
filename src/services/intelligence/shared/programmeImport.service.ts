@@ -5,6 +5,11 @@ import { captureProgrammeSnapshot } from "./programmeSnapshotCapture.service.js"
 import { enrichActivityRowsWithClassifications } from "../orchestration/intelligenceMetadata.service.js";
 import { autoClassifyDeliverablesForProject } from "../profiles/deliverableClassification.service.js";
 import { parseXerProgramme } from "./xerParse.service.js";
+import {
+  extractProgrammeNameFromXerBuffer,
+  buildRevisionDisplayLabel,
+} from "./programmeIdentity.service.js";
+import { syncLiveProgrammeFromImport } from "./liveProgrammeSync.service.js";
 import type { ParsedProgrammeImport, ProgrammeImportMatchResult, SnapshotSummary } from "./types.js";
 
 export type ProgrammeImportOptions = {
@@ -162,8 +167,8 @@ function matchImportToProject(
 }
 
 /**
- * Import live/as-built programme into historical snapshot layer.
- * Does NOT overwrite the live schedule.
+ * Import programme into historical snapshot layer.
+ * Live programme imports also sync the live schedule to match the latest import.
  */
 export async function importProgrammeSchedule(
   buffer: Buffer,
@@ -173,6 +178,18 @@ export async function importProgrammeSchedule(
   const parsed = parseImportBuffer(fileName, buffer);
   const maps = await loadProjectIdentityMaps(options.projectId, options.companyId);
   let { activities, deliverables, relationships, matchResult } = matchImportToProject(parsed, maps);
+
+  const project = await prisma.project.findFirst({
+    where: { id: options.projectId, companyId: options.companyId },
+    select: { name: true },
+  });
+
+  const isXer = detectFormat(fileName, buffer) === "xer";
+  const programmeDisplayName = isXer
+    ? extractProgrammeNameFromXerBuffer(buffer, options.sourceFileName ?? fileName, project?.name)
+    : options.label?.trim() || project?.name || null;
+
+  const snapshotRole = options.snapshotRole ?? "LIVE_IMPORT";
 
   const matchedIds = activities.map((a) => a.activityId).filter((id): id is string => !!id);
   const tagMap = await enrichActivityRowsWithClassifications(
@@ -189,21 +206,60 @@ export async function importProgrammeSchedule(
   if (options.snapshotRole === "AS_BUILT") sourceType = "AS_BUILT";
   else if (options.snapshotRole === "LIVE_IMPORT") sourceType = "LIVE_UPDATE";
 
+  const nextVersion =
+    (await prisma.programmeSnapshot.findFirst({
+      where: { projectId: options.projectId, companyId: options.companyId },
+      orderBy: { snapshotVersion: "desc" },
+      select: { snapshotVersion: true },
+    }))?.snapshotVersion ?? 0;
+
+  const revisionLabel = buildRevisionDisplayLabel({
+    programmeDisplayName: programmeDisplayName,
+    snapshotVersion: nextVersion + 1,
+    snapshotRole,
+    fallbackLabel: options.label ?? parsed.label ?? `Import ${new Date().toISOString().slice(0, 10)}`,
+  });
+
   const { snapshotId, summary } = await captureProgrammeSnapshot({
     projectId: options.projectId,
     companyId: options.companyId,
     userId: options.userId,
     sourceType,
-    snapshotRole: options.snapshotRole ?? "LIVE_IMPORT",
+    snapshotRole,
     scheduleDate: parsed.scheduleDate,
-    label: options.label ?? parsed.label ?? `Import ${new Date().toISOString().slice(0, 10)}`,
+    label: revisionLabel,
     sourceFileName: options.sourceFileName ?? fileName,
     metrics: parsed.metrics,
+    importSummary: {
+      programmeDisplayName,
+      liveSyncPending: snapshotRole === "LIVE_IMPORT" || snapshotRole === "AS_BUILT",
+    },
     activities,
     deliverables,
     relationships,
     matchResult,
   });
+
+  const liveSync = await syncLiveProgrammeFromImport({
+    projectId: options.projectId,
+    companyId: options.companyId,
+    snapshotRole,
+    activities,
+    relationships,
+  });
+
+  if (liveSync.synced) {
+    await prisma.programmeSnapshot.update({
+      where: { id: snapshotId },
+      data: {
+        importSummary: {
+          ...(summary.importSummary ?? {}),
+          programmeDisplayName,
+          liveSync,
+        } as object,
+      },
+    });
+  }
 
   // Auto-classify live deliverables (manual override always wins).
   await autoClassifyDeliverablesForProject(options.projectId, options.companyId);

@@ -32,17 +32,16 @@ import { INTELLIGENCE_DEFAULT_ROUTE, INTELLIGENCE_NAV } from "@/lib/intelligence
 const platformNav = [
   { href: "/app", label: "Dashboard", icon: LayoutDashboard },
   { href: "/app/projects/new", label: "New project", icon: FolderPlus },
-  { href: "/app/project", label: "Project Viewer", icon: Package },
-  { href: "/app/schedule", label: "Schedule", icon: CalendarRange },
+  { href: "/app/schedule", label: "Planning Workspace", icon: CalendarRange },
   { href: "/app/standards", label: "Standards", icon: FileText },
   { href: "/app/fragnets", label: "Fragnets", icon: GitBranch },
   { href: "/app/activities", label: "Activities", icon: ListTodo },
   { href: "/app/activity-codes", label: "Activity codes", icon: Tags },
   { href: "/app/deliverables", label: "Deliverables", icon: Package },
   { href: "/app/rate-card", label: "Rate card", icon: TableProperties },
-  { href: "/app/export", label: "Export Center", icon: Download },
-  { href: "/app/xer-audit", label: "XER Audit", icon: FileSearch },
-  { href: "/app/import", label: "Import history", icon: Upload },
+  { href: "/app/export", label: "Export", icon: Download },
+  { href: "/app/xer-audit", label: "XER audit", icon: FileSearch },
+  { href: "/app/import", label: "Imports", icon: Upload },
 ];
 
 const systemNav = [

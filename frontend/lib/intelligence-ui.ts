@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Brain, CalendarRange, LayoutDashboard, Package, Upload } from "lucide-react";
+import { Brain, CalendarRange, GitCompare, LayoutDashboard, Package, Upload } from "lucide-react";
 
 export type AppUIMode = "platform" | "intelligence";
 
@@ -12,13 +12,22 @@ export const INTELLIGENCE_SHARED_PREFIXES = ["/app", "/app/schedule", "/app/deli
 export const INTELLIGENCE_NAV: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/app", label: "Dashboard", icon: LayoutDashboard },
   { href: "/app/intelligence", label: "What We've Learned", icon: Brain },
-  { href: "/app/schedule", label: "Project History", icon: CalendarRange },
+  { href: "/app/intelligence/comparison", label: "Project Comparison", icon: GitCompare },
+  { href: "/app/schedule", label: "Project Evolution", icon: CalendarRange },
   { href: "/app/deliverables", label: "Deliverable Analysis", icon: Package },
-  { href: "/app/import", label: "Import History", icon: Upload },
+  { href: "/app/import", label: "Imports", icon: Upload },
 ];
 
 export const INTELLIGENCE_DEFAULT_ROUTE = "/app";
 export const PLATFORM_DEFAULT_ROUTE = "/app";
+
+/** Planning workspace (schedule editor) — used from intelligence insight flows. */
+export const PLANNING_WORKSPACE_ROUTE = "/app/schedule";
+
+export function planningWorkspaceHref(opts?: { view?: "workspace" | "library" }): string {
+  if (opts?.view) return `${PLANNING_WORKSPACE_ROUTE}?view=${opts.view}`;
+  return PLANNING_WORKSPACE_ROUTE;
+}
 
 const STORAGE_KEY = "rana4-ui-mode";
 

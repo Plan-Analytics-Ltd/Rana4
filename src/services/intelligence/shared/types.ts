@@ -74,6 +74,7 @@ export type SnapshotSummary = {
   snapshotRole: ProgrammeSnapshotRole | null;
   scheduleDate: string | null;
   label: string | null;
+  programmeDisplayName: string | null;
   snapshotVersion: number;
   metrics: Record<string, unknown>;
   importSummary: Record<string, unknown>;

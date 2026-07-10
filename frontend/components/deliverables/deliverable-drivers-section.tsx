@@ -31,7 +31,7 @@ function DriverCard({ driver }: { driver: IntelligenceDriver }) {
             <span aria-hidden>{impactIcon(driver.impactLevel)}</span>
             <span className="font-medium text-sm text-slate-900 dark:text-slate-100">{driver.title}</span>
             <span className="text-xs text-slate-500 dark:text-slate-400">
-              impact {driver.impactLevel} · confidence {driver.confidence}
+              {driver.impactLevel === "HIGH" ? "Strong influence" : driver.impactLevel === "MEDIUM" ? "Moderate influence" : "Minor influence"}
             </span>
           </div>
           <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{driver.summary}</p>

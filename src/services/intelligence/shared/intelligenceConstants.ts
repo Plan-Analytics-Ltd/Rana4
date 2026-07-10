@@ -7,6 +7,12 @@ export const ALLOWED_SNAPSHOT_STATES: ProgrammeState[] = [
   "FINAL_AS_BUILT",
 ];
 
+/**
+ * Programme states that indicate a project has been imported as completed.
+ * Used for "Projects most like yours" — live/in-flight projects are excluded.
+ */
+export const COMPLETED_PROJECT_SNAPSHOT_STATES: ProgrammeState[] = ["AS_BUILT", "FINAL_AS_BUILT"];
+
 /** Minimum comparable samples before a classification profile is persisted. */
 export const MIN_PROFILE_SAMPLE = 3;
 

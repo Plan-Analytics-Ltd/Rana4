@@ -35,9 +35,10 @@ const pageTitles: Record<string, string> = {
   "/app/activity-codes": "Activity codes",
   "/app/deliverables": "Deliverables",
   "/app/intelligence": "What We've Learned",
+  "/app/intelligence/comparison": "Project Comparison",
   "/app/export": "Export",
   "/app/import": "Import",
-  "/app/schedule": "Schedule",
+  "/app/schedule": "Planning Workspace",
   "/app/audit": "Audit log",
 };
 
@@ -51,13 +52,17 @@ export function AppHeader() {
   const breadcrumbs = pathname.startsWith("/app") ? getBreadcrumbs(pathname) : [];
   const pageTitle = isIntelligenceMode
     ? pathname === "/app/schedule"
-      ? "Project History"
+      ? "Project Evolution"
       : pathname === "/app/import"
-        ? "Import History"
+        ? "Imports"
         : pathname === "/app/deliverables"
           ? "Deliverable Analysis"
-          : pageTitles[pathname] ?? breadcrumbs[breadcrumbs.length - 1]?.label ?? "Rana4"
-    : pageTitles[pathname] ?? breadcrumbs[breadcrumbs.length - 1]?.label ?? "Rana4";
+          : pathname === "/app/intelligence/comparison"
+            ? "Project Comparison"
+            : pageTitles[pathname] ?? breadcrumbs[breadcrumbs.length - 1]?.label ?? "Rana4"
+    : pathname === "/app/schedule"
+      ? "Planning Workspace"
+      : pageTitles[pathname] ?? breadcrumbs[breadcrumbs.length - 1]?.label ?? "Rana4";
 
   return (
     <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-6 py-4 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/95">

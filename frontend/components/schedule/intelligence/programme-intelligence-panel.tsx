@@ -89,10 +89,10 @@ export function ProgrammeIntelligencePanel({ projectId, canEdit }: Props) {
       >
         <span className="flex items-center gap-2">
           <History className="h-3.5 w-3.5" />
-          Project history
+          Project evolution
           {snapshots.length > 0 && (
             <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] dark:bg-slate-700">
-              {snapshots.length} snapshots
+              {snapshots.length} revision{snapshots.length === 1 ? "" : "s"}
             </span>
           )}
         </span>
@@ -108,7 +108,7 @@ export function ProgrammeIntelligencePanel({ projectId, canEdit }: Props) {
           <div className="flex flex-wrap gap-2">
             {canEdit && (
               <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={() => void createBaseline()} disabled={loading}>
-                Save baseline snapshot
+                Save baseline
               </Button>
             )}
             <Button
@@ -126,7 +126,7 @@ export function ProgrammeIntelligencePanel({ projectId, canEdit }: Props) {
 
           {snapshots.length > 0 && (
             <div>
-              <label className="text-slate-500">Baseline snapshot</label>
+              <label className="text-slate-500">Baseline</label>
               <select
                 value={baselineId}
                 onChange={(e) => setBaselineId(e.target.value)}
@@ -170,7 +170,7 @@ export function ProgrammeIntelligencePanel({ projectId, canEdit }: Props) {
 
           {snapshots.length === 0 && (
             <p className="text-slate-500">
-              No snapshots yet. Import a live or as-built schedule from Import, or save a baseline here.
+              No revisions yet. Import a programme update from Imports, or save a baseline here to start the timeline.
             </p>
           )}
         </div>

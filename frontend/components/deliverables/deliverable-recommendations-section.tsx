@@ -31,7 +31,7 @@ function RecommendationCard({ item }: { item: IntelligenceRecommendation }) {
             <span aria-hidden>{severityIcon(item.severity)}</span>
             <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{item.title}</span>
             <span className="text-xs text-slate-500 dark:text-slate-400">
-              {item.severity} · confidence {item.confidenceLevel}
+              {item.severity === "HIGH" ? "Needs attention" : item.severity === "MEDIUM" ? "Worth a look" : "For information"}
             </span>
           </div>
           <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">{item.recommendation}</p>
@@ -62,7 +62,7 @@ function RecommendationCard({ item }: { item: IntelligenceRecommendation }) {
             </div>
           ) : null}
           <div className="text-xs text-slate-500 dark:text-slate-400">
-            Based on {item.evidenceCount} comparable deliverable{item.evidenceCount === 1 ? "" : "s"}
+            Based on {item.evidenceCount} similar work package{item.evidenceCount === 1 ? "" : "s"} from completed projects
           </div>
         </div>
       ) : null}

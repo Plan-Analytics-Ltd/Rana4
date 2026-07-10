@@ -10,6 +10,10 @@ import {
   checkIntelligenceConsistency,
   type IntelligenceConsistencyReport,
 } from "../shared/intelligenceConsistency.service.js";
+import {
+  resolveDeliverableDurationView,
+  type DeliverableDurationView,
+} from "../shared/durationSource.service.js";
 
 export type DeliverableIntelligenceContext = {
   report: BenchmarkReport;
@@ -34,6 +38,7 @@ export type DeliverableIntelligenceAnalysis = {
   recommendations: IntelligenceRecommendation[];
   trust: IntelligenceTrustExplanation;
   consistency?: IntelligenceConsistencyReport;
+  durationView?: DeliverableDurationView;
 };
 
 /**
@@ -83,6 +88,11 @@ export async function getDeliverableIntelligenceAnalysis(args: {
 }): Promise<DeliverableIntelligenceAnalysis> {
   const ctx = await runDeliverableIntelligencePipeline(args);
   const { report } = ctx;
+  const durationView = await resolveDeliverableDurationView({
+    projectId: args.projectId,
+    companyId: args.companyId,
+    deliverableId: args.deliverableId,
+  });
 
   return {
     deliverable: report.deliverable,
@@ -98,5 +108,6 @@ export async function getDeliverableIntelligenceAnalysis(args: {
     recommendations: ctx.recommendations,
     trust: ctx.trust,
     consistency: ctx.consistency,
+    durationView,
   };
 }

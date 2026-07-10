@@ -11,18 +11,16 @@ import {
   api,
   getApiErrorMessage,
   isAxiosError,
-  organisationalIntelligenceApi,
   programmeIntelligenceApi,
   type ProgrammeImportResult,
   type ProgrammeSnapshotSummary,
 } from "@/lib/api";
-import { computeOrgKpis } from "@/lib/intelligence-terminology";
 import { IntelligenceSection } from "@/components/intelligence/intelligence-section";
 import { IntelligenceEmptyState } from "@/components/intelligence/intelligence-empty-state";
-import { SummaryKpiGrid } from "@/components/intelligence/dashboard/summary-kpi-grid";
 import { RecentActivityCard } from "@/components/intelligence/dashboard/recent-activity-card";
 import { humanSnapshotRole, humanSourceType, snapshotKnowledgeBadges } from "@/lib/intelligence-terminology";
 import { Badge } from "@/components/ui/badge";
+import { snapshotStoryFallbackLabel } from "@/lib/planner-language";
 
 type ImportSuccessResponse =
   | {
@@ -74,18 +72,6 @@ export default function ImportPage() {
   const [error, setError] = useState<string | null>(null);
   const [knowledgeMessage, setKnowledgeMessage] = useState<string | null>(null);
 
-  const [orgKpis, setOrgKpis] = useState(() =>
-    computeOrgKpis({
-      insights: [],
-      deliverableProfiles: [],
-      reliabilityProfiles: [],
-      outcomeProfiles: [],
-      recommendationProfiles: [],
-      recommendationTrends: [],
-      trustProfiles: [],
-    })
-  );
-
   const loadLibrary = useCallback(async () => {
     if (!projectId) {
       setLibraryLoading(false);
@@ -93,12 +79,8 @@ export default function ImportPage() {
     }
     setLibraryLoading(true);
     try {
-      const [snapRes, dashRes] = await Promise.all([
-        programmeIntelligenceApi.listSnapshots(projectId),
-        organisationalIntelligenceApi.dashboard(),
-      ]);
+      const snapRes = await programmeIntelligenceApi.listSnapshots(projectId);
       setSnapshots(snapRes.data.snapshots ?? []);
-      setOrgKpis(computeOrgKpis(dashRes.data));
     } catch {
       setSnapshots([]);
     } finally {
@@ -156,7 +138,11 @@ export default function ImportPage() {
         snapshotRole: programmeRole,
       });
       setProgrammeResult(res.data);
-      setKnowledgeMessage("This project has improved organisational knowledge.");
+      setKnowledgeMessage(
+        programmeRole === "AS_BUILT"
+          ? "Programme imported successfully. Rana is now learning from it."
+          : "Update imported successfully. It has been added to this project’s evolution timeline."
+      );
       await loadLibrary();
     } catch (err) {
       setError(asErrorMessage(err));
@@ -188,7 +174,7 @@ export default function ImportPage() {
       if (data && typeof data === "object" && "success" in data && data.success === true) {
         setResult(data as ImportSuccessResponse);
         if (!dryRun) {
-          setKnowledgeMessage("This project has improved organisational knowledge.");
+          setKnowledgeMessage("Project data imported successfully. Rana is now learning from it.");
           await loadLibrary();
         }
         return;
@@ -213,8 +199,10 @@ export default function ImportPage() {
           Import history
         </h1>
         <p className="mt-1 max-w-2xl text-sm text-slate-600 dark:text-slate-400">
-          Build organisational knowledge by importing completed programme revisions for an existing project. This is
-          separate from creating a new project from Primavera — use{" "}
+          There are two different reasons to import data:
+          (1) <span className="font-medium">Compared with Previous Projects</span> (learning from completed projects),
+          and (2) <span className="font-medium">Project Evolution</span> (tracking how this project changes over time).
+          This is separate from creating a new project from Primavera — use{" "}
           <Link href="/app/projects/new" className="font-medium text-violet-700 underline dark:text-violet-300">
             New project
           </Link>{" "}
@@ -225,13 +213,9 @@ export default function ImportPage() {
       {libraryLoading ? (
         <div className="flex items-center gap-2 text-sm text-slate-500">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading knowledge summary…
+          Loading this project’s import history…
         </div>
-      ) : (
-        <IntelligenceSection title="Knowledge growth" description="How much your organisation has learned so far.">
-          <SummaryKpiGrid kpis={orgKpis} variant="compact" />
-        </IntelligenceSection>
-      )}
+      ) : null}
 
       {knowledgeMessage ? (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
@@ -240,8 +224,8 @@ export default function ImportPage() {
       ) : null}
 
       <IntelligenceSection
-        title="Import new history"
-        description="Add completed programmes or structured project data to grow the learning library."
+        title="Import data"
+        description="Import completed projects to strengthen comparisons, or import updates to build the project’s evolution timeline."
       >
         <div className="space-y-6">
           <Card className="border-slate-200 p-5 dark:border-slate-700">
@@ -284,8 +268,8 @@ export default function ImportPage() {
           <Card className="border-slate-200 p-5 dark:border-slate-700">
             <h3 className="text-base font-semibold text-slate-900 dark:text-white">Programme schedule</h3>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-              Import a completed or live schedule (XER or Rana4 JSON). Completed programmes contribute most to
-              organisational learning.
+              Import a schedule (XER or Rana4 JSON). Use completed projects to strengthen comparisons with previous
+              projects. Use programme updates over time to build the Project Evolution timeline for this project.
             </p>
             <div className="mt-4 space-y-4">
               <Input
@@ -299,15 +283,15 @@ export default function ImportPage() {
                 disabled={loading}
               />
               <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                Programme type
+                Import purpose
                 <select
                   value={programmeRole}
                   onChange={(e) => setProgrammeRole(e.target.value as "LIVE_IMPORT" | "AS_BUILT")}
                   className="mt-1 block w-full max-w-xs rounded border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
                   disabled={loading}
                 >
-                  <option value="AS_BUILT">Completed project (recommended for learning)</option>
-                  <option value="LIVE_IMPORT">Live programme update</option>
+                  <option value="AS_BUILT">Compared with Previous Projects (completed project)</option>
+                  <option value="LIVE_IMPORT">Project Evolution (programme update)</option>
                 </select>
               </label>
               <Button onClick={uploadProgrammeImport} disabled={!canProgrammeImport}>
@@ -316,10 +300,22 @@ export default function ImportPage() {
             </div>
             {programmeResult ? (
               <div className="mt-4 rounded-md border border-cyan-200 bg-cyan-50 p-3 text-sm text-cyan-900 dark:border-cyan-900/50 dark:bg-cyan-950/30 dark:text-cyan-200">
-                <p className="font-semibold">Added to learning library</p>
+                <p className="font-semibold">Import saved</p>
                 <p className="mt-1">
-                  Matched {programmeResult.matchResult.matchedActivities} activities from previous knowledge.
+                  If this was a completed project, it strengthens comparisons with previous projects. If this was a
+                  programme update, it adds a point on this project’s evolution timeline.
                 </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button asChild size="sm" variant="outline">
+                    <Link href="/app">View dashboard</Link>
+                  </Button>
+                  <Button asChild size="sm" variant="outline">
+                    <Link href="/app/deliverables">Review deliverables</Link>
+                  </Button>
+                  <Button asChild size="sm" variant="outline">
+                    <Link href="/app/intelligence">What we&apos;ve learned</Link>
+                  </Button>
+                </div>
               </div>
             ) : null}
           </Card>
@@ -336,6 +332,14 @@ export default function ImportPage() {
           {result && !dryRun && (
             <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
               <p className="font-semibold">Project data imported successfully</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button asChild size="sm" variant="outline">
+                  <Link href="/app">View dashboard</Link>
+                </Button>
+                <Button asChild size="sm" variant="outline">
+                  <Link href="/app/deliverables">Review deliverables</Link>
+                </Button>
+              </div>
             </div>
           )}
           {result && dryRun && (
@@ -347,14 +351,14 @@ export default function ImportPage() {
       )}
 
       <IntelligenceSection
-        title="Existing historical library"
-        description={`Snapshots stored for ${selectedProject?.name ?? "this project"}.`}
+        title="Project Evolution timeline"
+        description={`Baseline and revision history stored for ${selectedProject?.name ?? "this project"}.`}
       >
         {recentSnapshots.length === 0 ? (
           <IntelligenceEmptyState
             icon={BookOpen}
-            title="No historical library for this project yet"
-            description="Import a completed programme to start building knowledge. Rana4 will use it to compare deliverables and improve guidance across the organisation."
+            title="No Project Evolution timeline yet"
+            description="Save a baseline and import programme updates over time. This creates the timeline used in Project Evolution."
           />
         ) : (
           <div className="space-y-4">
@@ -366,7 +370,14 @@ export default function ImportPage() {
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
                     <p className="font-medium text-slate-900 dark:text-white">
-                      {s.label || `Snapshot v${s.snapshotVersion}`}
+                      <Link href="/app/schedule" className="hover:text-violet-700 dark:hover:text-violet-300">
+                        {snapshotStoryFallbackLabel({
+                          programmeDisplayName: s.programmeDisplayName,
+                          label: s.label,
+                          snapshotRole: s.snapshotRole,
+                          snapshotVersion: s.snapshotVersion,
+                        })}
+                      </Link>
                     </p>
                     <p className="text-sm text-slate-500">
                       {humanSourceType(s.sourceType)} · {new Date(s.importedAt).toLocaleDateString()}
@@ -388,12 +399,18 @@ export default function ImportPage() {
       </IntelligenceSection>
 
       {recentSnapshots.length > 0 ? (
-        <IntelligenceSection title="Recent imports" description="Latest additions to the learning library.">
+        <IntelligenceSection title="Recent imports" description="Latest additions to this project’s timeline.">
           <div className="grid gap-3 sm:grid-cols-2">
             {recentSnapshots.map((s) => (
               <RecentActivityCard
                 key={s.id}
-                title={s.label || `Snapshot v${s.snapshotVersion}`}
+                href="/app/schedule"
+                title={snapshotStoryFallbackLabel({
+                  programmeDisplayName: s.programmeDisplayName,
+                  label: s.label,
+                  snapshotRole: s.snapshotRole,
+                  snapshotVersion: s.snapshotVersion,
+                })}
                 subtitle={`${humanSnapshotRole(s.snapshotRole)} · ${s.activityCount} activities`}
                 date={new Date(s.importedAt).toLocaleDateString()}
               />

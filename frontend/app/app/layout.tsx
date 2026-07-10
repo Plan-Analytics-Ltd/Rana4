@@ -4,6 +4,7 @@ import { IntelligenceModeProvider } from "@/contexts/intelligence-mode-context";
 import { ProjectProvider } from "@/contexts/project-context";
 import { SearchProvider } from "@/contexts/search-context";
 import { IntelligenceDrawerProvider } from "@/contexts/intelligence-drawer-context";
+import { AskRanaProvider } from "@/contexts/ask-rana-context";
 
 export default function AppShellLayout({
   children,
@@ -16,7 +17,9 @@ export default function AppShellLayout({
         <IntelligenceModeProvider>
           <SearchProvider>
             <IntelligenceDrawerProvider>
-              <AppLayout>{children}</AppLayout>
+              <AskRanaProvider>
+                <AppLayout>{children}</AppLayout>
+              </AskRanaProvider>
             </IntelligenceDrawerProvider>
           </SearchProvider>
         </IntelligenceModeProvider>

@@ -674,6 +674,18 @@ export type CurrentDurationSource = {
   definition: string;
 };
 
+export type BaselineDurationSource = {
+  durationDays: number | null;
+  snapshotId: string | null;
+  snapshotLabel: string | null;
+  definition: string;
+};
+
+export type DeliverableDurationView = {
+  current: CurrentDurationSource & { durationDays: number | null };
+  baseline: BaselineDurationSource;
+};
+
 export type IntelligenceConsistencyReport = {
   consistent: boolean;
   warnings: Array<{ code: string; message: string; layers: string[] }>;
@@ -685,6 +697,7 @@ export type DeliverableAnalysisCore = {
   deliverable: { id: string; name: string; classification: string | null };
   currentDurationDays: number | null;
   currentDurationSource?: CurrentDurationSource;
+  durationView?: DeliverableDurationView;
   benchmark: DeliverableBenchmarkBlock;
   outlier: BenchmarkOutlier;
   evidence: BenchmarkEvidence;
@@ -806,6 +819,22 @@ export const EXPLANATION_TYPE_LABELS: Record<ExplanationType, string> = {
   DELIVERABLE_SUMMARY: "Summarise deliverable",
 };
 
+export type AskRanaConversationTurn = {
+  role: "planner" | "rana";
+  content: string;
+};
+
+export type AskRanaResult = {
+  status: "success" | "disabled" | "error" | "not_ready" | "provider_not_configured" | "mock";
+  answer: string | null;
+  message?: string;
+  sources: string[];
+  providerCalled: boolean;
+  providerId?: string;
+  loadingHint?: string;
+  evidenceDomains?: string[];
+};
+
 export const intelligenceApi = {
   getDeliverableIntelligenceAnalysis: (
     projectId: string,
@@ -833,6 +862,22 @@ export const intelligenceApi = {
     const pid = requireProjectId(projectId);
     return api.post<DeliverableExplanationResult>(
       `/projects/${encodeURIComponent(pid)}/intelligence/explain`,
+      body
+    );
+  },
+  askRana: (
+    projectId: string,
+    body: {
+      deliverableId?: string;
+      question: string;
+      conversation?: AskRanaConversationTurn[];
+      projectIds?: string[];
+      pageContext?: string;
+    }
+  ) => {
+    const pid = requireProjectId(projectId);
+    return api.post<AskRanaResult>(
+      `/projects/${encodeURIComponent(pid)}/intelligence/ask-rana`,
       body
     );
   },
@@ -895,6 +940,25 @@ export const intelligenceApi = {
       {
         params: projectIds.length ? { projectIds: projectIds.join(",") } : undefined,
       }
+    );
+  },
+  getProfile: (projectId: string) => {
+    const pid = requireProjectId(projectId);
+    return api.get<{ profile: ProjectIntelligenceProfile }>(
+      `/projects/${encodeURIComponent(pid)}/intelligence/profile`
+    );
+  },
+  similarProjects: (projectId: string, opts?: { limit?: number }) => {
+    const pid = requireProjectId(projectId);
+    return api.get<SimilarProjectsReport>(
+      `/projects/${encodeURIComponent(pid)}/intelligence/similar-projects`,
+      { params: opts?.limit != null ? { limit: opts.limit } : undefined }
+    );
+  },
+  getDeliverableProjectEvolution: (projectId: string, deliverableId: string) => {
+    const pid = requireProjectId(projectId);
+    return api.get<DeliverableProjectEvolutionReport>(
+      `/projects/${encodeURIComponent(pid)}/intelligence/project-evolution/${encodeURIComponent(deliverableId)}`
     );
   },
 };
@@ -1583,6 +1647,7 @@ export type ProgrammeSnapshotSummary = {
   snapshotRole: string | null;
   scheduleDate: string | null;
   label: string | null;
+  programmeDisplayName: string | null;
   snapshotVersion: number;
   metrics: Record<string, unknown>;
   importSummary: Record<string, unknown>;
@@ -1628,6 +1693,200 @@ export type LessonFinding = {
   summary: string;
   severity: string;
   sampleSize: number;
+  findingType?: string;
+  category?: string;
+};
+
+export type ProjectIntelligenceProfile = {
+  projectId: string;
+  sector: string | null;
+  projectType: string | null;
+  procurementRoute: string | null;
+  stage: string | null;
+  region: string | null;
+  clientType: string | null;
+  complexity: string | null;
+  classificationTagsList: string[];
+  disciplineTags: string[];
+};
+
+export type SimilarProjectMatch = {
+  projectId: string;
+  projectName: string;
+  similarityScore: number;
+  confidenceScore: number;
+  confidenceLevel: "LOW" | "MEDIUM" | "HIGH";
+  matchedFields: string[];
+  explanations: string[];
+};
+
+export type SimilarProjectsReport = {
+  matches: SimilarProjectMatch[];
+  confidence: number;
+  explanations: string[];
+};
+
+export type DeliverableProjectEvolutionRevision = {
+  snapshotId: string;
+  label: string;
+  programmeDisplayName: string | null;
+  role: string | null;
+  programmeState: string | null;
+  importedAt: string;
+  durationDays: number | null;
+  durationChangeDays: number | null;
+};
+
+export type ProgrammeLogicEvent = {
+  type: string;
+  activityCode: string;
+  activityName: string | null;
+  description: string;
+  storyBullet?: string | null;
+  predecessorCode?: string;
+  relationshipType?: string;
+  lagDays?: number;
+};
+
+export type RevisionProgrammeIntelligence = {
+  revisionIndex: number;
+  revisionLabel: string;
+  snapshotId: string;
+  durationDays: number | null;
+  durationChangeDays: number | null;
+  relationshipCount: number;
+  relationshipCountChange: number | null;
+  relationshipDensity: number | null;
+  events: ProgrammeLogicEvent[];
+  plannerObservations: string[];
+  storyBullets: string[];
+  hasMeaningfulChanges: boolean;
+};
+
+export type ProjectEvolutionDurationChangeStep = {
+  revisionIndex: number;
+  revisionLabel: string;
+  changeDays: number;
+  fromDays: number;
+  toDays: number;
+};
+
+export type ProjectEvolutionStablePeriod = {
+  startRevisionIndex: number;
+  endRevisionIndex: number;
+  startLabel: string;
+  endLabel: string;
+  durationDays: number;
+  revisionCount: number;
+};
+
+export type ProjectEvolutionRevisionHighlight = {
+  revisionIndex: number;
+  revisionLabel: string;
+  role: string | null;
+  durationDays: number;
+  durationChangeDays: number | null;
+  highlightReason: string;
+};
+
+export type ProjectEvolutionMajorEvent = {
+  type: string;
+  revisionIndex: number;
+  revisionLabel: string;
+  description: string;
+};
+
+export type ProjectEvolutionIntelligence = {
+  summary: string;
+  revisionCount: number;
+  baseline: number | null;
+  latest: number | null;
+  peak: number | null;
+  minimum: number | null;
+  netChange: number | null;
+  trend: string;
+  volatility: "LOW" | "MODERATE" | "HIGH" | null;
+  changePattern: "STABLE" | "GRADUAL" | "SUDDEN" | "OSCILLATING" | "MIXED" | null;
+  changePace: "MOSTLY_INCREASED" | "MOSTLY_DECREASED" | "MOSTLY_STABLE" | "MIXED" | null;
+  largestIncrease: ProjectEvolutionDurationChangeStep | null;
+  largestReduction: ProjectEvolutionDurationChangeStep | null;
+  largestSingleRevisionChange: ProjectEvolutionDurationChangeStep | null;
+  firstMeaningfulChange: ProjectEvolutionDurationChangeStep | null;
+  latestMeaningfulChange: ProjectEvolutionDurationChangeStep | null;
+  stablePeriods: ProjectEvolutionStablePeriod[];
+  longestStablePeriod: ProjectEvolutionStablePeriod | null;
+  revisionHighlights: ProjectEvolutionRevisionHighlight[];
+  majorEvents: ProjectEvolutionMajorEvent[];
+  timelineHighlights: string[];
+  plannerObservations: string[];
+  howChangedSummary: string | null;
+};
+
+export type DeliverableProjectEvolutionReport = {
+  deliverableId: string;
+  deliverableName: string;
+  programmeDisplayName: string | null;
+  revisions: DeliverableProjectEvolutionRevision[];
+  evolution: {
+    initialDuration: number | null;
+    maximumDuration: number | null;
+    finalDuration: number | null;
+    growthPercent: number | null;
+    reductionPercent: number | null;
+    revisionCount: number;
+    largestChangeDays: number | null;
+    trend: string;
+  };
+  timeline: {
+    typicalBaselineDuration: number | null;
+    typicalPeakDuration: number | null;
+    typicalCompletedDuration: number | null;
+    averageGrowthPercent: number | null;
+    averageReductionPercent: number | null;
+    averageRevisionCount: number;
+    mostCommonRevisionStage: string | null;
+    largestHistoricalIncrease: number | null;
+    evolutionSummary: string | null;
+  };
+  projectEvolutionIntelligence: ProjectEvolutionIntelligence;
+  programmeLogicEvolution: RevisionProgrammeIntelligence[];
+  programmeLogicSummary: string | null;
+  durationView: DeliverableDurationView;
+};
+
+export type OrganisationalPatternType =
+  | "REPEATED_SCOPE_GROWTH"
+  | "REPEATED_DURATION_REDUCTION"
+  | "REPEATED_PROLONGED_COMPLETION"
+  | "HIGH_REVISION_VOLATILITY"
+  | "FREQUENT_UNDERESTIMATION";
+
+export type OrganisationalPattern = {
+  type: OrganisationalPatternType;
+  label: string;
+  summary: string;
+  deliverableName: string;
+  classification: string | null;
+  projectCount: number;
+  occurrenceCount: number;
+};
+
+export type OrganisationKnowledgeEntry = {
+  id: string;
+  category: string;
+  label: string;
+  summary: string;
+  metric?: number | null;
+  deliverableName?: string | null;
+  classification?: string | null;
+};
+
+export type OrganisationKnowledgeReport = {
+  entries: OrganisationKnowledgeEntry[];
+  patterns: OrganisationalPattern[];
+  projectCount: number;
+  deliverableCount: number;
+  revisionCount: number;
 };
 
 export const programmeIntelligenceApi = {
@@ -1855,4 +2114,12 @@ export const organisationalIntelligenceApi = {
     api.get<{ insight: LearnedInsight }>(`/intelligence/insights/${encodeURIComponent(id)}`),
   regenerate: () =>
     api.post<{ insights: LearnedInsight[]; count: number }>("/intelligence/insights/regenerate"),
+
+  organisationKnowledge: () =>
+    api.get<OrganisationKnowledgeReport>("/intelligence/organisation-knowledge"),
+
+  lessonsLearned: (refresh?: boolean) =>
+    api.get<{ findings: LessonFinding[] }>("/intelligence/lessons-learned", {
+      params: refresh ? { refresh: "true" } : undefined,
+    }),
 };

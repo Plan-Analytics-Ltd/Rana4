@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   ChevronsDownUp,
   ChevronsUpDown,
@@ -89,9 +90,25 @@ function saveCollapse(projectId: string, state: CollapseState) {
   }
 }
 
-export default function ScheduleWorkspacePage() {
+export default function SchedulePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center py-16 text-sm text-slate-500">
+          <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+          Loading schedule…
+        </div>
+      }
+    >
+      <ScheduleWorkspacePage />
+    </Suspense>
+  );
+}
+
+function ScheduleWorkspacePage() {
   const { selectedProjectId, selectedProject, selectedProjectRole } = useProject();
   const { isIntelligenceMode } = useIntelligenceMode();
+  const searchParams = useSearchParams();
   const mayEdit = hasPermission(selectedProjectRole, "activity", "update");
   const [scheduleView, setScheduleView] = useState<"library" | "workspace">("library");
 
@@ -345,8 +362,13 @@ export default function ScheduleWorkspacePage() {
   }, []);
 
   useEffect(() => {
+    const view = searchParams.get("view");
+    if (view === "workspace" || view === "library") {
+      setScheduleView(view);
+      return;
+    }
     if (isIntelligenceMode) setScheduleView("library");
-  }, [isIntelligenceMode, selectedProjectId]);
+  }, [searchParams, isIntelligenceMode, selectedProjectId]);
 
   return (
     <div className="space-y-4">
@@ -360,7 +382,7 @@ export default function ScheduleWorkspacePage() {
             variant={scheduleView === "library" ? "default" : "outline"}
             onClick={() => setScheduleView("library")}
           >
-            Learning library
+            Project evolution
           </Button>
           <Button
             type="button"
@@ -375,11 +397,7 @@ export default function ScheduleWorkspacePage() {
 
       {isIntelligenceMode && scheduleView === "library" && selectedProjectId ? (
         <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-          <ProjectHistoryLibrary
-            projectId={selectedProjectId}
-            projectName={selectedProject?.name}
-            showOrgSummary
-          />
+          <ProjectHistoryLibrary projectId={selectedProjectId} projectName={selectedProject?.name} />
         </div>
       ) : (
     <div className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-slate-300 bg-slate-50 dark:border-slate-700 dark:bg-slate-950">

@@ -51,6 +51,11 @@ import { hasPermission } from "@/lib/project-permissions";
 import { cn } from "@/lib/utils";
 import { ActivityBulkActionsBar } from "@/components/activities/ActivityBulkActionsBar";
 import { filterUserVisibleFragnets, filterUserVisibleStandards } from "@/lib/project-level-ui";
+import { DeliverableStatusBadge } from "@/components/intelligence/deliverable-status-badge";
+import { OpenInPlanningWorkspaceButton } from "@/components/intelligence/open-in-planning-workspace-button";
+import { useIntelligenceDrawerOptional } from "@/contexts/intelligence-drawer-context";
+
+import { formatFragnetLabel } from "@/lib/planner-language";
 
 type FragnetOption = { id: string; name: string; standardName?: string };
 
@@ -62,10 +67,11 @@ export default function DeliverablesPage() {
   const mayEditP6Codes = hasPermission(selectedProjectRole, "activityCode", "update");
   const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
   const deliverableIds = useMemo(() => deliverables.map((d) => d.id), [deliverables]);
-  const { loading: intelLoading, getSnapshot } = useDeliverableIntelligenceCache(
-    selectedProjectId,
-    deliverableIds
-  );
+  const {
+    snapshots: intelSnapshots,
+    loading: intelLoading,
+    getSnapshot,
+  } = useDeliverableIntelligenceCache(selectedProjectId, deliverableIds);
   const [allFragnets, setAllFragnets] = useState<FragnetOption[]>([]);
   const [fragnetNameById, setFragnetNameById] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -133,7 +139,7 @@ export default function DeliverablesPage() {
       setAllFragnets(fragnetsWithStandard);
       const nameById: Record<string, string> = {};
       fragnetsWithStandard.forEach((f) => {
-        nameById[f.id] = f.standardName ? `${f.name} (${f.standardName})` : f.name;
+        nameById[f.id] = formatFragnetLabel(f.name, f.standardName);
       });
       setFragnetNameById(nameById);
     } catch (err: unknown) {
@@ -399,13 +405,29 @@ export default function DeliverablesPage() {
     setCreateOpen(true);
   };
 
+  const drawer = useIntelligenceDrawerOptional();
+
+  const attentionDeliverables = useMemo(() => {
+    return deliverables
+      .map((d) => ({ deliverable: d, snapshot: intelSnapshots.get(d.id) }))
+      .filter(
+        (row) => row.snapshot && (row.snapshot.attention === "review" || row.snapshot.attention === "high_risk")
+      )
+      .slice(0, 8);
+  }, [deliverables, intelSnapshots]);
+
+  const openDeliverableInsight = (id: string, name: string) => {
+    if (!selectedProjectId || !drawer) return;
+    drawer.openInsight({ projectId: selectedProjectId, deliverableId: id, deliverableName: name });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">Deliverables</h2>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Create and edit deliverables; optionally assign to a fragnet or leave unassigned.
+            Start with what’s worth reviewing, then manage the detail below.
             {refreshing ? (
               <span className="ml-2 inline-flex items-center gap-1 text-slate-400">
                 <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
@@ -417,6 +439,45 @@ export default function DeliverablesPage() {
       </div>
 
       <ProjectHealthBar projectId={selectedProjectId} />
+
+      <Card className="border-violet-200/70 bg-violet-50/30 dark:border-violet-900/40 dark:bg-violet-950/10">
+        <CardHeader className="flex flex-row items-start justify-between gap-3 pb-3">
+          <div>
+            <CardTitle className="text-base">Worth reviewing</CardTitle>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+              These deliverables differ most from similar work on previous projects. Open one to see why.
+            </p>
+          </div>
+          <OpenInPlanningWorkspaceButton />
+        </CardHeader>
+        <CardContent>
+          {intelLoading && attentionDeliverables.length === 0 ? (
+            <p className="flex items-center gap-2 text-sm text-slate-500">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Comparing deliverables with previous projects…
+            </p>
+          ) : attentionDeliverables.length === 0 ? (
+            <p className="text-sm text-slate-600 dark:text-slate-400">
+              Nothing stands out for review right now — deliverables here are either in line with previous projects or
+              don’t have enough history yet.
+            </p>
+          ) : (
+            <div className="grid gap-2 lg:grid-cols-2">
+              {attentionDeliverables.map(({ deliverable, snapshot }) => (
+                <button
+                  key={deliverable.id}
+                  type="button"
+                  onClick={() => openDeliverableInsight(deliverable.id, deliverable.name)}
+                  className="flex w-full items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-violet-300 hover:shadow-sm dark:border-slate-700 dark:bg-slate-900/50 dark:hover:border-violet-800"
+                >
+                  <span className="truncate text-sm font-medium">{deliverable.name}</span>
+                  <DeliverableStatusBadge snapshot={snapshot} />
+                </button>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {mayDelete && filteredDeliverables.length > 0 && (
         <ActivityBulkActionsBar
@@ -566,7 +627,7 @@ export default function DeliverablesPage() {
                       <option value="">No fragnet</option>
                       {allFragnets.map((f) => (
                         <option key={f.id} value={f.id}>
-                          {f.standardName ? `${f.name} (${f.standardName})` : f.name}
+                          {formatFragnetLabel(f.name, f.standardName)}
                         </option>
                       ))}
                     </select>
@@ -739,7 +800,7 @@ export default function DeliverablesPage() {
                     <option value="">No fragnet</option>
                     {allFragnets.map((f) => (
                       <option key={f.id} value={f.id}>
-                        {f.standardName ? `${f.name} (${f.standardName})` : f.name}
+                        {formatFragnetLabel(f.name, f.standardName)}
                       </option>
                     ))}
                   </select>

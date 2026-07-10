@@ -29,13 +29,13 @@ export function attentionFromOutlier(
 export function labelForAttention(level: DeliverableAttentionLevel): string {
   switch (level) {
     case "aligned":
-      return "Aligned";
+      return "Matches previous projects";
     case "review":
-      return "Review suggested";
+      return "Worth reviewing";
     case "high_risk":
-      return "High risk";
+      return "Needs attention";
     default:
-      return "Limited evidence";
+      return "No completed projects for comparison yet";
   }
 }
 
@@ -60,8 +60,8 @@ export function snapshotFromAnalysis(analysis: DeliverableIntelligenceAnalysis):
 
 export function scheduleTooltipForSnapshot(snapshot: DeliverableStatusSnapshot | undefined): string | null {
   if (!snapshot) return null;
-  if (snapshot.attention === "aligned") return "In line with similar completed projects.";
-  if (snapshot.attention === "review") return "Historical evidence suggests review.";
+  if (snapshot.attention === "aligned") return "In line with similar work from previous projects.";
+  if (snapshot.attention === "review") return "Differs from similar work on previous projects — worth a look.";
   if (snapshot.attention === "high_risk") return humanOutlierStatus(snapshot.outlierStatus ?? "HIGH");
-  return "Not enough historical evidence for a comparison yet.";
+  return "No completed projects available for comparison yet.";
 }

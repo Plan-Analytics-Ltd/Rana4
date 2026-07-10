@@ -755,20 +755,6 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Card className="dark:border-slate-800 dark:bg-slate-900/50">
-        <CardHeader>
-          <CardTitle className="text-base">Integrations</CardTitle>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Future integrations and extensions.
-          </p>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Placeholder for future integration options.
-          </p>
-        </CardContent>
-      </Card>
-
       <div>
         <Button asChild variant="outline">
           <Link href="/app">Back to platform</Link>

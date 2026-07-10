@@ -5,25 +5,25 @@ import { cn } from "@/lib/utils";
 
 export const INTELLIGENCE_HELP: Record<string, string> = {
   historicalComparison:
-    "Shows how this deliverable compares with similar work on completed projects. Helps you judge whether the planned duration is realistic.",
+    "How this compares with similar work on completed projects. Helps you judge whether the planned duration is realistic.",
   likelyOutcome:
-    "Estimates what is most likely to happen based on how similar deliverables actually performed in the past.",
+    "What usually happens, based on how similar work actually turned out on previous projects.",
   evidenceQuality:
-    "How much you can rely on this analysis, based on the volume and consistency of imported project history.",
+    "How much project history this is based on. More completed projects means more reliable guidance.",
   recommendations:
-    "Items you may wish to review. These are evidence-based prompts — Rana4 does not change your schedule.",
+    "Things worth checking, based on previous projects. Rana never changes your schedule — these are prompts, not actions.",
   keyFactors:
-    "Patterns from comparable projects that may influence duration. These explain context, not actions to take.",
+    "Patterns from similar projects that tend to influence how long this work takes.",
   observations:
-    "What Rana4 noticed when comparing this deliverable with historical evidence.",
+    "What Rana noticed when comparing this with previous projects.",
   forecastReliability:
-    "How often original duration estimates matched what actually happened on previous projects.",
+    "How often planned durations matched what actually happened on previous projects.",
   whatWeLearned:
-    "Organisation-wide patterns built from imported completed programmes.",
+    "Patterns Rana has found across the completed projects you've imported.",
   scheduleConfidence:
-    "A quick read of how well this project's deliverables align with historical evidence.",
+    "A quick read of how closely this project lines up with similar completed projects.",
   trust:
-    "How much you can rely on this analysis, based on the volume and consistency of imported project history.",
+    "How much project history this is based on. More completed projects means more reliable guidance.",
 };
 
 type Props = {

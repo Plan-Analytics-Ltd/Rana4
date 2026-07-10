@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Brain, Loader2, RefreshCw, Shield } from "lucide-react";
+import { Brain, ChevronRight, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   organisationalIntelligenceApi,
@@ -10,195 +10,111 @@ import {
   type DeliverableKnowledgeProfile,
   type DeliverableOutcomeProfile,
   type DeliverableReliabilityProfile,
+  type IntelligenceDashboard,
   type LearnedInsight,
-  type LearnedInsightType,
   type RecommendationTrendGroup,
   type IntelligenceTrustProfile,
+  type OrganisationKnowledgeEntry,
 } from "@/lib/api";
 import { IntelligenceSection } from "@/components/intelligence/intelligence-section";
 import { IntelligenceEmptyState, IntelligenceEmptyStateButton } from "@/components/intelligence/intelligence-empty-state";
-import { SummaryKpiGrid } from "@/components/intelligence/dashboard/summary-kpi-grid";
-import { ProjectHealthBar } from "@/components/intelligence/project-health-bar";
+import { ProjectIntelligenceOverview } from "@/components/intelligence/dashboard/project-intelligence-overview";
+import { DeliverableTypeDetailDialog } from "@/components/intelligence/dashboard/deliverable-type-detail-dialog";
+import { useProject } from "@/contexts/project-context";
+import { SimilarProjectsCard } from "@/components/intelligence/organisation/similar-projects-card";
+import { LessonsFromPreviousProjects } from "@/components/intelligence/organisation/lessons-from-previous-projects";
+import { OrganisationalPatternsSection } from "@/components/intelligence/organisation/organisational-patterns-section";
+import {
+  intelligenceApi,
+  type LessonFinding,
+  type OrganisationalPattern,
+  type SimilarProjectMatch,
+} from "@/lib/api";
 import { computeOrgKpis } from "@/lib/intelligence-terminology";
+import {
+  adaptiveProjectsHeading,
+  groupByUnderstanding,
+  rankPredictability,
+  reviewThemeLabel,
+  TONE_CLASSES,
+  typicalDurationPhrase,
+  understandingFor,
+  type PredictabilityRank,
+} from "@/lib/intelligence-language";
 import { cn } from "@/lib/utils";
 
-const SECTIONS: {
-  type: LearnedInsightType;
+const EMPTY_DASHBOARD: IntelligenceDashboard = {
+  insights: [],
+  deliverableProfiles: [],
+  reliabilityProfiles: [],
+  outcomeProfiles: [],
+  recommendationProfiles: [],
+  recommendationTrends: [],
+  trustProfiles: [],
+};
+
+function ClickableTypeCard({
+  title,
+  detail,
+  badge,
+  badgeTone,
+  onClick,
+}: {
   title: string;
-  description: string;
-}[] = [
-  {
-    type: "DURATION_OVERRUN",
-    title: "Often took longer than planned",
-    description: "Deliverable types that frequently ran over their planned duration.",
-  },
-  {
-    type: "DURATION_PREDICTABILITY",
-    title: "Usually predictable",
-    description: "Deliverable types with consistent durations across previous projects.",
-  },
-  {
-    type: "FLOAT_CONSUMPTION",
-    title: "Used up schedule buffer",
-    description: "Stages where deliverables consumed more float than usual.",
-  },
-  {
-    type: "DRIVER_STRENGTH",
-    title: "What affects duration most",
-    description: "Project characteristics linked to longer or shorter deliverable durations.",
-  },
-  {
-    type: "RECURRING_LESSON",
-    title: "Seen again and again",
-    description: "Patterns that showed up across multiple previous projects.",
-  },
-  {
-    type: "FORECAST_RELIABILITY",
-    title: "Forecast reliability",
-    description: "How often original duration estimates matched what actually happened.",
-  },
-  {
-    type: "OUTCOME_PREDICTION",
-    title: "Outcome predictions",
-    description: "What is most likely to happen, based on expected duration and historical overrun behaviour.",
-  },
-];
-
-function confidenceBadge(level: LearnedInsight["confidenceLevel"]): string {
-  if (level === "HIGH") return "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200";
-  if (level === "MEDIUM") return "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200";
-  return "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300";
-}
-
-function maturityBadge(maturity: string): string {
-  if (maturity === "WELL_KNOWN") return "text-emerald-700 dark:text-emerald-300";
-  if (maturity === "MODERATE") return "text-amber-700 dark:text-amber-300";
-  return "text-slate-500 dark:text-slate-400";
-}
-
-function InsightCard({ insight }: { insight: LearnedInsight }) {
+  detail: string;
+  badge?: string;
+  badgeTone?: "good" | "moderate" | "low";
+  onClick?: () => void;
+}) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/50">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{insight.title}</h3>
-        <span
-          className={cn(
-            "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-            confidenceBadge(insight.confidenceLevel)
-          )}
-        >
-          {insight.confidenceLevel} · {Math.round(insight.confidenceScore * 100)}%
-        </span>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!onClick}
+      className={cn(
+        "group flex w-full items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4 text-left transition dark:border-slate-700 dark:bg-slate-900/50",
+        onClick ? "hover:border-violet-300 hover:shadow-sm dark:hover:border-violet-800" : "cursor-default"
+      )}
+    >
+      <div className="min-w-0">
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-white">{title}</h3>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{detail}</p>
       </div>
-      <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{insight.summary}</p>
-      <p className="mt-2 rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-800 dark:bg-slate-800/60 dark:text-slate-100">
-        {insight.observation}
-      </p>
-      <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500 dark:text-slate-400">
-        <span>Based on {insight.sampleSize} examples</span>
-        <span>Updated {new Date(insight.lastCalculatedAt).toLocaleDateString()}</span>
+      <div className="flex shrink-0 items-center gap-2">
+        {badge ? (
+          <span
+            className={cn(
+              "rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+              TONE_CLASSES[badgeTone ?? "moderate"]
+            )}
+          >
+            {badge}
+          </span>
+        ) : null}
+        {onClick ? (
+          <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-violet-500 dark:text-slate-600" />
+        ) : null}
       </div>
-    </div>
+    </button>
   );
 }
 
-function formatVariancePercent(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${Math.round(value)}%`;
-}
-
-function ReliabilityProfileCard({ profile }: { profile: DeliverableReliabilityProfile }) {
-  const overrunSummary =
-    profile.overrunFrequency >= 50
-      ? `${Math.round(profile.overrunFrequency)}% exceeded original estimates`
-      : profile.onTargetFrequency >= 45
-        ? `${Math.round(profile.onTargetFrequency)}% finished within tolerance`
-        : `${Math.round(profile.underrunFrequency)}% finished earlier than planned`;
-
+function PredictabilityColumn({ heading, hint, items }: { heading: string; hint: string; items: PredictabilityRank[] }) {
   return (
-    <div className="rounded-lg border border-violet-200 bg-white p-4 dark:border-violet-900/40 dark:bg-slate-900/50">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <h3 className="font-medium text-slate-900 dark:text-white">{profile.label}</h3>
-        <span className="rounded bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-800 dark:bg-violet-900/40 dark:text-violet-200">
-          {profile.reliabilityLabel}
-        </span>
-      </div>
-      <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{overrunSummary}</p>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-        <div>
-          <div className="text-xs text-slate-500">Average variance</div>
-          <div className="font-semibold">{formatVariancePercent(profile.averageVariancePercent)}</div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-500">Confidence</div>
-          <div className="font-semibold">{profile.confidenceLevel}</div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-500">Sample size</div>
-          <div className="font-semibold">
-            {profile.sampleSize} examples · {profile.projectCount} projects
-          </div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-500">On target</div>
-          <div className="font-semibold">{Math.round(profile.onTargetFrequency)}%</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TrustProfileCard({ profile }: { profile: IntelligenceTrustProfile }) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/50">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <h3 className="font-medium text-slate-900 dark:text-white">{profile.label}</h3>
-        <span className="flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-          <Shield className="h-3 w-3" />
-          {profile.trustLabel}
-        </span>
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-        <div>
-          <div className="text-xs text-slate-500">Evidence strength</div>
-          <div className="font-semibold">{profile.evidenceStrength.strengthLabel}</div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-500">Coverage</div>
-          <div className="font-semibold">{profile.knowledgeCoverage.coverageLabel}</div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-500">Evidence</div>
-          <div className="font-semibold">
-            {profile.evidenceStrength.sampleSize} examples · {profile.evidenceStrength.projectCount} projects
-          </div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-500">Active layers</div>
-          <div className="font-semibold">{profile.evidenceStrength.layersAvailable.length}</div>
-        </div>
-      </div>
-      {profile.whySeeingThis[0] ? (
-        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{profile.whySeeingThis[0]}</p>
-      ) : null}
-    </div>
-  );
-}
-
-function RecommendationTrendCard({ group }: { group: RecommendationTrendGroup }) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/50">
-      <h3 className="font-medium text-slate-900 dark:text-white">{group.typeLabel}</h3>
-      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{group.description}</p>
+    <div>
+      <h3 className="text-base font-semibold text-slate-900 dark:text-white">{heading}</h3>
+      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{hint}</p>
       <ul className="mt-3 space-y-2">
-        {group.profiles.slice(0, 6).map((p) => (
-          <li key={p.id} className="rounded-md bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/50">
-            <div className="font-medium text-slate-900 dark:text-white">{p.label}</div>
-            <div className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">{p.recommendation}</div>
-            <div className="mt-1 text-xs text-slate-500">
-              {p.evidenceCount} examples · confidence {p.confidenceLevel}
+        {items.map((item) => (
+          <li
+            key={item.classification}
+            className="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900/50"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-medium text-slate-900 dark:text-white">{item.label}</span>
+              <span className="text-xs text-slate-500 dark:text-slate-400">{item.typical}</span>
             </div>
+            <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">{item.story}</p>
           </li>
         ))}
       </ul>
@@ -206,132 +122,63 @@ function RecommendationTrendCard({ group }: { group: RecommendationTrendGroup })
   );
 }
 
-function OutcomeProfileCard({ profile }: { profile: DeliverableOutcomeProfile }) {
-  return (
-    <div className="rounded-lg border border-emerald-200 bg-white p-4 dark:border-emerald-900/40 dark:bg-slate-900/50">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <h3 className="font-medium text-slate-900 dark:text-white">{profile.label}</h3>
-        <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
-          {profile.predictionConfidenceLevel}
-        </span>
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-        <div>
-          <div className="text-xs text-slate-500">Predicted range</div>
-          <div className="font-semibold">{profile.rangeLabel ?? "—"}</div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-500">Most likely</div>
-          <div className="font-semibold">
-            {profile.predictedMostLikelyDuration != null
-              ? `${Math.round(profile.predictedMostLikelyDuration)} days`
-              : "—"}
-          </div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-500">Evidence</div>
-          <div className="font-semibold">
-            {profile.sampleSize} examples · {profile.projectCount} projects
-          </div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-500">Historical overrun</div>
-          <div className="font-semibold">{Math.round(profile.historicalOverrunFrequency)}%</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ProfileCard({ profile }: { profile: DeliverableKnowledgeProfile }) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/50">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <h3 className="font-medium text-slate-900 dark:text-white">{profile.label}</h3>
-        <span className={cn("text-xs font-medium", maturityBadge(profile.learningMaturity))}>
-          {profile.maturityLabel}
-        </span>
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-        <div>
-          <div className="text-xs text-slate-500">Typical duration</div>
-          <div className="font-semibold">
-            {profile.medianDuration != null ? `${profile.medianDuration} days` : "—"}
-          </div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-500">Range seen</div>
-          <div className="font-semibold">
-            {profile.minimumDuration != null && profile.maximumDuration != null
-              ? `${profile.minimumDuration}–${profile.maximumDuration} days`
-              : "—"}
-          </div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-500">Evidence</div>
-          <div className="font-semibold">
-            {profile.sampleSize} examples · {profile.projectCount} projects
-          </div>
-        </div>
-        <div>
-          <div className="text-xs text-slate-500">Confidence</div>
-          <div className="font-semibold">{profile.confidenceLevel}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function IntelligencePage() {
-  const [insights, setInsights] = useState<LearnedInsight[]>([]);
-  const [profiles, setProfiles] = useState<DeliverableKnowledgeProfile[]>([]);
-  const [reliabilityProfiles, setReliabilityProfiles] = useState<DeliverableReliabilityProfile[]>([]);
-  const [outcomeProfiles, setOutcomeProfiles] = useState<DeliverableOutcomeProfile[]>([]);
-  const [recommendationTrends, setRecommendationTrends] = useState<RecommendationTrendGroup[]>([]);
-  const [trustProfiles, setTrustProfiles] = useState<IntelligenceTrustProfile[]>([]);
+  const { selectedProjectId } = useProject();
+  const [data, setData] = useState<IntelligenceDashboard>(EMPTY_DASHBOARD);
+  const [similarProjects, setSimilarProjects] = useState<SimilarProjectMatch[]>([]);
+  const [findings, setFindings] = useState<LessonFinding[]>([]);
+  const [patterns, setPatterns] = useState<OrganisationalPattern[]>([]);
+  const [orgEntries, setOrgEntries] = useState<OrganisationKnowledgeEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [regenerating, setRegenerating] = useState(false);
+  const [detailClassification, setDetailClassification] = useState<string | null>(null);
 
   const loadData = useCallback(async (refresh = false) => {
     setLoading(true);
     try {
-      const { data } = await organisationalIntelligenceApi.dashboard(refresh ? { refresh: true } : undefined);
-      setInsights(data.insights ?? []);
-      setProfiles(data.deliverableProfiles ?? []);
-      setReliabilityProfiles(data.reliabilityProfiles ?? []);
-      setOutcomeProfiles(data.outcomeProfiles ?? []);
-      setRecommendationTrends(data.recommendationTrends ?? []);
-      setTrustProfiles(data.trustProfiles ?? []);
+      const dashPromise = organisationalIntelligenceApi.dashboard(refresh ? { refresh: true } : undefined);
+      const orgKnowledgePromise = organisationalIntelligenceApi.organisationKnowledge();
+      const lessonsPromise = organisationalIntelligenceApi.lessonsLearned();
+      const similarPromise = selectedProjectId
+        ? intelligenceApi.similarProjects(selectedProjectId, { limit: 5 })
+        : Promise.resolve({ data: { matches: [] as SimilarProjectMatch[], confidence: 0, explanations: [] } });
+
+      const [dash, orgKnowledge, lessons, similar] = await Promise.all([
+        dashPromise,
+        orgKnowledgePromise,
+        lessonsPromise,
+        similarPromise,
+      ]);
+
+      setData({ ...EMPTY_DASHBOARD, ...dash.data });
+      setOrgEntries(orgKnowledge.data.entries ?? []);
+      setPatterns(orgKnowledge.data.patterns ?? []);
+      setFindings(lessons.data.findings ?? []);
+      setSimilarProjects(similar.data.matches ?? []);
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err) || "Failed to load insights");
-      setInsights([]);
-      setProfiles([]);
-      setReliabilityProfiles([]);
-      setOutcomeProfiles([]);
-      setRecommendationTrends([]);
-      setTrustProfiles([]);
+      setData(EMPTY_DASHBOARD);
+      setOrgEntries([]);
+      setPatterns([]);
+      setFindings([]);
+      setSimilarProjects([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedProjectId]);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
 
-  const kpis = useMemo(
-    () =>
-      computeOrgKpis({
-        insights,
-        deliverableProfiles: profiles,
-        reliabilityProfiles,
-        outcomeProfiles,
-        recommendationProfiles: [],
-        recommendationTrends,
-        trustProfiles,
-      }),
-    [insights, profiles, reliabilityProfiles, outcomeProfiles, recommendationTrends, trustProfiles]
-  );
+  const kpis = useMemo(() => computeOrgKpis(data), [data]);
+
+  const insights = data.insights;
+  const profiles = data.deliverableProfiles;
+  const reliabilityProfiles = data.reliabilityProfiles;
+  const outcomeProfiles = data.outcomeProfiles;
+  const recommendationTrends = data.recommendationTrends;
+  const trustProfiles = data.trustProfiles;
 
   const hasAnyData =
     insights.length > 0 ||
@@ -339,35 +186,39 @@ export default function IntelligencePage() {
     reliabilityProfiles.length > 0 ||
     outcomeProfiles.length > 0 ||
     recommendationTrends.length > 0 ||
-    trustProfiles.length > 0;
+    trustProfiles.length > 0 ||
+    patterns.length > 0 ||
+    findings.length > 0;
 
-  const byType = useMemo(() => {
-    const map = new Map<LearnedInsightType, LearnedInsight[]>();
-    for (const s of SECTIONS) map.set(s.type, []);
-    for (const i of insights) {
-      const list = map.get(i.insightType) ?? [];
-      list.push(i);
-      map.set(i.insightType, list);
-    }
-    return map;
-  }, [insights]);
+  const predictability = useMemo(
+    () => rankPredictability(reliabilityProfiles, outcomeProfiles),
+    [reliabilityProfiles, outcomeProfiles]
+  );
+
+  const reviewThemes = useMemo(() => {
+    return recommendationTrends
+      .map((g) => ({
+        label: reviewThemeLabel(g.recommendationType, g.typeLabel),
+        count: g.profiles.length,
+        examples: g.profiles.slice(0, 3).map((p) => p.label),
+      }))
+      .filter((t) => t.count > 0)
+      .sort((a, b) => b.count - a.count);
+  }, [recommendationTrends]);
+
+  const understanding = useMemo(() => groupByUnderstanding(profiles), [profiles]);
+
+  const openType = (classification: string | null) => {
+    if (classification) setDetailClassification(classification);
+  };
 
   const handleRegenerate = async () => {
     setRegenerating(true);
     try {
-      const { data: regen } = await organisationalIntelligenceApi.regenerate();
-      setInsights(regen.insights ?? []);
+      await organisationalIntelligenceApi.regenerate();
       const { data: dash } = await organisationalIntelligenceApi.dashboard();
-      setProfiles(dash.deliverableProfiles ?? []);
-      setReliabilityProfiles(dash.reliabilityProfiles ?? []);
-      setOutcomeProfiles(dash.outcomeProfiles ?? []);
-      setRecommendationTrends(dash.recommendationTrends ?? []);
-      setTrustProfiles(dash.trustProfiles ?? []);
-      toast.success(
-        regen.count > 0
-          ? "Historical learning has been refreshed using the latest project information."
-          : "Historical learning is up to date — no new patterns were found in recent project data."
-      );
+      setData({ ...EMPTY_DASHBOARD, ...dash });
+      toast.success("Rana has refreshed what it has learned using the latest project information.");
     } catch (err: unknown) {
       toast.error(getApiErrorMessage(err) || "Update failed (admin role may be required)");
     } finally {
@@ -381,145 +232,230 @@ export default function IntelligencePage() {
         <div>
           <h2 className="flex items-center gap-2 text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">
             <Brain className="h-7 w-7 text-violet-600 dark:text-violet-400" />
-            What We&apos;ve Learned
+            {adaptiveProjectsHeading(kpis.projectsAnalysed)}
           </h2>
           <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-            Insights built from previous projects. The more project history you import, the smarter the analysis
-            becomes.
+            Organisational memory from completed projects — separate from how your current programme has changed over time.
           </p>
         </div>
         <Button variant="outline" onClick={() => void handleRegenerate()} disabled={loading || regenerating}>
           {regenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-          {regenerating ? "Updating…" : "Update Insights"}
+          {regenerating ? "Updating…" : "Update"}
         </Button>
       </div>
-
-      <ProjectHealthBar />
 
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-slate-500">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Loading organisational knowledge…
+          Bringing together what Rana has learned…
         </div>
       ) : (
         <>
-          <IntelligenceSection
-            title="Organisation overview"
-            description="A snapshot of what Rana4 has learned from imported project history."
-          >
-            <SummaryKpiGrid kpis={kpis} />
-          </IntelligenceSection>
+          {hasAnyData ? (
+            <IntelligenceSection
+              title="Organisational memory"
+              description="Everything Rana has learned from completed programmes you have imported."
+            >
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/50">
+                  <div className="text-3xl font-semibold text-violet-700 dark:text-violet-300">
+                    {kpis.projectsAnalysed}
+                  </div>
+                  <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">completed projects</div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/50">
+                  <div className="text-3xl font-semibold text-violet-700 dark:text-violet-300">
+                    {kpis.historicalDeliverables}
+                  </div>
+                  <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">work packages learned from</div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/50">
+                  <div className="text-3xl font-semibold text-violet-700 dark:text-violet-300">
+                    {kpis.profilesCount}
+                  </div>
+                  <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">types of work understood</div>
+                </div>
+              </div>
+            </IntelligenceSection>
+          ) : null}
+
+          {selectedProjectId ? (
+            <SimilarProjectsCard
+              matches={similarProjects}
+              loading={loading}
+              comparisonHref="/app/intelligence/comparison"
+            />
+          ) : null}
+
+          <LessonsFromPreviousProjects
+            insights={insights}
+            findings={findings}
+            patterns={patterns}
+            loading={loading}
+            limit={8}
+          />
+
+          <OrganisationalPatternsSection
+            patterns={patterns}
+            entries={orgEntries}
+            reliabilityProfiles={reliabilityProfiles}
+            knowledgeProfiles={profiles}
+            recommendationTrends={recommendationTrends}
+            loading={loading}
+            projectCount={kpis.projectsAnalysed}
+          />
 
           {!hasAnyData ? (
             <IntelligenceEmptyState
               icon={Brain}
-              title="No organisational knowledge has been built yet"
-              description="Import completed project history to allow Rana4 to learn from previous projects. Once enough evidence is available, insights and comparisons will appear here."
+              title="No completed projects imported yet"
+              description="Rana compares completed projects with your current programme. Import your first completed project to begin organisational learning — lessons and patterns will appear here once there is enough to learn from."
               action={
                 <IntelligenceEmptyStateButton onClick={() => void loadData(true)} disabled={loading}>
-                  Refresh knowledge
+                  Refresh
                 </IntelligenceEmptyStateButton>
               }
             />
           ) : null}
 
-          {insights.length > 0 ? (
-            <IntelligenceSection
-              title="Learning highlights"
-              description="Patterns Rana4 has noticed across your previous projects."
-            >
-              <div className="space-y-8">
-                {SECTIONS.map((section) => {
-                  const items = byType.get(section.type) ?? [];
-                  if (items.length === 0) return null;
-                  return (
-                    <div key={section.type}>
-                      <h3 className="text-base font-semibold text-slate-900 dark:text-white">{section.title}</h3>
-                      <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{section.description}</p>
-                      <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                        {items.map((insight) => (
-                          <InsightCard key={insight.id} insight={insight} />
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </IntelligenceSection>
-          ) : hasAnyData ? (
-            <IntelligenceSection title="Learning highlights" description="Patterns across previous projects.">
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                Not enough comparable examples yet for detailed learning highlights. Keep importing completed programmes.
-              </p>
-            </IntelligenceSection>
+          {selectedProjectId ? (
+            <ProjectIntelligenceOverview
+              coverageWord={kpis.knowledgeMaturity}
+              programmesLearnedFrom={kpis.projectsAnalysed}
+            />
           ) : null}
 
-          {reliabilityProfiles.length > 0 ? (
+          {/* Consolidated — What usually happens + what usually needs reviewing */}
+          {(predictability.mostPredictable.length > 0 || reviewThemes.length > 0) && (
             <IntelligenceSection
-              title="Reliability trends"
-              description="How often original duration estimates matched what actually happened."
+              title="What usually happens"
+              description="Which kinds of work tend to run to plan, and which most often need a closer look."
             >
-              <div className="grid gap-4 lg:grid-cols-2">
-                {reliabilityProfiles.map((p) => (
-                  <ReliabilityProfileCard key={p.id} profile={p} />
-                ))}
+              <div className="grid gap-6 lg:grid-cols-2">
+                {predictability.mostPredictable.length > 0 ? (
+                  <PredictabilityColumn
+                    heading="Most predictable work"
+                    hint="These types of work have behaved consistently before."
+                    items={predictability.mostPredictable}
+                  />
+                ) : null}
+                {predictability.leastPredictable.length > 0 ? (
+                  <PredictabilityColumn
+                    heading="Least predictable work"
+                    hint="These vary the most, so plan them with extra care."
+                    items={predictability.leastPredictable}
+                  />
+                ) : null}
               </div>
-            </IntelligenceSection>
-          ) : null}
 
-          {outcomeProfiles.length > 0 ? (
-            <IntelligenceSection
-              title="Likely outcome trends"
-              description="What typically happens for each deliverable type, based on historical overruns and durations."
-            >
-              <div className="grid gap-4 lg:grid-cols-2">
-                {outcomeProfiles.map((p) => (
-                  <OutcomeProfileCard key={p.id} profile={p} />
-                ))}
-              </div>
+              {reviewThemes.length > 0 ? (
+                <div className="mt-6 border-t border-slate-200 pt-5 dark:border-slate-700">
+                  <h3 className="text-base font-semibold text-slate-900 dark:text-white">What usually needs reviewing</h3>
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                    The most common things Rana suggests double-checking, based on previous projects.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {reviewThemes.map((theme) => (
+                      <span
+                        key={theme.label}
+                        className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-200"
+                      >
+                        {theme.label}
+                        <span className="ml-1.5 text-xs text-slate-400">×{theme.count}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </IntelligenceSection>
-          ) : null}
+          )}
 
-          {recommendationTrends.length > 0 ? (
-            <IntelligenceSection
-              title="Recommendation trends"
-              description="Deliverable types that most often need review, based on evidence from past projects."
-            >
-              <div className="grid gap-4 lg:grid-cols-2">
-                {recommendationTrends.map((g) => (
-                  <RecommendationTrendCard key={g.recommendationType} group={g} />
-                ))}
-              </div>
-            </IntelligenceSection>
-          ) : null}
-
+          {/* What Rana understands well / needs more history */}
           {profiles.length > 0 ? (
             <IntelligenceSection
-              title="Knowledge coverage"
-              description="How well Rana4 understands each deliverable type from imported history."
+              title="What Rana understands well"
+              description="How much previous work each type is based on. Tap any type to see the detail."
             >
-              <div className="grid gap-4 lg:grid-cols-2">
-                {profiles.map((p) => (
-                  <ProfileCard key={p.id} profile={p} />
-                ))}
-              </div>
-            </IntelligenceSection>
-          ) : null}
-
-          {trustProfiles.length > 0 ? (
-            <IntelligenceSection
-              title="Evidence quality by deliverable type"
-              description="How much you can rely on Rana4's analysis for each type — based on imported evidence, not AI."
-            >
-              <div className="grid gap-4 lg:grid-cols-2">
-                {trustProfiles.map((p) => (
-                  <TrustProfileCard key={p.id} profile={p} />
-                ))}
+              <div className="space-y-6">
+                {understanding.well.length > 0 ? (
+                  <UnderstandingGroup
+                    heading="Well understood"
+                    hint="Plenty of similar work from several projects."
+                    tone="good"
+                    profiles={understanding.well}
+                    onOpen={openType}
+                  />
+                ) : null}
+                {understanding.reasonable.length > 0 ? (
+                  <UnderstandingGroup
+                    heading="Reasonably understood"
+                    hint="A fair amount of history, growing all the time."
+                    tone="moderate"
+                    profiles={understanding.reasonable}
+                    onOpen={openType}
+                  />
+                ) : null}
+                {understanding.limited.length > 0 ? (
+                  <UnderstandingGroup
+                    heading="Needs more history"
+                    hint="Based on limited history — importing more projects will help."
+                    tone="low"
+                    profiles={understanding.limited}
+                    onOpen={openType}
+                  />
+                ) : null}
               </div>
             </IntelligenceSection>
           ) : null}
         </>
       )}
+
+      <DeliverableTypeDetailDialog
+        classification={detailClassification}
+        data={data}
+        onClose={() => setDetailClassification(null)}
+      />
+    </div>
+  );
+}
+
+function UnderstandingGroup({
+  heading,
+  hint,
+  tone,
+  profiles,
+  onOpen,
+}: {
+  heading: string;
+  hint: string;
+  tone: "good" | "moderate" | "low";
+  profiles: DeliverableKnowledgeProfile[];
+  onOpen: (classification: string) => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-2">
+        <h3 className="text-base font-semibold text-slate-900 dark:text-white">{heading}</h3>
+        <span className={cn("rounded px-2 py-0.5 text-[10px] font-semibold uppercase", TONE_CLASSES[tone])}>
+          {profiles.length}
+        </span>
+      </div>
+      <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{hint}</p>
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        {profiles.map((p) => {
+          const u = understandingFor(p);
+          return (
+            <ClickableTypeCard
+              key={p.id}
+              title={p.label}
+              detail={`Typical duration: ${typicalDurationPhrase(p.medianDuration).toLowerCase()} · based on ${p.sampleSize} work package${p.sampleSize === 1 ? "" : "s"} from ${p.projectCount} project${p.projectCount === 1 ? "" : "s"}.`}
+              badge={u.label}
+              badgeTone={u.tone}
+              onClick={() => onOpen(p.classification)}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }

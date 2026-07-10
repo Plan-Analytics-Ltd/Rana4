@@ -10,24 +10,35 @@ const SheetTrigger = DialogPrimitive.Trigger;
 const SheetClose = DialogPrimitive.Close;
 const SheetPortal = DialogPrimitive.Portal;
 
-const SheetOverlay = React.forwardRef<
-  React.ElementRef<typeof DialogPrimitive.Overlay>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
->(({ className, ...props }, ref) => (
-  <DialogPrimitive.Overlay
-    ref={ref}
-    className={cn("fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm", className)}
-    {...props}
-  />
-));
-SheetOverlay.displayName = DialogPrimitive.Overlay.displayName;
+/**
+ * Plain-div backdrop (not Radix Overlay) so it also renders for non-modal
+ * sheets, e.g. the intelligence drawer that shares a workspace with Ask Rana.
+ * Clicks on it land outside the dialog content, so outside-dismiss still works.
+ */
+const SheetOverlay = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ className, ...props }, ref) => (
+    <div
+      ref={ref}
+      aria-hidden
+      className={cn(
+        "pointer-events-auto fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm",
+        className
+      )}
+      {...props}
+    />
+  )
+);
+SheetOverlay.displayName = "SheetOverlay";
 
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { side?: "right" | "left" }
->(({ className, children, side = "right", ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
+    side?: "right" | "left";
+    overlayProps?: React.HTMLAttributes<HTMLDivElement>;
+  }
+>(({ className, children, side = "right", overlayProps, ...props }, ref) => (
   <SheetPortal>
-    <SheetOverlay />
+    <SheetOverlay {...overlayProps} />
     <DialogPrimitive.Content
       ref={ref}
       className={cn(

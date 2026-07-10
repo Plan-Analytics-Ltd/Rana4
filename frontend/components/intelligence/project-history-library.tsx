@@ -17,17 +17,12 @@ import {
 } from "@/lib/intelligence-terminology";
 import { IntelligenceEmptyState } from "@/components/intelligence/intelligence-empty-state";
 import { IntelligenceKpiCard } from "@/components/intelligence/intelligence-kpi-card";
-import { SummaryKpiGrid } from "@/components/intelligence/dashboard/summary-kpi-grid";
-import {
-  computeOrgKpis,
-  type OrgIntelligenceKpis,
-} from "@/lib/intelligence-terminology";
-import { organisationalIntelligenceApi } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { snapshotStoryFallbackLabel } from "@/lib/planner-language";
 
 type Props = {
   projectId: string;
   projectName?: string;
-  showOrgSummary?: boolean;
 };
 
 function SnapshotCard({ snapshot, projectName }: { snapshot: ProgrammeSnapshotSummary; projectName?: string }) {
@@ -38,7 +33,12 @@ function SnapshotCard({ snapshot, projectName }: { snapshot: ProgrammeSnapshotSu
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h3 className="font-semibold text-slate-900 dark:text-white">
-            {snapshot.label || `Snapshot v${snapshot.snapshotVersion}`}
+            {snapshotStoryFallbackLabel({
+              programmeDisplayName: snapshot.programmeDisplayName,
+              label: snapshot.label,
+              snapshotRole: snapshot.snapshotRole,
+              snapshotVersion: snapshot.snapshotVersion,
+            })}
           </h3>
           {projectName ? (
             <p className="text-sm text-slate-600 dark:text-slate-400">{projectName}</p>
@@ -79,9 +79,8 @@ function SnapshotCard({ snapshot, projectName }: { snapshot: ProgrammeSnapshotSu
   );
 }
 
-export function ProjectHistoryLibrary({ projectId, projectName, showOrgSummary = true }: Props) {
+export function ProjectHistoryLibrary({ projectId, projectName }: Props) {
   const [snapshots, setSnapshots] = useState<ProgrammeSnapshotSummary[]>([]);
-  const [orgKpis, setOrgKpis] = useState<OrgIntelligenceKpis | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -92,18 +91,14 @@ export function ProjectHistoryLibrary({ projectId, projectName, showOrgSummary =
     setLoading(true);
     setError(null);
     try {
-      const [snapRes, dashRes] = await Promise.all([
-        programmeIntelligenceApi.listSnapshots(projectId),
-        showOrgSummary ? organisationalIntelligenceApi.dashboard() : Promise.resolve(null),
-      ]);
+      const snapRes = await programmeIntelligenceApi.listSnapshots(projectId);
       setSnapshots(snapRes.data.snapshots ?? []);
-      if (dashRes) setOrgKpis(computeOrgKpis(dashRes.data));
     } catch (err) {
       setError(getApiErrorMessage(err));
     } finally {
       setLoading(false);
     }
-  }, [projectId, showOrgSummary]);
+  }, [projectId]);
 
   useEffect(() => {
     void load();
@@ -139,7 +134,7 @@ export function ProjectHistoryLibrary({ projectId, projectName, showOrgSummary =
     return (
       <div className="flex items-center gap-2 py-8 text-sm text-slate-500">
         <Loader2 className="h-4 w-4 animate-spin" />
-        Loading learning library…
+        Loading project evolution…
       </div>
     );
   }
@@ -149,21 +144,17 @@ export function ProjectHistoryLibrary({ projectId, projectName, showOrgSummary =
       <div>
         <h2 className="flex items-center gap-2 text-xl font-semibold text-slate-900 dark:text-white">
           <History className="h-5 w-5 text-violet-600 dark:text-violet-400" />
-          Learning library
+          Project evolution
         </h2>
         <p className="mt-1 max-w-2xl text-sm text-slate-500 dark:text-slate-400">
-          Completed and live programmes imported into Rana4. Each snapshot contributes to organisational knowledge.
+          Baseline and revision history for this project. Use this to understand what changed and when.
         </p>
       </div>
 
       {error ? <p className="text-sm text-red-600 dark:text-red-400">{error}</p> : null}
 
-      {orgKpis && showOrgSummary ? (
-        <SummaryKpiGrid kpis={orgKpis} variant="compact" />
-      ) : null}
-
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <IntelligenceKpiCard label="Snapshots in this project" value={projectStats.count} icon={History} tone="violet" />
+        <IntelligenceKpiCard label="Revisions in this project" value={projectStats.count} icon={History} tone="violet" />
         <IntelligenceKpiCard label="Completed programmes" value={projectStats.asBuilt} icon={Calendar} tone="emerald" />
         <IntelligenceKpiCard label="Deliverables captured" value={projectStats.totalDeliverables} tone="cyan" />
         <IntelligenceKpiCard label="Activities captured" value={projectStats.totalActivities} tone="cyan" />
@@ -175,7 +166,7 @@ export function ProjectHistoryLibrary({ projectId, projectName, showOrgSummary =
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search snapshots…"
+            placeholder="Search revisions…"
             className="pl-9"
           />
         </div>
@@ -186,10 +177,10 @@ export function ProjectHistoryLibrary({ projectId, projectName, showOrgSummary =
             onChange={(e) => setRoleFilter(e.target.value)}
             className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm dark:border-slate-600 dark:bg-slate-800"
           >
-            <option value="all">All types</option>
-            <option value="AS_BUILT">Completed project</option>
-            <option value="LIVE_IMPORT">Live programme</option>
+            <option value="all">All revisions</option>
             <option value="BASELINE">Baseline</option>
+            <option value="LIVE_IMPORT">Programme update</option>
+            <option value="AS_BUILT">As-built</option>
           </select>
         </div>
         <Button variant="outline" size="sm" onClick={() => void load()}>
@@ -200,8 +191,8 @@ export function ProjectHistoryLibrary({ projectId, projectName, showOrgSummary =
       {filtered.length === 0 ? (
         <IntelligenceEmptyState
           icon={History}
-          title="No project history yet"
-          description="Import completed project schedules from Import History to build your organisation's learning library. Rana4 uses these snapshots to compare deliverables and improve guidance."
+          title="No project evolution yet"
+          description="Save a baseline and import programme updates over time. This creates the timeline used in Project Evolution."
         />
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">

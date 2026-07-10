@@ -26,15 +26,15 @@ export function humanOutlierStatus(status: BenchmarkOutlierStatus): string {
     case "SLIGHTLY_LOW":
       return "Slightly shorter than usual";
     case "WELL_BELOW":
-      return "Well below historical benchmark";
+      return "Well below what usually happens";
     case "SLIGHTLY_HIGH":
       return "Slightly longer than usual";
     case "HIGH":
       return "Longer than usual";
     case "RED_FLAG":
-      return "Well above historical benchmark";
+      return "Well above what usually happens";
     case "EXTREME_OUTLIER":
-      return "Well above historical benchmark";
+      return "Well above what usually happens";
     default:
       return status;
   }
@@ -43,15 +43,15 @@ export function humanOutlierStatus(status: BenchmarkOutlierStatus): string {
 export function humanDurationPosition(position: string | null | undefined): string {
   switch (position) {
     case "WELL_BELOW":
-      return "Well below historical benchmark";
+      return "Well below what usually happens";
     case "SLIGHTLY_BELOW":
-      return "Slightly below historical benchmark";
+      return "Slightly below what usually happens";
     case "TYPICAL":
       return "Typical for comparable deliverables";
     case "SLIGHTLY_ABOVE":
-      return "Slightly above historical benchmark";
+      return "Slightly above what usually happens";
     case "WELL_ABOVE":
-      return "Well above historical benchmark";
+      return "Well above what usually happens";
     default:
       return position ? humanOutlierStatus(position as BenchmarkOutlierStatus) : "Typical for comparable deliverables";
   }
@@ -77,7 +77,7 @@ export function humanSnapshotRole(role: string | null): string {
   if (role === "AS_BUILT") return "Completed project";
   if (role === "LIVE_IMPORT") return "Live programme";
   if (role === "BASELINE") return "Baseline";
-  return role ?? "Historical snapshot";
+  return role ?? "Earlier programme revision";
 }
 
 export function humanSourceType(source: string): string {
@@ -206,7 +206,7 @@ export function buildDeliverableSummary(args: {
   parts.push(`This deliverable is ${args.outlierLabel.toLowerCase()}${cautious}.`);
   if (args.sampleSize > 0) {
     parts.push(
-      `Rana4 compared it with ${args.sampleSize} similar deliverable${args.sampleSize === 1 ? "" : "s"} from previous projects (${args.confidenceLabel.toLowerCase()} confidence).`
+      `Rana compared this with ${args.sampleSize} similar work package${args.sampleSize === 1 ? "" : "s"} from completed projects (${args.confidenceLabel.toLowerCase()} reliability).`
     );
   } else {
     parts.push("There is not yet enough historical evidence for a detailed comparison.");

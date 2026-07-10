@@ -13,6 +13,7 @@ import { getDeliverableFindings } from "../services/intelligence/findings/findin
 import { getDeliverableDrivers } from "../services/intelligence/drivers/driverAnalysis.service.js";
 import { getDeliverableIntelligenceAnalysis } from "../services/intelligence/orchestration/intelligenceOrchestrator.service.js";
 import { getDeliverableRecommendations } from "../services/intelligence/recommendations/recommendationEngine.service.js";
+import { getDeliverableProjectEvolution } from "../services/intelligence/shared/deliverableProjectEvolution.service.js";
 
 /** GET /projects/:projectId/intelligence/profile */
 export async function getIntelligenceProfile(req: AuthRequest, res: Response): Promise<void> {
@@ -142,6 +143,36 @@ function parseSelectedProjectIds(req: AuthRequest): string[] | undefined {
   return projectIdsRaw && projectIdsRaw !== "null" && projectIdsRaw !== "undefined"
     ? projectIdsRaw.split(",").map((s) => s.trim()).filter(Boolean)
     : undefined;
+}
+
+/** GET /projects/:projectId/intelligence/project-evolution/:deliverableId */
+export async function getDeliverableProjectEvolutionForDeliverable(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const projectId = String(req.params.projectId ?? "").trim();
+    const deliverableId = String(req.params.deliverableId ?? "").trim();
+    const membership = await requireProjectAccess(projectId, req.user, { adminOverride: true });
+    requirePermission(membership.role, "project", "read");
+
+    const report = await getDeliverableProjectEvolution({
+      projectId,
+      companyId: req.user.companyId,
+      deliverableId,
+    });
+
+    res.json(report);
+  } catch (err) {
+    const status = err && typeof err === "object" && "status" in err ? Number((err as any).status) : 500;
+    if (status === 404) {
+      res.status(404).json({ error: (err as Error).message || "Not found" });
+      return;
+    }
+    console.error(err);
+    res.status(500).json({ error: "Failed to load project evolution" });
+  }
 }
 
 /** GET /projects/:projectId/intelligence/analysis/:deliverableId */

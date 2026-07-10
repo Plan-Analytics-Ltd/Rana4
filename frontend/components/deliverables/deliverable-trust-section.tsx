@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Shield } from "lucide-react";
 import type { IntelligenceTrustExplanation } from "@/lib/api";
+import { evidenceBasisPhrase } from "@/lib/intelligence-language";
 import { cn } from "@/lib/utils";
 
 function trustBandStyles(band: string): string {
@@ -24,13 +25,14 @@ export function DeliverableTrustSection({ trust }: { trust: IntelligenceTrustExp
           <Shield className="mt-0.5 h-4 w-4 shrink-0 text-slate-600 dark:text-slate-300" />
           <div>
             <div className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
-              Evidence quality
+              How much history this is based on
             </div>
             <div className="text-base font-semibold text-slate-900 dark:text-white">{trust.trustLabel}</div>
             <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
-              Evidence strength: {trust.evidenceStrength.strengthLabel} ·{" "}
-              {trust.evidenceStrength.sampleSize} examples across {trust.evidenceStrength.projectCount} project
-              {trust.evidenceStrength.projectCount === 1 ? "" : "s"}
+              {evidenceBasisPhrase(
+                trust.evidenceStrength.sampleSize,
+                trust.evidenceStrength.projectCount
+              )}
             </p>
           </div>
         </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { DeliverableBenchmarkPanel } from "@/components/deliverables/deliverable-benchmark-panel";
+import { OpenInPlanningWorkspaceButton } from "@/components/intelligence/open-in-planning-workspace-button";
 import {
   Sheet,
   SheetBody,
@@ -18,6 +19,20 @@ type Props = {
   deliverableName?: string;
 };
 
+/**
+ * The drawer and the floating Ask Rana assistant form one interaction
+ * workspace: interacting with Ask Rana must not dismiss the drawer.
+ */
+function isInsideAskRana(event: {
+  target: EventTarget | null;
+  detail?: { originalEvent?: Event };
+}): boolean {
+  const target = event.detail?.originalEvent?.target ?? event.target;
+  if (!(target instanceof Node)) return false;
+  const el = target instanceof Element ? target : target.parentElement;
+  return !!el?.closest("[data-ask-rana-root]");
+}
+
 export function IntelligenceInsightDrawer({
   open,
   onOpenChange,
@@ -26,12 +41,27 @@ export function IntelligenceInsightDrawer({
   deliverableName,
 }: Props) {
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="max-w-xl">
+    // Non-modal so Ask Rana (a portal sibling) stays fully interactive:
+    // no focus trap, no body pointer-events lock. The backdrop still absorbs
+    // background clicks, and clicks on it dismiss via outside detection.
+    <Sheet open={open} onOpenChange={onOpenChange} modal={false}>
+      <SheetContent
+        className="max-w-xl"
+        data-intelligence-drawer
+        onPointerDownOutside={(event) => {
+          if (isInsideAskRana(event)) event.preventDefault();
+        }}
+        onInteractOutside={(event) => {
+          if (isInsideAskRana(event)) event.preventDefault();
+        }}
+        onFocusOutside={(event) => {
+          if (isInsideAskRana(event)) event.preventDefault();
+        }}
+      >
         <SheetHeader>
           <SheetTitle>{deliverableName ?? "Deliverable insight"}</SheetTitle>
           <SheetDescription>
-            What Rana4 found, why it matters, and what you may wish to review — without leaving your current page.
+            What Rana found, why it matters, and what to do next — without leaving your current page.
           </SheetDescription>
         </SheetHeader>
         <SheetBody>
@@ -41,6 +71,12 @@ export function IntelligenceInsightDrawer({
             enabled={open}
           />
         </SheetBody>
+        <div className="shrink-0 border-t border-slate-200 px-6 py-4 dark:border-slate-700">
+          <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">
+            Reviewed the insight? Open the planning workspace to adjust durations or logic on this deliverable.
+          </p>
+          <OpenInPlanningWorkspaceButton />
+        </div>
       </SheetContent>
     </Sheet>
   );

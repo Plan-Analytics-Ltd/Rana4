@@ -5,6 +5,7 @@ import { buildDeliverableFingerprint, fingerprintCacheKey } from "../matching/de
 import { buildHistoricalDeliverableFingerprint } from "../matching/historicalFingerprint.service.js";
 import { computeWeightedDeliverableSimilarity } from "../matching/weightedDeliverableSimilarity.service.js";
 import { DEFAULT_MIN_COMPARABLE_SIMILARITY } from "../matching/similarityWeights.config.js";
+import { COMPLETED_PROJECT_SNAPSHOT_STATES } from "./intelligenceConstants.js";
 
 export type ConfidenceLevel = "LOW" | "MEDIUM" | "HIGH";
 
@@ -374,7 +375,12 @@ export async function getSimilarProjects(args: { projectId: string; companyId: s
       where: {
         companyId: args.companyId,
         projectId: { not: args.projectId },
-        project: { archivedAt: null },
+        project: {
+          archivedAt: null,
+          programmeSnapshots: {
+            some: { programmeState: { in: COMPLETED_PROJECT_SNAPSHOT_STATES } },
+          },
+        },
       },
       include: { project: { select: { id: true, name: true } } },
     }),
@@ -435,9 +441,7 @@ export async function getSimilarDeliverables(args: {
         companyId: args.companyId,
         ...(args.selectedProjectIds?.length
           ? { projectId: { in: args.selectedProjectIds.filter(Boolean).map((s) => String(s)) } }
-          : args.allowedProgrammeStates?.length
-            ? {}
-            : { projectId: { not: args.projectId } }),
+          : { projectId: { not: args.projectId } }),
         ...(args.allowedProgrammeStates?.length
           ? { programmeState: { in: args.allowedProgrammeStates } }
           : {}),

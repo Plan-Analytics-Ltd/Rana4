@@ -31,7 +31,7 @@ function FindingCard({ finding }: { finding: IntelligenceFinding }) {
             <span aria-hidden>{severityIcon(finding.severity)}</span>
             <span className="font-medium text-sm text-slate-900 dark:text-slate-100">{finding.title}</span>
             <span className="text-xs text-slate-500 dark:text-slate-400">
-              {finding.severity} · confidence {finding.confidence}
+              {finding.severity === "HIGH" ? "Needs attention" : finding.severity === "MEDIUM" ? "Worth a look" : "For information"}
             </span>
           </div>
           <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{finding.summary}</p>
