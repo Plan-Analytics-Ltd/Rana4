@@ -1,4 +1,5 @@
 import { prisma } from "../utils/prisma.js";
+import type { RelationshipType } from "@prisma/client";
 import { compareActivityCodes } from "./activityCodeSequence.service.js";
 
 /**
@@ -48,6 +49,29 @@ export async function bootstrapSharedActivityRelationshipsForFragnet(args: {
     },
   });
 
+  const existingPairs = await prisma.relationship.findMany({
+    where: { companyId, fragnetId },
+    select: {
+      predecessorActivityId: true,
+      successorActivityId: true,
+      relationshipType: true,
+    },
+  });
+  const existingPairKeys = new Set(
+    existingPairs.map(
+      (r) => `${r.predecessorActivityId}\x1d${r.successorActivityId}\x1d${r.relationshipType}`
+    )
+  );
+  const pendingCreates: Array<{
+    companyId: string;
+    projectId: string;
+    fragnetId: string;
+    predecessorActivityId: string;
+    successorActivityId: string;
+    relationshipType: RelationshipType;
+    lag: number;
+  }> = [];
+
   let created = 0;
   for (const p of patterns) {
     // Only learn from non-shared -> non-shared patterns.
@@ -62,28 +86,17 @@ export async function bootstrapSharedActivityRelationshipsForFragnet(args: {
     if (!predShared || !succShared) continue;
     if (predShared.id === succShared.id) continue;
 
-    const existing = await prisma.relationship.findFirst({
-      where: {
-        companyId,
-        fragnetId,
-        predecessorActivityId: predShared.id,
-        successorActivityId: succShared.id,
-        relationshipType: p.relationshipType,
-      },
-      select: { id: true },
-    });
-    if (existing) continue;
-
-    await prisma.relationship.create({
-      data: {
-        companyId,
-        projectId: fragnet.projectId,
-        fragnetId,
-        predecessorActivityId: predShared.id,
-        successorActivityId: succShared.id,
-        relationshipType: p.relationshipType,
-        lag: p.lag,
-      },
+    const pairKey = `${predShared.id}\x1d${succShared.id}\x1d${p.relationshipType}`;
+    if (existingPairKeys.has(pairKey)) continue;
+    existingPairKeys.add(pairKey);
+    pendingCreates.push({
+      companyId,
+      projectId: fragnet.projectId,
+      fragnetId,
+      predecessorActivityId: predShared.id,
+      successorActivityId: succShared.id,
+      relationshipType: p.relationshipType,
+      lag: p.lag,
     });
     created++;
   }
@@ -101,29 +114,29 @@ export async function bootstrapSharedActivityRelationshipsForFragnet(args: {
       const pred = canonicalActs[i];
       const succ = canonicalActs[i + 1];
       if (!pred || !succ || pred.id === succ.id) continue;
-      const existing = await prisma.relationship.findFirst({
-        where: {
-          companyId,
-          fragnetId,
-          predecessorActivityId: pred.id,
-          successorActivityId: succ.id,
-          relationshipType: "FS",
-        },
-        select: { id: true },
-      });
-      if (existing) continue;
-      await prisma.relationship.create({
-        data: {
-          companyId,
-          projectId: fragnet.projectId,
-          fragnetId,
-          predecessorActivityId: pred.id,
-          successorActivityId: succ.id,
-          relationshipType: "FS",
-          lag: 0,
-        },
+      const pairKey = `${pred.id}\x1d${succ.id}\x1dFS`;
+      if (existingPairKeys.has(pairKey)) continue;
+      existingPairKeys.add(pairKey);
+      pendingCreates.push({
+        companyId,
+        projectId: fragnet.projectId,
+        fragnetId,
+        predecessorActivityId: pred.id,
+        successorActivityId: succ.id,
+        relationshipType: "FS",
+        lag: 0,
       });
       created++;
+    }
+  }
+
+  if (pendingCreates.length > 0) {
+    const CHUNK = 25;
+    for (let i = 0; i < pendingCreates.length; i += CHUNK) {
+      await prisma.relationship.createMany({
+        data: pendingCreates.slice(i, i + CHUNK),
+        skipDuplicates: true,
+      });
     }
   }
 

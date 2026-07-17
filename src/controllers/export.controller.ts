@@ -142,6 +142,8 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
+    const rateCardEntries = await getRateCardEntries(companyId);
+
     const deliverablesForExport = await Promise.all(
       fragnet.deliverables.map(async (d) => ({
         id: d.id,
@@ -149,7 +151,7 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
         bestDuration: d.bestDuration,
         likelyDuration: d.likelyDuration,
         createdAt: d.createdAt,
-        assignedResources: await assignmentsFromDb(companyId, d.assignedResources),
+        assignedResources: await assignmentsFromDb(companyId, d.assignedResources, rateCardEntries),
       }))
     );
 
@@ -162,7 +164,8 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
         bestDuration: a.bestDuration,
         likelyDuration: a.likelyDuration,
         createdAt: a.createdAt,
-        assignedResources: await assignmentsFromDb(companyId, a.assignedResources),
+        assignedResources: await assignmentsFromDb(companyId, a.assignedResources, rateCardEntries),
+        p6TaskType: a.p6TaskType,
       }))
     );
 
@@ -198,8 +201,6 @@ export async function exportFragnet(req: AuthRequest, res: Response): Promise<vo
       return;
     }
     console.info("[export] Resource assignment counts prepared", { activityCount: activitiesForExport.length });
-
-    const rateCardEntries = await getRateCardEntries(companyId);
 
     const pid = String(projectId).trim();
     const pname = String(projectName).trim();
@@ -463,7 +464,7 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
             bestDuration: d.bestDuration,
             likelyDuration: d.likelyDuration,
             createdAt: d.createdAt,
-            assignedResources: await assignmentsFromDb(companyId, d.assignedResources),
+            assignedResources: await assignmentsFromDb(companyId, d.assignedResources, rateCardEntries),
           }))
         );
         const activities = await Promise.all(
@@ -475,7 +476,8 @@ export async function exportStandard(req: AuthRequest, res: Response): Promise<v
             bestDuration: a.bestDuration,
             likelyDuration: a.likelyDuration,
             createdAt: a.createdAt,
-            assignedResources: await assignmentsFromDb(companyId, a.assignedResources),
+            assignedResources: await assignmentsFromDb(companyId, a.assignedResources, rateCardEntries),
+            p6TaskType: a.p6TaskType,
           }))
         );
         const relationships = f.relationships.map((r: Relationship) => ({

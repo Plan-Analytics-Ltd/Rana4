@@ -106,7 +106,11 @@ export type ParseAssignmentsResult =
 /**
  * Validates assignments against the uploaded rate card. Ignores client-supplied rate; always from DB.
  */
-export async function parseAndValidateAssignedResources(companyId: string, raw: unknown): Promise<ParseAssignmentsResult> {
+export async function parseAndValidateAssignedResources(
+  companyId: string,
+  raw: unknown,
+  cardEntries?: RateCardEntry[]
+): Promise<ParseAssignmentsResult> {
   if (raw === undefined || raw === null) {
     return { ok: true, assignments: [] };
   }
@@ -122,12 +126,12 @@ export async function parseAndValidateAssignedResources(companyId: string, raw: 
     return { ok: true, assignments: [] };
   }
 
-  const cardEntries = await getRateCardEntries(companyId);
-  if (cardEntries.length === 0 && raw.length > 0) {
+  const resolvedCardEntries = cardEntries ?? (await getRateCardEntries(companyId));
+  if (resolvedCardEntries.length === 0 && raw.length > 0) {
     return { ok: false, error: "No rate card loaded. Upload a rate card first (App → Rate card)." };
   }
 
-  const lookupMap = buildLookup(cardEntries);
+  const lookupMap = buildLookup(resolvedCardEntries);
   const out: AssignedResourceStored[] = [];
 
   for (let i = 0; i < raw.length; i++) {
@@ -173,8 +177,16 @@ export async function parseAndValidateAssignedResources(companyId: string, raw: 
 
 /** Re-validate JSON from DB before export (rate always from current card). */
 /** Re-validate JSON from DB before export (rate always from current company rate card). */
-export async function assignmentsFromDb(companyId: string, raw: unknown): Promise<AssignedResourceStored[]> {
-  const r = await parseAndValidateAssignedResources(companyId, raw === undefined || raw === null ? [] : raw);
+export async function assignmentsFromDb(
+  companyId: string,
+  raw: unknown,
+  cardEntries?: RateCardEntry[]
+): Promise<AssignedResourceStored[]> {
+  const r = await parseAndValidateAssignedResources(
+    companyId,
+    raw === undefined || raw === null ? [] : raw,
+    cardEntries
+  );
   if (!r.ok) {
     console.warn("[rate-card] Invalid stored assignments skipped");
     return [];

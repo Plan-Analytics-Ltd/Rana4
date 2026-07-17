@@ -57,32 +57,43 @@ export function groupHistoricalRevisions(
     fingerprint: DeliverableFingerprint;
   }>
 ): HistoricalProject[] {
-  const byProject = new Map<string, HistoricalProject>();
+  const byProject = new Map<
+    string,
+    {
+      project: HistoricalProject;
+      byDeliverableId: Map<string, HistoricalDeliverable>;
+      byFingerprintKey: Map<string, HistoricalDeliverable>;
+    }
+  >();
 
   for (const row of rows) {
     const fpKey = fingerprintCacheKey(row.fingerprint);
-    let project = byProject.get(row.projectId);
-    if (!project) {
-      project = {
+    let bucket = byProject.get(row.projectId);
+    if (!bucket) {
+      const project: HistoricalProject = {
         projectId: row.projectId,
         projectName: row.projectName,
         deliverables: [],
         revisionCount: 0,
         completedRevisionCount: 0,
       };
-      byProject.set(row.projectId, project);
+      bucket = {
+        project,
+        byDeliverableId: new Map(),
+        byFingerprintKey: new Map(),
+      };
+      byProject.set(row.projectId, bucket);
     }
+    const { project, byDeliverableId, byFingerprintKey } = bucket;
 
     project.revisionCount += 1;
     if (row.programmeState && COMPLETED_STATES.includes(row.programmeState)) {
       project.completedRevisionCount += 1;
     }
 
-    let deliverable = project.deliverables.find(
-      (d) =>
-        (row.deliverableId && d.deliverableId === row.deliverableId) ||
-        d.fingerprintKey === fpKey
-    );
+    let deliverable =
+      (row.deliverableId ? byDeliverableId.get(row.deliverableId) : undefined) ??
+      byFingerprintKey.get(fpKey);
     if (!deliverable) {
       deliverable = {
         projectId: row.projectId,
@@ -92,6 +103,8 @@ export function groupHistoricalRevisions(
         revisions: [],
       };
       project.deliverables.push(deliverable);
+      if (row.deliverableId) byDeliverableId.set(row.deliverableId, deliverable);
+      byFingerprintKey.set(fpKey, deliverable);
     }
 
     deliverable.revisions.push({
@@ -108,13 +121,13 @@ export function groupHistoricalRevisions(
     });
   }
 
-  for (const project of byProject.values()) {
-    for (const d of project.deliverables) {
+  for (const bucket of byProject.values()) {
+    for (const d of bucket.project.deliverables) {
       d.revisions.sort((a, b) => a.importedAt.getTime() - b.importedAt.getTime());
     }
   }
 
-  return [...byProject.values()];
+  return [...byProject.values()].map((bucket) => bucket.project);
 }
 
 /**

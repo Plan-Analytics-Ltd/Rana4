@@ -98,8 +98,18 @@ export async function propagateDeliverableRelationshipsForProject(
 
   const relationships = await prisma.relationship.findMany({
     where: { projectId, companyId },
-    select: { id: true, predecessorActivityId: true, successorActivityId: true },
+    select: {
+      id: true,
+      predecessorActivityId: true,
+      successorActivityId: true,
+      relationshipType: true,
+      lag: true,
+      fragnetId: true,
+    },
   });
+  const existingByPair = new Map(
+    relationships.map((r) => [`${r.predecessorActivityId}\x1d${r.successorActivityId}`, r])
+  );
 
   const wantedPairs = new Map<
     string,
@@ -128,24 +138,31 @@ export async function propagateDeliverableRelationshipsForProject(
   }
 
   let created = 0;
-  let removed = 0;
+  const removed = 0;
+  const creates: Array<{
+    fragnetId: string;
+    predecessorActivityId: string;
+    successorActivityId: string;
+    relationshipType: RelationshipType;
+    lag: number;
+    projectId: string;
+    companyId: string;
+  }> = [];
+  const updates: Array<{
+    id: string;
+    data: { fragnetId: string; relationshipType: RelationshipType; lag: number };
+  }> = [];
+
   for (const w of wantedPairs.values()) {
-    const dup = await prisma.relationship.findFirst({
-      where: {
-        companyId,
-        projectId,
-        predecessorActivityId: w.predActId,
-        successorActivityId: w.succActId,
-      },
-    });
+    const dup = existingByPair.get(`${w.predActId}\x1d${w.succActId}`);
     if (dup) {
       if (
         dup.relationshipType !== w.relationshipType ||
         dup.lag !== w.lag ||
         dup.fragnetId !== w.ownerFragnetId
       ) {
-        await prisma.relationship.update({
-          where: { id: dup.id },
+        updates.push({
+          id: dup.id,
           data: {
             fragnetId: w.ownerFragnetId,
             relationshipType: w.relationshipType,
@@ -155,18 +172,32 @@ export async function propagateDeliverableRelationshipsForProject(
       }
       continue;
     }
-    await prisma.relationship.create({
-      data: {
-        fragnetId: w.ownerFragnetId,
-        predecessorActivityId: w.predActId,
-        successorActivityId: w.succActId,
-        relationshipType: w.relationshipType,
-        lag: w.lag,
-        projectId,
-        companyId,
-      },
+    creates.push({
+      fragnetId: w.ownerFragnetId,
+      predecessorActivityId: w.predActId,
+      successorActivityId: w.succActId,
+      relationshipType: w.relationshipType,
+      lag: w.lag,
+      projectId,
+      companyId,
     });
     created++;
+  }
+
+  const CHUNK = 25;
+  for (let i = 0; i < updates.length; i += CHUNK) {
+    const chunk = updates.slice(i, i + CHUNK);
+    await Promise.all(
+      chunk.map((update) =>
+        prisma.relationship.update({ where: { id: update.id }, data: update.data })
+      )
+    );
+  }
+  for (let i = 0; i < creates.length; i += CHUNK) {
+    await prisma.relationship.createMany({
+      data: creates.slice(i, i + CHUNK),
+      skipDuplicates: true,
+    });
   }
   return { created, removed };
 }

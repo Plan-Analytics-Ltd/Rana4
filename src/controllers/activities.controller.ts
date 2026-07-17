@@ -4,7 +4,7 @@ import { prisma } from "../utils/prisma.js";
 import { parseAndValidateAssignedResources } from "../services/rateCard.js";
 import type { AuthRequest } from "../middleware/auth.middleware.js";
 import { isPrismaForeignKeyViolation } from "../utils/prismaErrors.js";
-import { auditLog } from "../services/audit.service.js";
+import { auditLog, auditLogMany } from "../services/audit.service.js";
 import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
 import { transitionActivityStatus } from "../services/activityStatus.service.js";
@@ -880,32 +880,36 @@ export async function bulkRemove(req: AuthRequest, res: Response): Promise<void>
     const fragnetIds = new Set<string>();
     const deliverableIds = new Set<string>();
 
+    const dependencyRows = await prisma.relationship.findMany({
+      where: {
+        companyId: req.user.companyId,
+        OR: [
+          { predecessorActivityId: { in: activityIds } },
+          { successorActivityId: { in: activityIds } },
+        ],
+      },
+      select: { predecessorActivityId: true, successorActivityId: true },
+    });
+    const dependencyCountByActivity = new Map<string, number>();
+    const activityIdSet = new Set(activityIds);
+    for (const row of dependencyRows) {
+      for (const linkedId of [row.predecessorActivityId, row.successorActivityId]) {
+        if (!activityIdSet.has(linkedId)) continue;
+        dependencyCountByActivity.set(linkedId, (dependencyCountByActivity.get(linkedId) ?? 0) + 1);
+      }
+    }
+
+    const idsToDelete: string[] = [];
     for (const id of activityIds) {
       const existing = byId.get(id);
       if (!existing) continue;
 
       try {
-        const dependencyCount = await prisma.relationship.count({
-          where: {
-            companyId: req.user.companyId,
-            OR: [{ predecessorActivityId: id }, { successorActivityId: id }],
-          },
-        });
         requirePermission(role, "activity", "delete", {
           status: existing.status,
-          hasDependencies: dependencyCount > 0,
+          hasDependencies: (dependencyCountByActivity.get(id) ?? 0) > 0,
         });
-        await prisma.activity.delete({ where: { id } });
-        deleted.push(id);
-        noteActivityDeleteLinkageTarget(existing, fragnetIds, deliverableIds);
-        await auditLog({
-          userId: req.user.id,
-          companyId: req.user.companyId,
-          projectId,
-          action: "DELETE_ACTIVITY",
-          entity: "Activity",
-          entityId: id,
-        });
+        idsToDelete.push(id);
       } catch (err) {
         const status =
           err && typeof err === "object" && "status" in err ? Number((err as { status?: number }).status) : undefined;
@@ -916,6 +920,30 @@ export async function bulkRemove(req: AuthRequest, res: Response): Promise<void>
               ? "Invalid cross-company reference"
               : "Failed to delete activity";
         failed.push({ id, error: message });
+      }
+    }
+
+    if (idsToDelete.length > 0) {
+      const deleteResult = await prisma.activity.deleteMany({
+        where: { id: { in: idsToDelete }, companyId: req.user.companyId },
+      });
+      if (deleteResult.count > 0) {
+        for (const id of idsToDelete) {
+          const existing = byId.get(id);
+          if (!existing) continue;
+          deleted.push(id);
+          noteActivityDeleteLinkageTarget(existing, fragnetIds, deliverableIds);
+        }
+        await auditLogMany(
+          deleted.map((id) => ({
+            userId: req.user!.id,
+            companyId: req.user!.companyId,
+            projectId,
+            action: "DELETE_ACTIVITY",
+            entity: "Activity",
+            entityId: id,
+          }))
+        );
       }
     }
 

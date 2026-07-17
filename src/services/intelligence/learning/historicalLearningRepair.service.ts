@@ -11,6 +11,31 @@ import {
 import { resolveWorkPackageDuration } from "../shared/historicalDuration.service.js";
 import { diffDaysFromDates } from "../shared/intelligenceMath.js";
 
+const REPAIR_PAGE_SIZE = 500;
+const REPAIR_CHUNK_SIZE = 25;
+
+type PendingUpdate = {
+  id: string;
+  data: Record<string, unknown>;
+};
+
+async function flushPendingUpdates(
+  updates: PendingUpdate[],
+  model: { update: (args: { where: { id: string }; data: Record<string, unknown> }) => Promise<unknown> }
+): Promise<void> {
+  for (let i = 0; i < updates.length; i += REPAIR_CHUNK_SIZE) {
+    const chunk = updates.slice(i, i + REPAIR_CHUNK_SIZE);
+    await Promise.all(
+      chunk.map((update) =>
+        model.update({
+          where: { id: update.id },
+          data: update.data,
+        })
+      )
+    );
+  }
+}
+
 export type HistoricalLearningRepairResult = {
   snapshotsProgrammeStateUpdated: number;
   snapshotsMetadataUpdated: number;
@@ -65,22 +90,20 @@ export async function repairCompanyHistoricalLearningEvidence(
     string,
     Map<string, { fragnetId: string | null; fragnetName: string | null }>
   >();
+  const snapshotUpdates: PendingUpdate[] = [];
 
   for (const snap of snapshots) {
     const resolved = resolveProgrammeState({
       snapshotRole: snap.snapshotRole,
       sourceType: snap.sourceType,
     });
+    const metadataPatch: Record<string, unknown> = {};
     if (resolved && snap.programmeState !== resolved) {
-      await prisma.programmeSnapshot.update({
-        where: { id: snap.id },
-        data: { programmeState: resolved },
-      });
+      metadataPatch.programmeState = resolved;
       snapshotsProgrammeStateUpdated += 1;
     }
 
     const profileMetadata = buildProgrammeSnapshotMetadataFromProfile(snap.project.intelligenceProfile);
-    const metadataPatch: Record<string, unknown> = {};
     if (!snap.sector && profileMetadata.sector) metadataPatch.sector = profileMetadata.sector;
     if (!snap.projectType && profileMetadata.projectType) metadataPatch.projectType = profileMetadata.projectType;
     if (!snap.procurementRoute && profileMetadata.procurementRoute) {
@@ -112,12 +135,14 @@ export async function repairCompanyHistoricalLearningEvidence(
       metadataPatch.classificationTagsList = profileMetadata.classificationTagsList;
     }
 
-    if (Object.keys(metadataPatch).length > 0) {
-      await prisma.programmeSnapshot.update({
-        where: { id: snap.id },
-        data: metadataPatch,
-      });
+    const hasMetadataBeyondProgrammeState = Object.keys(metadataPatch).some(
+      (key) => key !== "programmeState"
+    );
+    if (hasMetadataBeyondProgrammeState) {
       snapshotsMetadataUpdated += 1;
+    }
+    if (Object.keys(metadataPatch).length > 0) {
+      snapshotUpdates.push({ id: snap.id, data: metadataPatch });
       if (metadataPatch.stage) snap.stage = String(metadataPatch.stage);
       if (metadataPatch.disciplineTags) snap.disciplineTags = metadataPatch.disciplineTags as string[];
     }
@@ -151,44 +176,12 @@ export async function repairCompanyHistoricalLearningEvidence(
     }
   }
 
-  const deliverableSnapshots = await prisma.deliverableSnapshot.findMany({
-    where: { snapshot: { companyId } },
-    select: {
-      id: true,
-      deliverableId: true,
-      snapshotId: true,
-      name: true,
-      classificationTags: true,
-      plannedStart: true,
-      plannedFinish: true,
-      actualStart: true,
-      actualFinish: true,
-      totalFloat: true,
-      fragnetId: true,
-      parentWbs: true,
-      wbsPath: true,
-      stage: true,
-      discipline: true,
-      workPackageDurationDays: true,
-      durationBasis: true,
-      snapshot: {
-        select: {
-          projectId: true,
-          programmeState: true,
-          stage: true,
-          disciplineTags: true,
-          project: { include: { intelligenceProfile: true } },
-        },
-      },
-    },
-  });
+  await flushPendingUpdates(snapshotUpdates, prisma.programmeSnapshot);
 
-  deliverableSnapshotsScanned = deliverableSnapshots.length;
-
-  const snapshotIds = [...new Set(deliverableSnapshots.map((d) => d.snapshotId))];
-  const activityRows = snapshotIds.length
+  const snapshotIdsForActivities = snapshots.map((s) => s.id);
+  const activityRows = snapshotIdsForActivities.length
     ? await prisma.activitySnapshot.findMany({
-        where: { snapshotId: { in: snapshotIds } },
+        where: { snapshotId: { in: snapshotIdsForActivities } },
         select: {
           snapshotId: true,
           deliverableId: true,
@@ -255,108 +248,154 @@ export async function repairCompanyHistoricalLearningEvidence(
     workDurationsBySnapshotDeliverable.set(workKey, workBucket);
   }
 
-  for (const del of deliverableSnapshots) {
-    const profile = del.snapshot.project.intelligenceProfile;
-    const programmeMetadata = buildProgrammeSnapshotMetadataFromProfile(profile);
-    const programmeStage = del.snapshot.stage ?? programmeMetadata.stage;
-    const liveDeliverable = del.deliverableId
-      ? projectLiveDeliverables.get(del.snapshot.projectId)?.get(del.deliverableId)
-      : undefined;
-    const fragnetNamesById = projectFragnetNames.get(del.snapshot.projectId) ?? new Map<string, string>();
+  const deliverableSnapshotSelect = {
+    id: true,
+    deliverableId: true,
+    snapshotId: true,
+    name: true,
+    classificationTags: true,
+    plannedStart: true,
+    plannedFinish: true,
+    actualStart: true,
+    actualFinish: true,
+    totalFloat: true,
+    fragnetId: true,
+    parentWbs: true,
+    wbsPath: true,
+    stage: true,
+    discipline: true,
+    workPackageDurationDays: true,
+    durationBasis: true,
+    snapshot: {
+      select: {
+        projectId: true,
+        programmeState: true,
+        stage: true,
+        disciplineTags: true,
+        project: { include: { intelligenceProfile: true } },
+      },
+    },
+  } as const;
 
-    if (del.deliverableId) {
-      const context = buildDeliverableSnapshotContext({
-        deliverableId: del.deliverableId,
-        deliverableStage: del.stage,
-        snapshotDiscipline: del.discipline,
-        classificationTags: del.classificationTags as Record<string, unknown>,
-        activities: fragnetActivitiesBySnapshot.get(del.snapshotId) ?? [],
-        liveDeliverableFragnetId: liveDeliverable?.fragnetId ?? null,
-        liveDeliverableFragnetName: liveDeliverable?.fragnetName ?? null,
-        fragnetNamesById,
-        programmeSnapshotStage: programmeStage,
-        programmeDisciplineTags: del.snapshot.disciplineTags,
-        projectProfileStage: profile?.stage ?? null,
-        projectProfilePrimaryRibaStage: profile?.primaryRibaStage ?? null,
-        programmeState: del.snapshot.programmeState,
-      });
+  let deliverableCursor: string | undefined;
+  const deliverableUpdates: PendingUpdate[] = [];
 
-      const contextChanged =
-        context.fragnetId !== del.fragnetId ||
-        context.parentWbs !== del.parentWbs ||
-        context.wbsPath !== del.wbsPath ||
-        context.stage !== del.stage ||
-        context.discipline !== del.discipline;
+  while (true) {
+    const deliverablePage = await prisma.deliverableSnapshot.findMany({
+      where: { snapshot: { companyId } },
+      select: deliverableSnapshotSelect,
+      orderBy: { id: "asc" },
+      take: REPAIR_PAGE_SIZE,
+      ...(deliverableCursor
+        ? { skip: 1, cursor: { id: deliverableCursor } }
+        : {}),
+    });
+    if (deliverablePage.length === 0) break;
+    deliverableCursor = deliverablePage[deliverablePage.length - 1]!.id;
+    deliverableSnapshotsScanned += deliverablePage.length;
 
-      if (contextChanged) {
-        await prisma.deliverableSnapshot.update({
-          where: { id: del.id },
-          data: {
-            fragnetId: context.fragnetId,
-            parentWbs: context.parentWbs,
-            wbsPath: context.wbsPath,
-            stage: context.stage,
-            discipline: context.discipline,
-          },
+    for (const del of deliverablePage) {
+      const profile = del.snapshot.project.intelligenceProfile;
+      const programmeMetadata = buildProgrammeSnapshotMetadataFromProfile(profile);
+      const programmeStage = del.snapshot.stage ?? programmeMetadata.stage;
+      const liveDeliverable = del.deliverableId
+        ? projectLiveDeliverables.get(del.snapshot.projectId)?.get(del.deliverableId)
+        : undefined;
+      const fragnetNamesById = projectFragnetNames.get(del.snapshot.projectId) ?? new Map<string, string>();
+      const patch: Record<string, unknown> = {};
+
+      if (del.deliverableId) {
+        const context = buildDeliverableSnapshotContext({
+          deliverableId: del.deliverableId,
+          deliverableStage: del.stage,
+          snapshotDiscipline: del.discipline,
+          classificationTags: del.classificationTags as Record<string, unknown>,
+          activities: fragnetActivitiesBySnapshot.get(del.snapshotId) ?? [],
+          liveDeliverableFragnetId: liveDeliverable?.fragnetId ?? null,
+          liveDeliverableFragnetName: liveDeliverable?.fragnetName ?? null,
+          fragnetNamesById,
+          programmeSnapshotStage: programmeStage,
+          programmeDisciplineTags: del.snapshot.disciplineTags,
+          projectProfileStage: profile?.stage ?? null,
+          projectProfilePrimaryRibaStage: profile?.primaryRibaStage ?? null,
+          programmeState: del.snapshot.programmeState,
         });
-        deliverableSnapshotsContextUpdated += 1;
+
+        const contextChanged =
+          context.fragnetId !== del.fragnetId ||
+          context.parentWbs !== del.parentWbs ||
+          context.wbsPath !== del.wbsPath ||
+          context.stage !== del.stage ||
+          context.discipline !== del.discipline;
+
+        if (contextChanged) {
+          patch.fragnetId = context.fragnetId;
+          patch.parentWbs = context.parentWbs;
+          patch.wbsPath = context.wbsPath;
+          patch.stage = context.stage;
+          patch.discipline = context.discipline;
+          deliverableSnapshotsContextUpdated += 1;
+        }
+      }
+
+      if (!del.deliverableId) {
+        if (Object.keys(patch).length > 0) {
+          deliverableUpdates.push({ id: del.id, data: patch });
+        }
+        continue;
+      }
+
+      const activities = activitiesBySnapshot.get(del.snapshotId) ?? [];
+      const rolled = rollupDeliverableDatesFromActivities(del.deliverableId, activities);
+      const plannedStart = del.plannedStart ?? rolled.plannedStart;
+      const plannedFinish = del.plannedFinish ?? rolled.plannedFinish;
+      const actualStart = del.actualStart ?? rolled.actualStart;
+      const actualFinish = del.actualFinish ?? rolled.actualFinish;
+      const totalFloat = del.totalFloat ?? (rolled.totalFloatDays != null ? Math.round(rolled.totalFloatDays) : null);
+
+      const calendarSpanDays = diffDaysFromDates(
+        actualStart ?? plannedStart ?? null,
+        actualFinish ?? plannedFinish ?? null
+      );
+      const workPackage = resolveWorkPackageDuration(
+        workDurationsBySnapshotDeliverable.get(`${del.snapshotId}\x1d${del.deliverableId}`) ?? [],
+        calendarSpanDays
+      );
+      if (
+        workPackage.durationDays !== del.workPackageDurationDays ||
+        workPackage.basis !== del.durationBasis
+      ) {
+        patch.workPackageDurationDays = workPackage.durationDays;
+        patch.durationBasis = workPackage.basis;
+        deliverableSnapshotsDurationUpdated += 1;
+      }
+
+      const datesChanged =
+        plannedStart !== del.plannedStart ||
+        plannedFinish !== del.plannedFinish ||
+        actualStart !== del.actualStart ||
+        actualFinish !== del.actualFinish ||
+        totalFloat !== del.totalFloat;
+
+      if (
+        datesChanged &&
+        (plannedStart || plannedFinish || actualStart || actualFinish)
+      ) {
+        patch.plannedStart = plannedStart;
+        patch.plannedFinish = plannedFinish;
+        patch.actualStart = actualStart;
+        patch.actualFinish = actualFinish;
+        patch.totalFloat = totalFloat;
+        deliverableSnapshotsDatesUpdated += 1;
+      }
+
+      if (Object.keys(patch).length > 0) {
+        deliverableUpdates.push({ id: del.id, data: patch });
       }
     }
-
-    if (!del.deliverableId) continue;
-
-    const activities = activitiesBySnapshot.get(del.snapshotId) ?? [];
-    const rolled = rollupDeliverableDatesFromActivities(del.deliverableId, activities);
-    const plannedStart = del.plannedStart ?? rolled.plannedStart;
-    const plannedFinish = del.plannedFinish ?? rolled.plannedFinish;
-    const actualStart = del.actualStart ?? rolled.actualStart;
-    const actualFinish = del.actualFinish ?? rolled.actualFinish;
-    const totalFloat = del.totalFloat ?? (rolled.totalFloatDays != null ? Math.round(rolled.totalFloatDays) : null);
-
-    const calendarSpanDays = diffDaysFromDates(
-      actualStart ?? plannedStart ?? null,
-      actualFinish ?? plannedFinish ?? null
-    );
-    const workPackage = resolveWorkPackageDuration(
-      workDurationsBySnapshotDeliverable.get(`${del.snapshotId}\x1d${del.deliverableId}`) ?? [],
-      calendarSpanDays
-    );
-    if (
-      workPackage.durationDays !== del.workPackageDurationDays ||
-      workPackage.basis !== del.durationBasis
-    ) {
-      await prisma.deliverableSnapshot.update({
-        where: { id: del.id },
-        data: {
-          workPackageDurationDays: workPackage.durationDays,
-          durationBasis: workPackage.basis,
-        },
-      });
-      deliverableSnapshotsDurationUpdated += 1;
-    }
-
-    const datesChanged =
-      plannedStart !== del.plannedStart ||
-      plannedFinish !== del.plannedFinish ||
-      actualStart !== del.actualStart ||
-      actualFinish !== del.actualFinish ||
-      totalFloat !== del.totalFloat;
-
-    if (!datesChanged) continue;
-    if (!plannedStart && !plannedFinish && !actualStart && !actualFinish) continue;
-
-    await prisma.deliverableSnapshot.update({
-      where: { id: del.id },
-      data: {
-        plannedStart,
-        plannedFinish,
-        actualStart,
-        actualFinish,
-        totalFloat,
-      },
-    });
-    deliverableSnapshotsDatesUpdated += 1;
   }
+
+  await flushPendingUpdates(deliverableUpdates, prisma.deliverableSnapshot);
 
   return {
     snapshotsProgrammeStateUpdated,
