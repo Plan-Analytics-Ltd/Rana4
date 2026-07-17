@@ -233,8 +233,424 @@ export type DevAdminRequestRow = {
 export type DevCompanyRow = { id: string; name: string; userCount: number };
 export type DevUserRow = { id: string; email: string; role: string; companyName: string };
 
+export type EngineeringBrainVersions = {
+  brain: string;
+  reasoningPrompt: string;
+  vocabulary: string;
+  validation: string;
+};
+
+export type EngineeringBrainMetrics = {
+  projectsAnalysed: number;
+  importsAnalysed: number;
+  engineeringIdentitiesCreated: number;
+  equivalentComparisons: number;
+  rejectedComparisons: number;
+  unknownEngineeringObjects: number;
+  unknownEngineeringWork: number;
+  contradictoryIdentities: number;
+  validationFailures: number;
+  potentialNewEngineeringObjects: number;
+  potentialNewEngineeringWork: number;
+  reasoningConsistency: number;
+};
+
+export type EngineeringConsistencyProbe = {
+  concept: string;
+  verdict: "CONSISTENT" | "INCONSISTENT";
+  reason: string;
+  resolvedSignatures: string[];
+  variants: Array<{ name: string; signature: string; status: string }>;
+};
+
+export type EngineeringUnknownConcept = {
+  concept: string;
+  kind: "ENGINEERING_OBJECT" | "ENGINEERING_WORK";
+  occurrences: number;
+  projects: number;
+  confidence: number;
+  contradictions: number;
+  supportingEvidence: string[];
+};
+
+export type EngineeringCandidateLearning = {
+  candidate: string;
+  kind: string;
+  observed: number;
+  projects: number;
+  consistency: number;
+  contradictions: number;
+};
+
+export type EngineeringReasoningDrift = {
+  concept: string;
+  kind: string;
+  variants: Array<{ resolvedTo: string; exampleName: string; projectName: string; importedAt: string }>;
+};
+
+export type EngineeringLearningOpportunity = {
+  rank: number;
+  concept: string;
+  seen: number;
+  projects: number;
+  consistency: number;
+};
+
+export type EngineeringMaturity = {
+  dimensions: {
+    consistency: number;
+    explainability: number;
+    validationSuccess: number;
+    coverage: number;
+    contradictionControl: number;
+    repeatability: number;
+    reasoningStability: number;
+  };
+  trust: {
+    autoTrustedRate: number;
+    reviewRate: number;
+    developerModificationRate: number;
+    developerRejectionRate: number;
+    trustedAgreement: number;
+  };
+  overall: number;
+  readiness: "NOT_READY" | "MATURING" | "READY_TO_LEARN";
+  rationale: string[];
+};
+
+export type EngineeringIdentityFields = {
+  discipline: string | null;
+  engineeringObject: string | null;
+  engineeringWork: string | null;
+  deliverableType: string | null;
+  lifecycleStage: string | null;
+};
+
+export type EngineeringEvidenceItem = { source: string; value: string; matched: string };
+
+export type EngineeringComponentView = {
+  id: string | null;
+  label: string | null;
+  confidence: number;
+  evidence: EngineeringEvidenceItem[];
+};
+
+export type EngineeringIdentityView = {
+  status: "RESOLVED" | "INSUFFICIENT";
+  overallConfidence: number;
+  discipline: EngineeringComponentView;
+  engineeringObject: EngineeringComponentView;
+  engineeringWork: EngineeringComponentView;
+  deliverableType: EngineeringComponentView;
+  lifecycleStage: EngineeringComponentView;
+  projectContext: EngineeringComponentView;
+  fragnetContext: EngineeringComponentView;
+};
+
+export type DeliverableContextView = {
+  projectName: string;
+  fragnetName: string | null;
+  parentWbs: string | null;
+  wbsPath: string | null;
+  deliverableName: string;
+  neighbouringDeliverables: string[];
+  relatedActivities: string[];
+  disciplineMetadata: string | null;
+  classificationTags: string[];
+  lifecycleStage: string | null;
+};
+
+export type InboxReasonDetail = {
+  reason: string;
+  detail: string;
+  closestKnownObjects?: string[];
+  modelConfidence?: number;
+  validationRule?: string;
+};
+
+export type HistoricalMatch = {
+  projectName: string;
+  fragnetName: string | null;
+  deliverableName: string;
+  durationDays: number | null;
+  matchedIdentity: { discipline: string | null; engineeringObject: string | null; engineeringWork: string | null };
+  matchedComponents: string[];
+  reason: string;
+};
+
+export type WhyExplanation = {
+  component: string;
+  conclusion: string | null;
+  because: string[];
+  rejectedAlternatives: string[];
+};
+
+export type DeveloperImpact = {
+  deliverables: number;
+  projects: number;
+  futureComparisons: number;
+  historicalDurationMatches: number;
+};
+
+export type GroupedExample = { projectName: string; deliverableName: string };
+
+export type BrainInboxItem = {
+  fingerprint: string;
+  concept: string;
+  state: "NEEDS_REVIEW" | "CONTRADICTORY";
+  reasons: string[];
+  reasonDetails: InboxReasonDetail[];
+  exampleDeliverableName: string;
+  projectName: string;
+  identity: EngineeringIdentityFields;
+  identityView: EngineeringIdentityView;
+  context: DeliverableContextView;
+  historicalMatches: HistoricalMatch[];
+  why: WhyExplanation[];
+  impact: DeveloperImpact;
+  examples: GroupedExample[];
+  evidence: string[];
+  occurrences: number;
+  projects: number;
+  confidence: number;
+};
+
+export type TrustedKnowledgeVersionEntry = {
+  at: string;
+  action: string;
+  status: string;
+  reviewedBy: string | null;
+  notes: string | null;
+};
+
+export type TrustedKnowledgeEntry = {
+  fingerprint: string;
+  concept: string;
+  status: "AUTO_APPROVED" | "DEVELOPER_APPROVED" | "DEVELOPER_MODIFIED" | "REJECTED";
+  identity: EngineeringIdentityFields;
+  identityView: EngineeringIdentityView | null;
+  context: DeliverableContextView | null;
+  aliases: string[];
+  evidence: string[];
+  examples: GroupedExample[];
+  historicalMatches: HistoricalMatch[];
+  firstObserved: string;
+  lastObserved: string;
+  projectCount: number;
+  successfulComparisons: number;
+  versionHistory: TrustedKnowledgeVersionEntry[];
+  versionHistoryCount: number;
+  lastModificationReason: string | null;
+};
+
+export type EngineeringIdentityDiagnostic = {
+  deliverableKey: string;
+  deliverableName: string;
+  projectId: string;
+  projectName: string;
+  importVersion: number;
+  importedAt: string;
+  identity: {
+    discipline: string | null;
+    engineeringObject: string | null;
+    engineeringWork: string | null;
+    deliverableType: string | null;
+    lifecycleStage: string | null;
+    status: string;
+  };
+  evidenceUsed: string[];
+  reasoningResult: string;
+  validationResult: { valid: boolean; contradictions: Array<{ rule: string; detail: string }> };
+  confidence: number;
+  reasoningDurationMs: number;
+  versions: EngineeringBrainVersions;
+  timestamp: string;
+};
+
+export type EngineeringReasoningEvent = {
+  deliverableName: string;
+  source: string;
+  status: string;
+  confidence: string;
+  disciplineId: string | null;
+  engineeringObjectId: string | null;
+  engineeringWorkId: string | null;
+  validationValid: boolean;
+  overrides: string[];
+  durationMs: number;
+  at: number;
+};
+
+export type EngineeringBrainSummary = {
+  brainInbox: number;
+  trustedKnowledge: number;
+  autoApproved: number;
+  developerApproved: number;
+  developerModified: number;
+  rejected: number;
+  totalVisible: number;
+  totalIncludingRejected: number;
+};
+
+export type EngineeringBrainCollections = {
+  needsReview: BrainInboxItem[];
+  autoApproved: TrustedKnowledgeEntry[];
+  developerApproved: TrustedKnowledgeEntry[];
+  developerModified: TrustedKnowledgeEntry[];
+  rejected: TrustedKnowledgeEntry[];
+};
+
+export type EngineeringBrainDiagnosticsReport = {
+  generatedAt: string;
+  versions: EngineeringBrainVersions;
+  metrics: EngineeringBrainMetrics;
+  consistency: {
+    reasoningConsistency: number;
+    probes: EngineeringConsistencyProbe[];
+    observedConceptsAnalysed: number;
+    consistentConcepts: number;
+    inconsistentConcepts: number;
+  };
+  unknownObjects: EngineeringUnknownConcept[];
+  unknownWork: EngineeringUnknownConcept[];
+  candidateLearning: EngineeringCandidateLearning[];
+  reasoningDrift: EngineeringReasoningDrift[];
+  maturity: EngineeringMaturity;
+  topOpportunities: EngineeringLearningOpportunity[];
+  collections: EngineeringBrainCollections;
+  summary: EngineeringBrainSummary;
+  brainInbox: BrainInboxItem[];
+  trustedKnowledge: TrustedKnowledgeEntry[];
+  storeAvailable: boolean;
+  recentReasoningEvents: EngineeringReasoningEvent[];
+  sampleIdentities: EngineeringIdentityDiagnostic[];
+};
+
+export type EngineeringReviewPayload = {
+  fingerprint: string;
+  action: "approve" | "modify" | "reject";
+  concept?: string;
+  identity?: Partial<EngineeringIdentityFields>;
+  aliases?: string[];
+  evidence?: string[];
+  notes?: string;
+  observed?: { projectCount?: number; successfulComparisons?: number };
+};
+
+export type IdentityDebugExportFilters = {
+  projectId?: string;
+  fragnetId?: string;
+  deliverableId?: string;
+};
+
+/** Versioned identity-engine debug dump — developer tooling only. */
+export type IdentityDebugExport = {
+  schemaVersion: string;
+  generatedAt: string;
+  gitCommit: string | null;
+  buildVersion: string | null;
+  identityEngineVersion: {
+    brain: string;
+    reasoningPrompt: string;
+    vocabulary: string;
+    validation: string;
+  };
+  configuration: Record<string, unknown>;
+  filters: IdentityDebugExportFilters;
+  storeAvailable: boolean;
+  llmReasoningEnabled: boolean;
+  replay: {
+    supported: boolean;
+    deterministic: boolean;
+    missingInputs: string[];
+    note: string;
+  };
+  validation: {
+    valid: boolean;
+    errors: string[];
+    warnings: string[];
+    deliverableValidationFailures: number;
+    brainUiParityErrors?: string[];
+  };
+  summary: {
+    deliverableCount: number;
+    projectCount: number;
+    trustedCount: number;
+    needsReviewCount: number;
+    contradictoryCount: number;
+  };
+  exportSummary: {
+    deliverableObservations: number;
+    uniqueEngineeringIdentities: number;
+    groupedObservations: number;
+    brainInbox: number;
+    trustedKnowledge: number;
+    autoApproved: number;
+    developerApproved: number;
+    developerModified: number;
+    rejected: number;
+  };
+  grouping: {
+    groups: Array<{
+      fingerprint: string;
+      identity: {
+        discipline: string | null;
+        engineeringObject: string | null;
+        engineeringWork: string | null;
+        deliverableType: string | null;
+        lifecycle: string | null;
+      };
+      approvalStatus: string;
+      observationCount: number;
+      representative: Record<string, unknown>;
+      members: Record<string, unknown>[];
+    }>;
+  };
+  brain: {
+    needsReview: unknown[];
+    developerModified: unknown[];
+    autoApproved: unknown[];
+    trustedKnowledge: unknown[];
+    rejected: unknown[];
+    summary: {
+      total: number;
+      needsReview: number;
+      developerModified: number;
+      autoApproved: number;
+      trustedKnowledge: number;
+      rejected: number;
+      totalIncludingRejected: number;
+    };
+    ui: {
+      brainInbox: number;
+      trustedKnowledge: number;
+      totalVisible: number;
+    };
+    source: string;
+    uiParity: boolean;
+  };
+  data: { deliverables: unknown[] };
+};
+
 export const devApi = {
   listAdminRequests: () => api.get<{ requests: DevAdminRequestRow[] }>("/dev/admin-requests"),
+  engineeringBrain: () => api.get<EngineeringBrainDiagnosticsReport>("/dev/engineering-brain"),
+  reviewEngineeringIdentity: (payload: EngineeringReviewPayload) =>
+    api.post<{ entry: TrustedKnowledgeEntry }>("/dev/engineering-brain/review", payload),
+  /**
+   * Full identity-resolution pipeline dump. Completeness over size — may be large.
+   * Gated by requireDevEmail on the server.
+   */
+  exportIdentityReviewDebug: (filters: IdentityDebugExportFilters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.projectId) params.set("projectId", filters.projectId);
+    if (filters.fragnetId) params.set("fragnetId", filters.fragnetId);
+    if (filters.deliverableId) params.set("deliverableId", filters.deliverableId);
+    const qs = params.toString();
+    return api.get<IdentityDebugExport>(`/api/debug/identity-review${qs ? `?${qs}` : ""}`, {
+      timeout: 120_000,
+    });
+  },
   approveAdminRequest: (id: string) =>
     api.post<{ ok: boolean }>(`/dev/admin-requests/${encodeURIComponent(id)}/approve`),
   rejectAdminRequest: (id: string) =>
@@ -354,6 +770,7 @@ export type XerProjectPreview = {
 export type XerProjectImportResult = {
   projectId: string;
   projectName: string;
+  baselineSnapshotId: string;
   created: {
     standards: number;
     fragnets: number;
@@ -703,6 +1120,22 @@ export type DeliverableAnalysisCore = {
   evidence: BenchmarkEvidence;
 };
 
+export type DurationStatisticsEntry = {
+  projectName: string;
+  deliverableName: string;
+  durationDays: number;
+};
+
+export type DurationStatistics = {
+  available: boolean;
+  projectsUsed: number;
+  sampleCount: number;
+  minimumDays: number | null;
+  averageDays: number | null;
+  maximumDays: number | null;
+  entries: DurationStatisticsEntry[];
+};
+
 export type DeliverableIntelligenceAnalysis = DeliverableAnalysisCore & {
   observations: IntelligenceFinding[];
   keyFactors: IntelligenceDriver[];
@@ -711,6 +1144,7 @@ export type DeliverableIntelligenceAnalysis = DeliverableAnalysisCore & {
   recommendations: IntelligenceRecommendation[];
   trust: IntelligenceTrustExplanation;
   consistency?: IntelligenceConsistencyReport;
+  durationStatistics?: DurationStatistics;
 };
 
 export type IntelligenceDashboard = {
@@ -953,6 +1387,18 @@ export const intelligenceApi = {
     return api.get<SimilarProjectsReport>(
       `/projects/${encodeURIComponent(pid)}/intelligence/similar-projects`,
       { params: opts?.limit != null ? { limit: opts.limit } : undefined }
+    );
+  },
+  programmeReview: (projectId: string) => {
+    const pid = requireProjectId(projectId);
+    return api.get<ProgrammeReviewPresentation>(
+      `/projects/${encodeURIComponent(pid)}/intelligence/programme-review`
+    );
+  },
+  projectIntelligence: (projectId: string) => {
+    const pid = requireProjectId(projectId);
+    return api.get<ProjectIntelligence>(
+      `/projects/${encodeURIComponent(pid)}/project-intelligence`
     );
   },
   getDeliverableProjectEvolution: (projectId: string, deliverableId: string) => {
@@ -1491,6 +1937,61 @@ export type Deliverable = {
   createdAt: string;
 };
 
+export type DeliverableDurationStatistics = {
+  available: boolean;
+  projectsUsed: number;
+  sampleCount: number;
+  minimumDays: number | null;
+  averageDays: number | null;
+  maximumDays: number | null;
+};
+
+export const LOW_NAME_CONSISTENCY_THRESHOLD = 0.3;
+
+export type DeliverableDurationStatisticsItem = {
+  key: string;
+  deliverableId: string | null;
+  name: string;
+  matchMode: "FULL_DELIVERABLE_CONTEXT" | "NAME_ONLY";
+  provisional: boolean;
+  statistics: DeliverableDurationStatistics;
+  comparisonBasis: "SAME_FRAGNET" | "SAME_DISCIPLINE" | "ORGANISATION_WIDE" | null;
+  contributingProjects: Array<{
+    projectId: string;
+    projectName: string;
+    matchedDeliverableName: string;
+    fragnetName: string | null;
+    planningDurationDays: number;
+    nameSimilarity: number;
+  }>;
+  nameConsistency: number | null;
+  lowNameConsistency: boolean;
+  projectDiagnostics: Array<{
+    projectId: string;
+    projectName: string;
+    used: boolean;
+    reason:
+      | "USED"
+      | "NO_EQUIVALENT_DELIVERABLE"
+      | "NO_PLANNING_DURATION"
+      | "CLOSER_COMPARISON_AVAILABLE";
+  }>;
+  unavailableReason: string | null;
+};
+
+export type DeliverableDurationStatisticsResponse = {
+  projectId: string;
+  durationDefinition: {
+    measure: "HISTORICAL_PLANNED_WORK_PACKAGE_DURATION";
+    aggregation: "MAX_ACTIVITY_ORIGINAL_DURATION";
+    source: "ACTIVITY_SNAPSHOT_ORIGINAL_DURATION";
+    liveFallbackSource: "CURRENT_BEST_PLANNING_DURATION_NORMALISED_FROM_P6_HOURS";
+    unit: "PLANNING_DAYS";
+    fallbacksPossible: false;
+  };
+  items: DeliverableDurationStatisticsItem[];
+};
+
 export const deliverablesApi = {
   /** List all deliverables, optionally filter by fragnetId. */
   list: (projectId?: string, fragnetId?: string) => {
@@ -1501,6 +2002,14 @@ export const deliverablesApi = {
   listByFragnet: (fragnetId: string) =>
     api.get<Deliverable[]>(`/deliverables/fragnet/${fragnetId}`),
   get: (id: string) => api.get<Deliverable>(`/deliverables/${id}`),
+  durationStatistics: (
+    projectId: string | undefined,
+    targets?: Array<{ key: string; deliverableId?: string; name?: string }>
+  ) =>
+    api.post<DeliverableDurationStatisticsResponse>("/deliverables/duration-statistics/query", {
+      projectId: requireProjectId(projectId),
+      ...(targets ? { targets } : {}),
+    }),
   create: (data: {
     projectId?: string;
     fragnetId?: string | null;
@@ -1733,8 +2242,15 @@ export type DeliverableProjectEvolutionRevision = {
   role: string | null;
   programmeState: string | null;
   importedAt: string;
+  /** Programme remaining (primary evolution metric). */
   durationDays: number | null;
   durationChangeDays: number | null;
+  remainingDurationDays: number | null;
+  remainingDurationChangeDays: number | null;
+  planningDurationDays: number | null;
+  planningDurationChangeDays: number | null;
+  planningChanged: boolean;
+  changeKind: "stable" | "progress" | "remaining_increase" | "replanning" | null;
 };
 
 export type ProgrammeLogicEvent = {
@@ -1889,10 +2405,36 @@ export type OrganisationKnowledgeReport = {
   revisionCount: number;
 };
 
+export type ProgrammeRevisionOption = {
+  value: string;
+  label: string;
+  snapshotRole: string | null;
+  importedAt: string | null;
+  isLatestLiveUpdate?: boolean;
+};
+
+export type RevisionDeliverableDurations = {
+  deliverableId: string;
+  bestDuration: number;
+  likelyDuration: number;
+};
+
 export const programmeIntelligenceApi = {
   listSnapshots: (projectId: string) =>
     api.get<{ snapshots: ProgrammeSnapshotSummary[] }>(
       `/projects/${encodeURIComponent(projectId)}/programme-snapshots`
+    ),
+  listProgrammeRevisions: (projectId: string) =>
+    api.get<{ revisions: ProgrammeRevisionOption[] }>(
+      `/projects/${encodeURIComponent(projectId)}/programme-revisions`
+    ),
+  getRevisionDeliverableDurations: (projectId: string, snapshotId: string) =>
+    api.get<{ durations: RevisionDeliverableDurations[] }>(
+      `/projects/${encodeURIComponent(projectId)}/programme-revisions/${encodeURIComponent(snapshotId)}/deliverable-durations`
+    ),
+  getLiveDeliverableDurations: (projectId: string) =>
+    api.get<{ durations: RevisionDeliverableDurations[] }>(
+      `/projects/${encodeURIComponent(projectId)}/programme-revisions/live/deliverable-durations`
     ),
   importProgramme: (projectId: string, file: File, opts?: { snapshotRole?: string; label?: string }) => {
     const form = new FormData();
@@ -2024,6 +2566,228 @@ export type DeliverableKnowledgeProfile = {
   lastCalculatedAt: string;
 };
 
+export type DeliverableVariantTrace = {
+  originalName: string;
+  observationCount: number;
+};
+
+export type WorkPackageMemoryItem = {
+  key: string;
+  disciplineId: string;
+  disciplineLabel: string;
+  categoryId: string;
+  categoryLabel: string;
+  workPackageId: string;
+  workPackageLabel: string;
+  typicalDurationDays: number | null;
+  durationVariationDays: number | null;
+  sampleSize: number;
+  projectCount: number;
+  projectNames: string[];
+  confidenceExplanation: string[];
+  limitedEvidenceReason: string | null;
+  confidenceTier: "high" | "moderate" | "limited";
+  compactSummary: string;
+  deliverableVariants: DeliverableVariantTrace[];
+  sourceDeliverableNames: string[];
+  classification: string | null;
+  isUnclassified: boolean;
+  /** @deprecated Use workPackageId */
+  engineeringActivityId?: string;
+  /** @deprecated Use workPackageLabel */
+  engineeringActivityLabel?: string;
+};
+
+/** @deprecated Use WorkPackageMemoryItem */
+export type EngineeringActivityMemoryItem = WorkPackageMemoryItem;
+
+export type CategoryMemorySection = {
+  categoryId: string;
+  categoryLabel: string;
+  workPackageCount: number;
+  workPackages: WorkPackageMemoryItem[];
+};
+
+export type DisciplineMemorySection = {
+  disciplineId: string;
+  disciplineLabel: string;
+  workPackageCount: number;
+  categories: CategoryMemorySection[];
+  workPackages: WorkPackageMemoryItem[];
+  /** @deprecated Use workPackages */
+  activities?: WorkPackageMemoryItem[];
+};
+
+export type WorkPackageMemoryLegacyItem = WorkPackageMemoryItem & {
+  name: string;
+  sectionTitle: string;
+};
+
+export type OrganisationalMemoryPresentation = {
+  summary: {
+    completedProjectCount: number;
+    programmesIndexed: number;
+    workPackagesIndexed: number;
+    canonicalWorkPackagesIndexed: number;
+    /** @deprecated Use canonicalWorkPackagesIndexed */
+    engineeringActivitiesIndexed?: number;
+    deliverableObservationsIndexed: number;
+    lastUpdated: string | null;
+  };
+  disciplines: DisciplineMemorySection[];
+  sections: Array<{ title: string; workPackages: WorkPackageMemoryLegacyItem[] }>;
+  unclassified: {
+    workPackageCount: number;
+    examples: string[];
+    recommendation: string;
+    workPackages: WorkPackageMemoryItem[];
+  } | null;
+  wellSupported: WorkPackageMemoryItem[];
+  limitedEvidence: WorkPackageMemoryItem[];
+  singleProjectOnly: WorkPackageMemoryItem[];
+};
+
+export type WorkPackageBrief = {
+  key: string;
+  name: string;
+  sectionTitle: string;
+  disciplineLabel: string;
+  categoryLabel?: string;
+  workPackageLabel: string;
+  /** @deprecated Use workPackageLabel */
+  engineeringActivityLabel: string;
+  typicalDurationDays: number | null;
+  durationVariationDays: number | null;
+  projectCount: number;
+  sampleSize: number;
+  projectNames: string[];
+  confidenceExplanation: string[];
+  why: string | null;
+  typicalRisks: string[];
+  planningRecommendations: string[];
+  contributingProjects: string[];
+  deliverableVariants: DeliverableVariantTrace[];
+  sourceDeliverableNames: string[];
+};
+
+export type ProgrammeReviewItem = {
+  deliverableId: string;
+  deliverableName: string;
+  workPackageKey: string;
+  taxonomyKey: string | null;
+  disciplineLabel: string | null;
+  workPackageLabel: string | null;
+  /** @deprecated Use workPackageLabel */
+  engineeringActivityLabel: string | null;
+  plannedDays: number | null;
+  typicalDays: number | null;
+  typicalRangeLabel: string | null;
+  sampleSize: number;
+  projectCount: number;
+  outlierStatus: string | null;
+  what: string;
+  why: string;
+  evidence: string;
+  recommendation: string | null;
+  needsReview: boolean;
+};
+
+export type ProgrammeReviewPresentation = {
+  projectId: string;
+  projectName: string;
+  items: ProgrammeReviewItem[];
+  reviewItems: ProgrammeReviewItem[];
+  alignedItems: ProgrammeReviewItem[];
+  noComparisonItems: ProgrammeReviewItem[];
+};
+
+export type ProjectIntelligence = {
+  projectId: string;
+  projectName: string;
+  executiveSummary: {
+    projectType: string | null;
+    projectCategory: string | null;
+    sector: string | null;
+    stage: string | null;
+    currentRevision: string | null;
+    revisionCount: number;
+    totalDeliverables: number;
+    totalDisciplines: number;
+    workPackagesAnalysed: number;
+    comparableCompletedProjects: number;
+    overallConfidence: "LOW" | "MEDIUM" | "HIGH" | "NONE";
+    overallConfidenceNote: string;
+  };
+  programmeHealth: {
+    findings: Array<{
+      kind: string;
+      deliverableId: string | null;
+      deliverableName: string | null;
+      disciplineLabel: string | null;
+      statement: string;
+      source: string;
+    }>;
+    summary: string;
+  };
+  planningQuality: {
+    withinExpectedRange: number;
+    aboveBenchmark: number;
+    belowBenchmark: number;
+    noComparison: number;
+    alignmentNote: string;
+  };
+  projectEvolutionSummary: {
+    revisionCount: number;
+    workPackagesTracked: number;
+    replanningEvents: number;
+    workPackagesWithIncreasingRemaining: number;
+    workPackagesWithRemainingProgress: number;
+    largestPlanningChange: {
+      deliverableId: string;
+      deliverableName: string;
+      absoluteDays: number;
+      fromDays: number | null;
+      toDays: number | null;
+    } | null;
+    largestProgrammeGrowth: {
+      deliverableId: string;
+      deliverableName: string;
+      remainingIncreaseDays: number;
+    } | null;
+    summary: string;
+  };
+  disciplineOverview: Array<{
+    disciplineLabel: string;
+    workPackageCount: number;
+    withBenchmarkCoverage: number;
+    withoutBenchmarkCoverage: number;
+    needsReviewCount: number;
+    planningConfidence: "LOW" | "MEDIUM" | "HIGH" | "NONE";
+    notableRisks: string[];
+    recommendations: string[];
+  }>;
+  historicalContext: {
+    similarProjects: Array<{
+      projectId: string;
+      projectName: string;
+      similarityScore: number;
+      confidenceLevel: string;
+    }>;
+    completedProjectsUsed: number;
+    strongestEvidence: Array<{ statement: string }>;
+    weakestEvidence: Array<{ statement: string }>;
+    summary: string;
+  };
+  plannerPriorities: Array<{
+    priority: number;
+    deliverableId: string;
+    deliverableName: string;
+    reason: string;
+    source: string;
+  }>;
+  overallAssessment: string;
+};
+
 export const organisationalIntelligenceApi = {
   dashboard: (params?: { refresh?: boolean }) =>
     api.get<IntelligenceDashboard>("/intelligence/dashboard", {
@@ -2117,6 +2881,12 @@ export const organisationalIntelligenceApi = {
 
   organisationKnowledge: () =>
     api.get<OrganisationKnowledgeReport>("/intelligence/organisation-knowledge"),
+
+  organisationalMemory: () =>
+    api.get<OrganisationalMemoryPresentation>("/intelligence/organisational-memory"),
+
+  workPackageBrief: (key: string) =>
+    api.get<{ brief: WorkPackageBrief }>(`/intelligence/work-package-brief/${encodeURIComponent(key)}`),
 
   lessonsLearned: (refresh?: boolean) =>
     api.get<{ findings: LessonFinding[] }>("/intelligence/lessons-learned", {

@@ -100,6 +100,7 @@ model Company {
   deliverableOutcomeProfiles     DeliverableOutcomeProfile[]
   recommendationProfiles       RecommendationProfile[]
   intelligenceTrustProfiles    IntelligenceTrustProfile[]
+  engineeringKnowledgeEntries  EngineeringKnowledgeEntry[]
   relationships                     Relationship[]
   deliverableRelationships          DeliverableRelationship[]
   deliverableActivityRelationships  DeliverableActivityRelationship[]
@@ -320,6 +321,8 @@ model Activity {
   activityCode         String                  @map("activity_code") @db.VarChar(100)
   name                 String                  @db.VarChar(255)
   status               ActivityStatus          @default(DRAFT)
+  /// Primavera TASK.task_type (e.g. TT_Task, TT_Rsrc, TT_FinMile) — authoritative import metadata.
+  p6TaskType           String?                 @map("p6_task_type") @db.VarChar(32)
   bestDuration         Int                     @map("best_duration")
   likelyDuration       Int                     @map("likely_duration")
   assuranceNoteId      String?                 @map("assurance_note_id")
@@ -739,6 +742,8 @@ model ActivitySnapshot {
   freeFloat          Int?     @map("free_float")
   isCritical         Boolean  @default(false) @map("is_critical")
   status             String?  @db.VarChar(32)
+  /// Primavera TASK.task_type at snapshot capture time.
+  p6TaskType         String?  @map("p6_task_type") @db.VarChar(32)
   /// Intelligence tags extracted from P6 codes at import
   classificationTags Json     @default("{}") @map("classification_tags")
 
@@ -747,6 +752,7 @@ model ActivitySnapshot {
   @@index([snapshotId])
   @@index([snapshotId, activityCode])
   @@index([activityId])
+  @@index([deliverableId, snapshotId])
   @@map("activity_snapshots")
 }
 
@@ -777,6 +783,15 @@ model DeliverableSnapshot {
   workPackageDurationDays Int?  @map("work_package_duration_days")
   /// How workPackageDurationDays was derived: WORK_PACKAGE | MILESTONE | CALENDAR_SPAN_FALLBACK
   durationBasis String?   @map("duration_basis") @db.VarChar(32)
+  /// Pre-computed Engineering Reasoning identity (Phase 2). Null = fall back to rule-based.
+  reasonedDiscipline        String?   @map("reasoned_discipline") @db.VarChar(64)
+  reasonedEngineeringObject String?   @map("reasoned_engineering_object") @db.VarChar(64)
+  reasonedEngineeringWork   String?   @map("reasoned_engineering_work") @db.VarChar(64)
+  reasonedDeliverableType   String?   @map("reasoned_deliverable_type") @db.VarChar(64)
+  reasonedLifecycleStage    String?   @map("reasoned_lifecycle_stage") @db.VarChar(64)
+  /// RULE_BASED | LLM_REASONED | LLM_MERGED | null (never computed — pre-dates this feature or reasoning disabled at capture)
+  reasoningSource           String?   @map("reasoning_source") @db.VarChar(16)
+  reasoningComputedAt       DateTime? @map("reasoning_computed_at")
 
   snapshot ProgrammeSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
 
@@ -1049,4 +1064,46 @@ model IntelligenceFinding {
   @@index([companyId, findingType])
   @@index([companyId, generatedAt])
   @@map("intelligence_findings")
+}
+
+/// Developer-curated Engineering Brain knowledge. Persists ONLY the rare
+/// developer review decisions (approve / modify / reject) and their version
+/// history. Auto-trusted identities are recomputed deterministically and are
+/// NOT stored here. Developer-only; never surfaced to planners.
+model EngineeringKnowledgeEntry {
+  id                    String   @id @default(cuid())
+  companyId             String   @map("company_id")
+  /// Stable identity fingerprint (concept subject + resolved signature hash).
+  fingerprint           String   @db.VarChar(64)
+  /// DEVELOPER_APPROVED | DEVELOPER_MODIFIED | REJECTED
+  status                String   @db.VarChar(32)
+  /// Last developer action: APPROVE | MODIFY | REJECT
+  lastAction            String?  @map("last_action") @db.VarChar(16)
+  concept               String   @db.VarChar(256)
+  discipline            String?  @db.VarChar(64)
+  engineeringObject     String?  @map("engineering_object") @db.VarChar(64)
+  engineeringWork       String?  @map("engineering_work") @db.VarChar(64)
+  deliverableType       String?  @map("deliverable_type") @db.VarChar(64)
+  lifecycleStage        String?  @map("lifecycle_stage") @db.VarChar(64)
+  aliases               Json     @default("[]")
+  evidence              Json     @default("[]")
+  reviewNotes           String?  @map("review_notes") @db.Text
+  reviewedBy            String?  @map("reviewed_by") @db.VarChar(255)
+  firstObservedAt       DateTime @default(now()) @map("first_observed_at")
+  lastObservedAt        DateTime @default(now()) @map("last_observed_at")
+  projectCount          Int      @default(0) @map("project_count")
+  successfulComparisons Int      @default(0) @map("successful_comparisons")
+  versionHistory        Json     @default("[]") @map("version_history")
+  brainVersion          String   @map("brain_version") @db.VarChar(64)
+  promptVersion         String   @map("prompt_version") @db.VarChar(64)
+  vocabularyVersion     String   @map("vocabulary_version") @db.VarChar(64)
+  validationVersion     String   @map("validation_version") @db.VarChar(64)
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, fingerprint])
+  @@index([companyId, status])
+  @@map("engineering_knowledge_entries")
 }

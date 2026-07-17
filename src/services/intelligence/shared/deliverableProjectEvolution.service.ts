@@ -71,6 +71,12 @@ export function oneDeliverableSnapshotPerProgrammeRevision<
   return [...byProgrammeSnapshot.values()];
 }
 
+export type ProgrammeStateChangeKind =
+  | "stable"
+  | "progress"
+  | "remaining_increase"
+  | "replanning";
+
 export type DeliverableProjectEvolutionRevision = {
   snapshotId: string;
   label: string;
@@ -78,8 +84,22 @@ export type DeliverableProjectEvolutionRevision = {
   role: string | null;
   programmeState: string | null;
   importedAt: string;
+  /**
+   * Programme-state duration for this revision (Remaining-first).
+   * Drives evolution trends, timeline, and change deltas.
+   */
   durationDays: number | null;
   durationChangeDays: number | null;
+  /** Explicit Remaining Duration (programme state). Same source as durationDays when resolved. */
+  remainingDurationDays: number | null;
+  remainingDurationChangeDays: number | null;
+  /** Primavera Original / Target duration (planning) — for progress vs replanning. */
+  planningDurationDays: number | null;
+  planningDurationChangeDays: number | null;
+  /** True when planning duration changed vs previous revision. */
+  planningChanged: boolean;
+  /** Classifies programme-state change since previous revision (null on first revision). */
+  changeKind: ProgrammeStateChangeKind | null;
 };
 
 export type DeliverableProjectEvolutionReport = {
@@ -129,20 +149,134 @@ function snapshotLabel(
   });
 }
 
-function resolveDurationDays(row: {
+/**
+ * Calendar-span fallback only — used when no activity duration fields exist.
+ * Prefer Remaining / Original from ActivitySnapshot for Project Evolution.
+ */
+function resolveCalendarFallbackDays(row: {
   workPackageDurationDays: number | null;
   plannedStart: Date | null;
   plannedFinish: Date | null;
   actualStart: Date | null;
   actualFinish: Date | null;
 }): number | null {
-  if (row.workPackageDurationDays != null && Number.isFinite(row.workPackageDurationDays)) {
-    return Math.round(row.workPackageDurationDays);
-  }
-  return diffDaysFromDates(
+  // Prefer stored WP only as last-resort when activities lack remaining/original;
+  // Evolution normally does not invent values.
+  const span = diffDaysFromDates(
     row.actualStart ?? row.plannedStart,
     row.actualFinish ?? row.plannedFinish
   );
+  if (span != null) return span;
+  if (row.workPackageDurationDays != null && Number.isFinite(row.workPackageDurationDays)) {
+    return Math.round(row.workPackageDurationDays);
+  }
+  return null;
+}
+
+type SnapshotActivityDurations = {
+  originalDuration: number | null;
+  remainingDuration: number | null;
+  actualDuration: number | null;
+};
+
+/** Max Remaining across activities — programme state at this revision. */
+export function resolveProgrammeRemainingDays(
+  activities: SnapshotActivityDurations[],
+  fallback: number | null = null
+): number | null {
+  const remaining = activities
+    .map((a) => a.remainingDuration)
+    .filter((d): d is number => d != null && Number.isFinite(d) && d >= 0)
+    .map((d) => Math.round(d));
+  if (remaining.length > 0) return Math.max(...remaining);
+
+  // Fall through only when Remaining was never stored for any activity
+  const originals = activities
+    .map((a) => a.originalDuration)
+    .filter((d): d is number => d != null && Number.isFinite(d) && d >= 0)
+    .map((d) => Math.round(d));
+  if (originals.length > 0) return Math.max(...originals);
+
+  const actuals = activities
+    .map((a) => a.actualDuration)
+    .filter((d): d is number => d != null && Number.isFinite(d) && d >= 0)
+    .map((d) => Math.round(d));
+  if (actuals.length > 0) return Math.max(...actuals);
+
+  return fallback;
+}
+
+/** Max Original/Target across activities — planning duration (not programme remaining). */
+export function resolvePlanningDurationDays(
+  activities: SnapshotActivityDurations[],
+  fallback: number | null = null
+): number | null {
+  const originals = activities
+    .map((a) => a.originalDuration)
+    .filter((d): d is number => d != null && Number.isFinite(d) && d >= 0)
+    .map((d) => Math.round(d));
+  if (originals.length > 0) return Math.max(...originals);
+
+  const remaining = activities
+    .map((a) => a.remainingDuration)
+    .filter((d): d is number => d != null && Number.isFinite(d) && d >= 0)
+    .map((d) => Math.round(d));
+  if (remaining.length > 0) return Math.max(...remaining);
+
+  return fallback;
+}
+
+export function classifyProgrammeStateChange(args: {
+  remaining: number | null;
+  previousRemaining: number | null;
+  planning: number | null;
+  previousPlanning: number | null;
+}): ProgrammeStateChangeKind | null {
+  const { remaining, previousRemaining, planning, previousPlanning } = args;
+  if (previousRemaining == null && previousPlanning == null) return null;
+
+  const planningChanged =
+    planning != null && previousPlanning != null && planning !== previousPlanning;
+  if (planningChanged) return "replanning";
+
+  if (remaining != null && previousRemaining != null) {
+    if (remaining < previousRemaining) return "progress";
+    if (remaining > previousRemaining) return "remaining_increase";
+    return "stable";
+  }
+  return "stable";
+}
+
+async function loadActivityDurationsBySnapshot(
+  snapshotIds: string[],
+  deliverableId: string
+): Promise<Map<string, SnapshotActivityDurations[]>> {
+  const map = new Map<string, SnapshotActivityDurations[]>();
+  if (snapshotIds.length === 0) return map;
+
+  const rows = await prisma.activitySnapshot.findMany({
+    where: {
+      snapshotId: { in: snapshotIds },
+      deliverableId,
+    },
+    select: {
+      snapshotId: true,
+      originalDuration: true,
+      remainingDuration: true,
+      actualDuration: true,
+    },
+  });
+
+  for (const row of rows) {
+    const list = map.get(row.snapshotId) ?? [];
+    list.push({
+      originalDuration: row.originalDuration,
+      remainingDuration: row.remainingDuration,
+      actualDuration: row.actualDuration,
+    });
+    map.set(row.snapshotId, list);
+  }
+  return map;
 }
 
 async function loadSnapshotLogicStates(
@@ -302,7 +436,10 @@ export async function getDeliverableProjectEvolution(args: {
 
   const rows = oneDeliverableSnapshotPerProgrammeRevision(rawRows);
   const snapshotIds = rows.map((r) => r.snapshot.id);
-  const logicBySnapshot = await loadSnapshotLogicStates(snapshotIds, deliverable.id);
+  const [logicBySnapshot, activityDurationsBySnapshot] = await Promise.all([
+    loadSnapshotLogicStates(snapshotIds, deliverable.id),
+    loadActivityDurationsBySnapshot(snapshotIds, deliverable.id),
+  ]);
 
   const deliverableActivityCodes = new Set<string>();
   for (const state of logicBySnapshot.values()) {
@@ -321,7 +458,15 @@ export async function getDeliverableProjectEvolution(args: {
     resolveCanonicalProgrammeName({ ranaProjectName: project?.name }) ??
     null;
 
-  const historicalRevisions: HistoricalRevision[] = rows.map((d) => {
+  const revisionDurations = rows.map((d) => {
+    const acts = activityDurationsBySnapshot.get(d.snapshot.id) ?? [];
+    const calendarFallback = resolveCalendarFallbackDays(d);
+    const remainingDurationDays = resolveProgrammeRemainingDays(acts, calendarFallback);
+    const planningDurationDays = resolvePlanningDurationDays(acts, calendarFallback);
+    return { remainingDurationDays, planningDurationDays };
+  });
+
+  const historicalRevisions: HistoricalRevision[] = rows.map((d, i) => {
     const fp = buildDeliverableFingerprint({
       deliverableName: d.name,
       classification: d.classification,
@@ -337,7 +482,8 @@ export async function getDeliverableProjectEvolution(args: {
       deliverableId: d.deliverableId,
       deliverableName: d.name,
       importedAt: d.snapshot.importedAt,
-      durationDays: resolveDurationDays(d),
+      // Evolution trends track programme remaining (programme state), not planning Target
+      durationDays: revisionDurations[i]!.remainingDurationDays,
       fingerprintKey: fingerprintCacheKey(fp),
     };
   });
@@ -352,8 +498,16 @@ export async function getDeliverableProjectEvolution(args: {
   );
 
   const revisions: DeliverableProjectEvolutionRevision[] = historicalRevisions.map((r, i) => {
-    const prev = i > 0 ? historicalRevisions[i - 1]!.durationDays : null;
-    const change = r.durationDays != null && prev != null ? r.durationDays - prev : null;
+    const prevRemaining = i > 0 ? revisionDurations[i - 1]!.remainingDurationDays : null;
+    const prevPlanning = i > 0 ? revisionDurations[i - 1]!.planningDurationDays : null;
+    const remaining = revisionDurations[i]!.remainingDurationDays;
+    const planning = revisionDurations[i]!.planningDurationDays;
+    const remainingChange =
+      remaining != null && prevRemaining != null ? remaining - prevRemaining : null;
+    const planningChange =
+      planning != null && prevPlanning != null ? planning - prevPlanning : null;
+    const planningChanged =
+      planning != null && prevPlanning != null && planning !== prevPlanning;
     const snap = rows[i]!.snapshot;
     const displayName = programmeDisplayNameFromSnapshot(snap) ?? programmeDisplayName;
     return {
@@ -363,8 +517,19 @@ export async function getDeliverableProjectEvolution(args: {
       role: snap.snapshotRole,
       programmeState: snap.programmeState,
       importedAt: r.importedAt.toISOString(),
-      durationDays: r.durationDays,
-      durationChangeDays: change,
+      durationDays: remaining,
+      durationChangeDays: remainingChange,
+      remainingDurationDays: remaining,
+      remainingDurationChangeDays: remainingChange,
+      planningDurationDays: planning,
+      planningDurationChangeDays: planningChange,
+      planningChanged,
+      changeKind: classifyProgrammeStateChange({
+        remaining,
+        previousRemaining: prevRemaining,
+        planning,
+        previousPlanning: prevPlanning,
+      }),
     };
   });
 

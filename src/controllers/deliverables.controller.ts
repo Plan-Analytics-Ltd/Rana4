@@ -12,6 +12,10 @@ import { replaceActivityCodeAssignmentsForDeliverable } from "../services/activi
 import { materializeTemplatesForDeliverable } from "../services/fragnetActivityTemplate.service.js";
 import type { DeliverableClassification } from "@prisma/client";
 import { classifyDeliverableName } from "../services/intelligence/profiles/deliverableClassification.service.js";
+import {
+  getDeliverableDurationStatisticsPresentation,
+  type HistoricalDurationTarget,
+} from "../services/deliverableDurationStatisticsPresentation.service.js";
 
 /**
  * Prisma `DeliverableInclude` must list `activityCodeAssignments` (schema + `npx prisma generate`).
@@ -185,6 +189,45 @@ export async function getAll(req: AuthRequest, res: Response): Promise<void> {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch deliverables" });
+  }
+}
+
+export async function queryDurationStatistics(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const body = req.body as { projectId?: unknown; targets?: unknown };
+    const projectId = typeof body.projectId === "string" ? body.projectId.trim() : "";
+    if (!projectId) {
+      res.status(400).json({ error: "projectId is required" });
+      return;
+    }
+    if (body.targets !== undefined && !Array.isArray(body.targets)) {
+      res.status(400).json({ error: "targets must be an array when provided" });
+      return;
+    }
+
+    const membership = await requireProjectAccess(projectId, req.user);
+    requirePermission(membership.role, "deliverable", "read");
+    const result = await getDeliverableDurationStatisticsPresentation({
+      companyId: req.user.companyId,
+      projectId,
+      targets: body.targets as HistoricalDurationTarget[] | undefined,
+    });
+    res.json(result);
+  } catch (err) {
+    const status =
+      err && typeof err === "object" && "status" in err
+        ? Number((err as { status?: unknown }).status)
+        : 500;
+    if (status >= 400 && status < 500) {
+      res.status(status).json({ error: err instanceof Error ? err.message : "Invalid request" });
+      return;
+    }
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch historical duration statistics" });
   }
 }
 

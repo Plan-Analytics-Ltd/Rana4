@@ -1,0 +1,365 @@
+{
+  "generatedFrom": "docs/brain-vs-reasoning-report.md",
+  "generatedAt": "2026-07-17",
+  "note": "Batch 2 review — human-reviewed corrections to existing EngineeringKnowledgeEntry decisions, based on comparing original review decisions against backfilled LLM-reasoned identities. Every entry below was checked against its actual activity evidence (see 'evidence' field) before being included — this is NOT an automatic bulk-apply of whatever the AI suggested. Entries where the AI's suggestion was not well-supported by evidence, or where the entry is REJECTED (identity doesn't matter), are deliberately excluded from this file.",
+  "decisions": [
+    {
+      "concept": "Developed Design Schematics - Electrical",
+      "fingerprint": "465215bbe047cea8fc55793a",
+      "action": "modify",
+      "identity": {
+        "discipline": "electrical",
+        "engineeringObject": "electrical_systems",
+        "engineeringWork": "design",
+        "deliverableType": "drawing",
+        "lifecycleStage": null
+      },
+      "evidence": "7 activities, all electrical schematics/layouts (Fire Alarm Schematic, Distribution Zoning Strategy Layout, etc.) — deliverableType was previously unset.",
+      "notes": "Pure fill-in: deliverableType null->drawing. Nothing else changed, nothing contradicted."
+    },
+    {
+      "concept": "Architectural Setting Out",
+      "fingerprint": "acb87f258c45325d0154e2fb",
+      "action": "modify",
+      "identity": {
+        "discipline": "project_management",
+        "engineeringObject": "project_management",
+        "engineeringWork": "detailing",
+        "deliverableType": "drawing",
+        "lifecycleStage": "stage_3"
+      },
+      "evidence": "12 activities, all 'GET - Architectural Setting out of Upstands & Slab Edges - Level X' or updates to same — real drawing/detailing work, not a generic milestone.",
+      "notes": "Was project_management/project_management/milestone (type=milestone). Corrected engineeringWork milestone->detailing and deliverableType milestone->drawing based on activity evidence. Discipline/object left unresolved by reasoning, kept as-is."
+    },
+    {
+      "concept": "CE-015 GL6 Foundation Alteration Feasibility — Work package",
+      "fingerprint": "882f329be77fcb8512af10ef",
+      "action": "modify",
+      "identity": {
+        "discipline": "structural",
+        "engineeringObject": "foundations",
+        "engineeringWork": "design",
+        "deliverableType": null,
+        "lifecycleStage": "stage_3"
+      },
+      "evidence": "Activities: 'Design options for GL6 Foundations alterations', 'Agree option for GL6 Foundations', 'Final Design and detailing for GL6 Foundations' — a design-decision process, not pure analysis.",
+      "notes": "Corrected engineeringWork analysis->design; three of five activities explicitly reference design decisions."
+    },
+    {
+      "concept": "New Design Drawing - Public Health",
+      "fingerprint": "1e7c87ba49c0456464600cc4",
+      "action": "modify",
+      "identity": {
+        "discipline": "public_health",
+        "engineeringObject": "drainage",
+        "engineeringWork": "detailing",
+        "deliverableType": "design_drawing",
+        "lifecycleStage": null
+      },
+      "evidence": "Only activity: 'Details Standard Drainage (One sheet)' — drainage-specific standard detail, not generic public health system design.",
+      "notes": "Corrected engineeringObject public_health_system->drainage and engineeringWork design->detailing to match the actual activity."
+    },
+    {
+      "concept": "VI-019 Desktop Study - Link Bridge Foundations",
+      "fingerprint": "2237f8d85f009579e0b22a92",
+      "action": "modify",
+      "identity": {
+        "discipline": "structural",
+        "engineeringObject": "foundations",
+        "engineeringWork": "analysis",
+        "deliverableType": "assessment",
+        "lifecycleStage": "stage_3"
+      },
+      "evidence": "Deliverable name and its only real activity ('Foundation Assessment Study') are both specifically about the foundations, not the link bridge structure generally.",
+      "notes": "Corrected engineeringObject link_bridge->foundations."
+    },
+    {
+      "concept": "External Finishes Works — Work package",
+      "fingerprint": "fe2aff9901ff42baa4186ee1",
+      "action": "modify",
+      "identity": {
+        "discipline": null,
+        "engineeringObject": null,
+        "engineeringWork": "detailing",
+        "deliverableType": "design_drawing",
+        "lifecycleStage": "stage_3"
+      },
+      "evidence": "Activity: 'Produce detailed drawings with typical details' — matches detailing, not generic design.",
+      "notes": "Corrected engineeringWork design->detailing and deliverableType drawing->design_drawing."
+    },
+    {
+      "concept": "New Technical Note - Acoustics",
+      "fingerprint": "1c2a3b04c7759fe16debe4ec",
+      "action": "modify",
+      "identity": {
+        "discipline": "acoustics",
+        "engineeringObject": "acoustics",
+        "engineeringWork": "analysis",
+        "deliverableType": "technical_note",
+        "lifecycleStage": null
+      },
+      "evidence": "Only activity: 'Atrium acoustic absorption for reverberation - calcs in a model' — explicit calculation work.",
+      "notes": "Corrected engineeringWork technical_note->analysis based on real calculation evidence."
+    },
+    {
+      "concept": "Detailed Design (slabs, Level 9)",
+      "fingerprint": "856cf83af769543fb132fe3e",
+      "action": "modify",
+      "identity": {
+        "discipline": "structural",
+        "engineeringObject": "slabs",
+        "engineeringWork": "design",
+        "deliverableType": null,
+        "lifecycleStage": "stage_3"
+      },
+      "evidence": "Activity: 'Slab analysis - Level 09'. Part of a 7-entry systematic pattern (see notes) — 'Detailed Design' deliverables across this project were uniformly labeled 'detailing' from the deliverable's own name, but every one's actual activities describe design/analysis work, not detailing. 'Reinforcement Detailing' already exists as a distinct, correctly-labeled sibling deliverable in every neighbour list.",
+      "notes": "Discipline casing corrected Structural->structural. engineeringWork corrected detailing->design."
+    },
+    {
+      "concept": "Detailed Design (foundations)",
+      "fingerprint": "c1e7f0e7965ab4ccf4ea690d",
+      "action": "modify",
+      "identity": {
+        "discipline": "structural",
+        "engineeringObject": "foundations",
+        "engineeringWork": "design",
+        "deliverableType": null,
+        "lifecycleStage": "stage_3"
+      },
+      "evidence": "Activities: 'Agree vertical loads', 'Calculate wind and notional loads', 'Detailed load-take-down', 'Stability Analysis', 'Foundation analysis and design' — same systematic Detailed Design pattern as above.",
+      "notes": "engineeringWork corrected detailing->design."
+    },
+    {
+      "concept": "Detailed Design (core)",
+      "fingerprint": "c9b3ddc49bd67dbbe86f4eac",
+      "action": "modify",
+      "identity": {
+        "discipline": "structural",
+        "engineeringObject": "core",
+        "engineeringWork": "design",
+        "deliverableType": null,
+        "lifecycleStage": "stage_3"
+      },
+      "evidence": "Activities: 'Column design', 'Wall design', 'Update core riser openings' — same systematic Detailed Design pattern.",
+      "notes": "engineeringWork corrected detailing->design."
+    },
+    {
+      "concept": "Detailed Design (walls/slabs, Level 7)",
+      "fingerprint": "8a7da4fb09dff42f803f4efd",
+      "action": "modify",
+      "identity": {
+        "discipline": "structural",
+        "engineeringObject": "slabs",
+        "engineeringWork": "design",
+        "deliverableType": null,
+        "lifecycleStage": "stage_3"
+      },
+      "evidence": "Activity: 'Slab analysis - Level 07' (curtain wall mention is secondary). Matches sibling Level 9 entry exactly, which was already independently confirmed as slabs.",
+      "notes": "engineeringObject corrected walls->slabs; engineeringWork corrected detailing->design."
+    },
+    {
+      "concept": "Detailed Design (steelwork)",
+      "fingerprint": "235f3c06c6db1cb5cf14f82b",
+      "action": "modify",
+      "identity": {
+        "discipline": "structural",
+        "engineeringObject": "steelwork",
+        "engineeringWork": "design",
+        "deliverableType": "drawing",
+        "lifecycleStage": "stage_3"
+      },
+      "evidence": "Activities literally named 'Secondary steelwork design - theatre ceilings/partitions/elevations/Ambulance bay canopy' — design is in the activity name itself.",
+      "notes": "engineeringWork corrected detailing->design; deliverableType filled in as drawing."
+    },
+    {
+      "concept": "Detailed Design (drainage)",
+      "fingerprint": "e5a95632ace21d0e28cfc9c0",
+      "action": "modify",
+      "identity": {
+        "discipline": "civil",
+        "engineeringObject": "drainage",
+        "engineeringWork": "design",
+        "deliverableType": null,
+        "lifecycleStage": "stage_3"
+      },
+      "evidence": "Only activity: 'Drainage design' — same systematic Detailed Design pattern.",
+      "notes": "Discipline corrected public_health->civil; engineeringWork corrected detailing->design."
+    },
+    {
+      "concept": "Detailed Design (link bridge)",
+      "fingerprint": "b83c99a779af566139fe9283",
+      "action": "modify",
+      "identity": {
+        "discipline": "structural",
+        "engineeringObject": "link_bridge",
+        "engineeringWork": "design",
+        "deliverableType": null,
+        "lifecycleStage": "stage_3"
+      },
+      "evidence": "Activities: 'GET - Confirmed Link Structure Design Option', 'Link Structure Options Study' — design-option work, same systematic Detailed Design pattern.",
+      "notes": "engineeringWork corrected detailing->design."
+    },
+    {
+      "concept": "Model Development (Level 7)",
+      "fingerprint": "2fd3011377f2800028e5686a",
+      "action": "modify",
+      "identity": {
+        "discipline": "structural",
+        "engineeringObject": null,
+        "engineeringWork": "general_arrangement",
+        "deliverableType": "drawing",
+        "lifecycleStage": "stage_3"
+      },
+      "evidence": "Activities: 'General Arrangement - Level 07', 'WD Review Level 07 General Arrangement Drawings', 'Update & Reissue GA Drawings', 'GET - Formal Acceptance of Level 07 GA Drawings' — literally General Arrangement work, 'modelling' appears nowhere.",
+      "notes": "Discipline casing corrected Structural->structural. engineeringWork corrected modelling->general_arrangement. Original object value 'Structure' is not a valid taxonomy id and reasoning offered no replacement, so left null rather than guessed — flagging separately, not blocking this fix."
+    },
+    {
+      "concept": "Model Drawing/Development (foundations)",
+      "fingerprint": "f737e3f2a41043359f208f33",
+      "action": "modify",
+      "identity": {
+        "discipline": "structural",
+        "engineeringObject": "foundations",
+        "engineeringWork": "general_arrangement",
+        "deliverableType": "general_arrangement",
+        "lifecycleStage": "stage_3"
+      },
+      "evidence": "Activities: 'Foundation General Arrangement Drawings', 'WD Review Foundation GA Drawings', 'Update & Reissue GA Drawings', 'GET - Formal Acceptance of Foundation GA Drawings'.",
+      "notes": "engineeringWork corrected modelling->general_arrangement; deliverableType corrected drawing->general_arrangement."
+    },
+    {
+      "concept": "Model/Drawing Development (Structural Design)",
+      "fingerprint": "3b909ddd94c25442207aaef9",
+      "action": "modify",
+      "identity": {
+        "discipline": "structural",
+        "engineeringObject": null,
+        "engineeringWork": "design",
+        "deliverableType": "drawing",
+        "lifecycleStage": "stage_3"
+      },
+      "evidence": "Activities: 'Front end-guidance strategy drawings', 'Loading Plans etc' — general design-strategy drawings, not GA-specific and not modelling.",
+      "notes": "engineeringWork corrected modelling->design."
+    },
+    {
+      "concept": "Model/Drawing Development (drainage)",
+      "fingerprint": "68b748c1cfebb97d5022770a",
+      "action": "modify",
+      "identity": {
+        "discipline": "public_health",
+        "engineeringObject": "drainage",
+        "engineeringWork": "design",
+        "deliverableType": "design_drawing",
+        "lifecycleStage": "stage_3"
+      },
+      "evidence": "Only activity: 'Develop drainage design drawings and issue' — literally design drawings, not modelling.",
+      "notes": "engineeringWork corrected modelling->design; deliverableType corrected drawing->design_drawing."
+    },
+    {
+      "concept": "Design (Developed Design Report - MEP)",
+      "fingerprint": "857f90a4dd76939215e6091c",
+      "action": "modify",
+      "identity": {
+        "discipline": "mechanical",
+        "engineeringObject": "mechanical_systems",
+        "engineeringWork": "design",
+        "deliverableType": "report",
+        "lifecycleStage": "developed_design"
+      },
+      "evidence": "'MEP', 'building_services', and 'design_reporting' do not exist anywhere in the real taxonomy vocabulary (confirmed by direct grep of engineeringVocabulary.data.ts) — these were free-text labels from the original review, not valid ids.",
+      "notes": "Vocabulary-conformance fix, not really a substantive disagreement: discipline MEP->mechanical, engineeringObject building_services->mechanical_systems, engineeringWork design_reporting->design."
+    },
+    {
+      "concept": "Design Schematics (New Design Schematics - Mechanical)",
+      "fingerprint": "3b9dec080746646e236fa816",
+      "action": "modify",
+      "identity": {
+        "discipline": "mechanical",
+        "engineeringObject": "mechanical_systems",
+        "engineeringWork": "design",
+        "deliverableType": "drawing",
+        "lifecycleStage": "stage_2"
+      },
+      "evidence": "Same vocabulary-conformance issue as above — 'MEP', 'building_services', 'schematic_design' are not valid taxonomy ids.",
+      "notes": "discipline MEP->mechanical, engineeringObject building_services->mechanical_systems, engineeringWork schematic_design->design."
+    },
+    {
+      "concept": "BWIC",
+      "fingerprint": "9383d2207d27e5f25d58420a",
+      "action": "modify",
+      "identity": {
+        "discipline": "project_management",
+        "engineeringObject": "project_management",
+        "engineeringWork": "coordination",
+        "deliverableType": "milestone",
+        "lifecycleStage": "stage_3"
+      },
+      "evidence": "8 activities, all 'GET Final BWIC Locations & Sizes & Plant Weights - Level X' — coordination work, more specific than generic milestone.",
+      "notes": "engineeringWork corrected milestone->coordination. Discipline/object left unresolved by reasoning, kept as-is."
+    },
+    {
+      "concept": "Drainage",
+      "fingerprint": "7de6ec24280cb5f1687bdd19",
+      "action": "modify",
+      "identity": {
+        "discipline": "public_health",
+        "engineeringObject": "drainage",
+        "engineeringWork": "coordination",
+        "deliverableType": "milestone",
+        "lifecycleStage": "stage_3"
+      },
+      "evidence": "Activity: 'GET Receive drainage pop-up locations & flow rates from SDS' — clearly drainage-specific coordination, not generic project management.",
+      "notes": "Filled in discipline/object/work, previously all generic project_management/milestone. Part of the GET-Milestones pooling fix."
+    },
+    {
+      "concept": "Equipment Specifications",
+      "fingerprint": "e6f0a65f33a0d70d2033a367",
+      "action": "modify",
+      "identity": {
+        "discipline": "project_management",
+        "engineeringObject": "project_management",
+        "engineeringWork": "design",
+        "deliverableType": "specification",
+        "lifecycleStage": "stage_3"
+      },
+      "evidence": "Activity: 'GET Imaging Equipment Specifications' — specification/design work, more specific than generic milestone.",
+      "notes": "engineeringWork corrected milestone->design. Discipline/object left unresolved by reasoning, kept as-is."
+    },
+    {
+      "concept": "VI-045 - Generator Compound — Work package",
+      "fingerprint": "a8503648a904e1908faba250",
+      "action": "modify",
+      "identity": {
+        "discipline": "structural",
+        "engineeringObject": "foundations",
+        "engineeringWork": "design",
+        "deliverableType": "milestone",
+        "lifecycleStage": "stage_3"
+      },
+      "evidence": "Activities: 'Stage 3 Structural Design', 'Stage 3 Drainage Design', 'GET - Fixed Compound layout', 'Generator Compound Stage 3 Complete'.",
+      "notes": "All fields were previously null. Pure fill-in from real evidence, nothing overwritten."
+    },
+    {
+      "concept": "VI-061 Confirmation of Link Bridge 'Option 2' as preferred design solution",
+      "fingerprint": "5a1f1c828cc8a8c88a890b4a",
+      "action": "modify",
+      "identity": {
+        "discipline": "structural",
+        "engineeringObject": "link_bridge",
+        "engineeringWork": "design",
+        "deliverableType": "milestone",
+        "lifecycleStage": "stage_3"
+      },
+      "evidence": "Activities: 'Superstructure design', 'Foundation design', 'Stage 3 Drawing Issue' — design work, more specific than generic milestone.",
+      "notes": "engineeringWork corrected milestone->design."
+    }
+  ],
+  "explicitlyExcluded": {
+    "reason": "REJECTED — rejection stands regardless of what reasoning suggests; the rejection was based on 'GET - Notification from WD not to continue' (abandoned scope), which reasoning has no way to weigh.",
+    "fingerprints": ["7d8a17f1f0894951e60c96f5"]
+  },
+  "holdForHumanReview": {
+    "reason": "Genuinely mixed evidence spanning detailing/GA/design/reinforcement in one catch-all 'Retired Activities' work package — do not auto-apply, discuss first.",
+    "fingerprints": ["e67251f62aa3e4f0095ee7a0"]
+  }
+}
