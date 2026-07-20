@@ -148,7 +148,6 @@ test("strict presentation uses max positive Original Duration and one preferred 
       matchedDeliverableName: "Reinforcement Detailing",
       fragnetName: null,
       planningDurationDays: 8,
-      nameSimilarity: 1,
     },
     {
       projectId: "p2",
@@ -156,11 +155,8 @@ test("strict presentation uses max positive Original Duration and one preferred 
       matchedDeliverableName: "Reinforcement Detailing",
       fragnetName: null,
       planningDurationDays: 10,
-      nameSimilarity: 1,
     },
   ]);
-  assert.equal(item.nameConsistency, 1);
-  assert.equal(item.lowNameConsistency, false);
 });
 
 test("strict presentation never leaks Remaining or Actual Duration and excludes unrelated work packages", () => {
@@ -818,7 +814,7 @@ test("knowledge store unavailable skips lookup and preserves pre-wiring behavior
   assert.equal(withReviewEnabled.statistics.available, true);
 });
 
-test("uniform deliverable names report high name consistency", () => {
+test("uniform deliverable names still pool into historical statistics", () => {
   const snapshots = [
     snapshot({
       id: "p1-same",
@@ -839,14 +835,10 @@ test("uniform deliverable names report high name consistency", () => {
   const [item] = computeStrictOriginalDurationItems([persistedTarget], snapshots);
 
   assert.equal(item.statistics.available, true);
-  assert.equal(item.nameConsistency, 1);
-  assert.equal(item.lowNameConsistency, false);
-  assert.ok(
-    item.contributingProjects.every((project) => project.nameSimilarity === 1)
-  );
+  assert.equal(item.contributingProjects.length, 2);
 });
 
-test("legitimate reinforcement wording variants still match and report name similarity scores", () => {
+test("legitimate reinforcement wording variants still match via engineering identity", () => {
   const targetName = "Reinforcement Detailing";
   const variantNames = ["Rebar Detailing", "Reinforcement Detail Drawings"];
   // Pre-fix baselines (naive Jaccard, no stemming / no vocab): 0.333 and 0.25.
@@ -880,14 +872,10 @@ test("legitimate reinforcement wording variants still match and report name simi
 
   const rebarScore = nameSimilarity(targetName, "Rebar Detailing");
   const drawingsScore = nameSimilarity(targetName, "Reinforcement Detail Drawings");
-  assert.equal(item.contributingProjects[0]?.nameSimilarity, rebarScore);
-  assert.equal(item.contributingProjects[1]?.nameSimilarity, drawingsScore);
-  assert.equal(item.nameConsistency, Math.min(rebarScore, drawingsScore));
 
   console.log(
     `[wording-variant] BEFORE rebar=${BEFORE_REBAR.toFixed(3)} drawings=${BEFORE_DRAWINGS.toFixed(3)}; ` +
-      `AFTER rebar=${rebarScore.toFixed(3)} drawings=${drawingsScore.toFixed(3)}; ` +
-      `nameConsistency=${item.nameConsistency.toFixed(3)}, lowNameConsistency=${item.lowNameConsistency}`
+      `AFTER rebar=${rebarScore.toFixed(3)} drawings=${drawingsScore.toFixed(3)}`
   );
 
   assert.ok(rebarScore > BEFORE_REBAR, `rebar score should improve on ${BEFORE_REBAR}`);
@@ -900,7 +888,6 @@ test("legitimate reinforcement wording variants still match and report name simi
     drawingsScore >= LOW_NAME_CONSISTENCY_THRESHOLD,
     `drawings should clear threshold (${LOW_NAME_CONSISTENCY_THRESHOLD}), got ${drawingsScore}`
   );
-  assert.equal(item.lowNameConsistency, false);
 });
 
 test("Meetings plural/singular stemming lifts live 0% similarity pair", () => {
@@ -956,7 +943,7 @@ test("vocabulary synonym pairs beyond reinforcement/rebar canonicalize", () => {
   }
 });
 
-test("GET-milestones-style pooling flags low name consistency without changing durations", () => {
+test("GET-milestones-style pooling keeps durations without filtering by name similarity", () => {
   const milestoneIdentityFields = {
     discipline: "project_management",
     engineeringObject: "project_management",
@@ -1011,9 +998,7 @@ test("GET-milestones-style pooling flags low name consistency without changing d
   assert.equal(item.statistics.minimumDays, 2);
   assert.equal(item.statistics.averageDays, 3.5);
   assert.equal(item.statistics.maximumDays, 5);
-  assert.equal(item.lowNameConsistency, true);
-  assert.equal(item.nameConsistency, 0);
-  assert.ok(item.nameConsistency < LOW_NAME_CONSISTENCY_THRESHOLD);
+  assert.equal(item.contributingProjects.length, 2);
 
   // Direct score guard: stemming/vocab must not invent similarity across genuine different names.
   const s1 = nameSimilarity(targetName, candidateNames[0]);
@@ -1057,7 +1042,7 @@ test("GET-shared token must not inflate similarity across different deliverables
   );
 });
 
-test("Secondary-Steelwork-style names stay low similarity (flag still fires)", () => {
+test("Secondary-Steelwork-style names stay low on nameSimilarity helper while still pooling", () => {
   // Ceilings / Elevations / Partitions / Ambulance Bay Canopy pool taxonomically
   // under steelwork detailing but are semantically different names — flag must stay.
   const cluster = [
@@ -1113,13 +1098,11 @@ test("Secondary-Steelwork-style names stay low similarity (flag still fires)", (
   console.log(
     `[Secondary-Steelwork regression] pairwise=${scores
       .map((s) => `${s.a}↔${s.b}=${s.score.toFixed(3)}`)
-      .join(", ")}; nameConsistency=${item.nameConsistency?.toFixed(3)}, ` +
-      `lowNameConsistency=${item.lowNameConsistency}`
+      .join(", ")}`
   );
 
   assert.equal(item.statistics.available, true);
-  assert.equal(item.lowNameConsistency, true);
-  assert.ok(item.nameConsistency < LOW_NAME_CONSISTENCY_THRESHOLD);
+  assert.equal(item.contributingProjects.length, 3);
 });
 
 test("Phase 2: candidate with stored reasoned identity is preferred over rule-based", () => {

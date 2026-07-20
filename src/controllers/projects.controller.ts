@@ -304,6 +304,60 @@ const PROJECT_UNASSIGNED_FRAGNET_ID = "__project_unassigned__";
 const PROJECT_UNASSIGNED_FRAGNET_NAME = "Project-level deliverables";
 
 /** GET /projects/:id/full-data — nested view for read-only project viewer UI. */
+export async function getDashboardSummary(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const { id: projectId } = req.params as { id: string };
+    const membership = await requireProjectAccess(projectId, req.user, { adminOverride: true });
+    requirePermission(membership.role, "project", "read");
+
+    const companyId = req.user.companyId;
+    const whereProject = { projectId, companyId };
+
+    const [deliverablesCount, activitiesCount, deliverablesMissingDuration, lastSnapshot] =
+      await Promise.all([
+        prisma.deliverable.count({ where: whereProject }),
+        prisma.activity.count({ where: whereProject }),
+        prisma.deliverable.count({
+          where: {
+            ...whereProject,
+            bestDuration: { lte: 0 },
+            likelyDuration: { lte: 0 },
+          },
+        }),
+        prisma.programmeSnapshot.findFirst({
+          where: whereProject,
+          orderBy: { importedAt: "desc" },
+          select: { importedAt: true, sourceType: true, label: true },
+        }),
+      ]);
+
+    res.json({
+      deliverablesCount,
+      activitiesCount,
+      deliverablesMissingDuration,
+      lastImport: lastSnapshot
+        ? {
+            importedAt: lastSnapshot.importedAt.toISOString(),
+            sourceType: lastSnapshot.sourceType,
+            label: lastSnapshot.label,
+          }
+        : null,
+    });
+  } catch (err) {
+    const status = err && typeof err === "object" && "status" in err ? Number((err as any).status) : 500;
+    if (status === 403) {
+      res.status(403).json({ error: (err as Error).message || "Forbidden" });
+      return;
+    }
+    console.error(err);
+    res.status(500).json({ error: "Failed to load dashboard summary" });
+  }
+}
+
 export async function getFullData(req: AuthRequest, res: Response): Promise<void> {
   try {
     if (!req.user) {

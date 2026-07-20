@@ -94,6 +94,7 @@ router.post("/:projectId/intelligence/explain/validate", explanationController.p
 router.post("/:projectId/intelligence/explain", explanationController.postDeliverableExplanation);
 router.post("/:projectId/intelligence/ask-rana", askRanaController.postAskRana);
 router.get("/:projectId/programme-export", programmeIntelligenceController.exportProgrammeJson);
+router.get("/:id/dashboard-summary", projectsController.getDashboardSummary);
 router.get("/:id/full-data", projectsController.getFullData);
 router.get("/:id/suggested-activity-code", projectsController.getSuggestedActivityCode);
 router.get("/:id/activity-code-availability", projectsController.getActivityCodeAvailability);

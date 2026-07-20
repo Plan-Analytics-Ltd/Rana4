@@ -161,10 +161,7 @@ export type HistoricalDurationItem = {
     matchedDeliverableName: string;
     fragnetName: string | null;
     planningDurationDays: number;
-    nameSimilarity: number;
   }>;
-  nameConsistency: number | null;
-  lowNameConsistency: boolean;
   projectDiagnostics: Array<{
     projectId: string;
     projectName: string;
@@ -896,14 +893,7 @@ export function computeStrictOriginalDurationItems(
       matchedDeliverableName: sample.matchedDeliverableName,
       fragnetName: sample.fragnetName,
       planningDurationDays: sample.durationDays,
-      nameSimilarity: nameSimilarity(target.name, sample.matchedDeliverableName),
     }));
-    const nameConsistency =
-      contributingProjects.length > 0
-        ? Math.min(...contributingProjects.map((project) => project.nameSimilarity))
-        : null;
-    const lowNameConsistency =
-      nameConsistency != null && nameConsistency < LOW_NAME_CONSISTENCY_THRESHOLD;
 
     return {
       key: target.key,
@@ -914,8 +904,6 @@ export function computeStrictOriginalDurationItems(
       statistics,
       comparisonBasis: comparisonBasisUsed,
       contributingProjects,
-      nameConsistency,
-      lowNameConsistency,
       projectDiagnostics: consideredProjects.map((project) => ({
         projectId: project.projectId,
         projectName: project.projectName,

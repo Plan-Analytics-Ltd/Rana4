@@ -803,6 +803,17 @@ export type ActivityCodeAvailability = {
   suggestedCode: string | null;
 };
 
+export type ProjectDashboardSummary = {
+  deliverablesCount: number;
+  activitiesCount: number;
+  deliverablesMissingDuration: number;
+  lastImport: {
+    importedAt: string;
+    sourceType: string;
+    label: string | null;
+  } | null;
+};
+
 export const projectsApi = {
   listMine: () => api.get<Project[]>("/projects"),
   create: (data: { name: string }) => api.post<Project>("/projects", data),
@@ -867,6 +878,8 @@ export const projectsApi = {
       `/projects/${encodeURIComponent(projectId)}/activity-code-availability`,
       { params }
     ),
+  getDashboardSummary: (projectId: string) =>
+    api.get<ProjectDashboardSummary>(`/projects/${encodeURIComponent(projectId)}/dashboard-summary`),
 };
 
 export type IntelligenceFinding = {
@@ -1946,8 +1959,6 @@ export type DeliverableDurationStatistics = {
   maximumDays: number | null;
 };
 
-export const LOW_NAME_CONSISTENCY_THRESHOLD = 0.3;
-
 export type DeliverableDurationStatisticsItem = {
   key: string;
   deliverableId: string | null;
@@ -1962,10 +1973,7 @@ export type DeliverableDurationStatisticsItem = {
     matchedDeliverableName: string;
     fragnetName: string | null;
     planningDurationDays: number;
-    nameSimilarity: number;
   }>;
-  nameConsistency: number | null;
-  lowNameConsistency: boolean;
   projectDiagnostics: Array<{
     projectId: string;
     projectName: string;
@@ -2039,6 +2047,13 @@ export type AssuranceNote = {
   createdAt: string;
 };
 
+export type AuditLogSummaryItem = {
+  id: string;
+  createdAt: string;
+  actorDisplayName: string;
+  actionPhrase: string;
+};
+
 export type AuditLogItem = {
   id: string;
   userId: string;
@@ -2070,6 +2085,15 @@ export const auditLogsApi = {
         entityId: params?.entityId?.trim() || undefined,
         limit: params?.limit,
         cursor: params?.cursor ?? undefined,
+      },
+    }),
+  listSummary: (params?: { projectId?: string; limit?: number; cursor?: string | null }) =>
+    api.get<{ items: AuditLogSummaryItem[]; nextCursor: string | null }>("/audit-logs", {
+      params: {
+        projectId: requireProjectId(params?.projectId),
+        limit: params?.limit,
+        cursor: params?.cursor ?? undefined,
+        view: "summary",
       },
     }),
 };

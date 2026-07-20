@@ -5,6 +5,7 @@ import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
 import { isDevPanelEmail } from "../utils/devPanelAccess.js";
 import { searchImmutableAuditLogs, type ImmutableAuditSearchFilters } from "../services/audit/immutableAudit.service.js";
+import { enrichAuditLogsForSummary } from "../services/audit/auditLogPresentation.service.js";
 
 function parseLimit(limitRaw: unknown): number {
   const n = typeof limitRaw === "string" ? Number(limitRaw) : Number.NaN;
@@ -88,6 +89,7 @@ export async function list(req: AuthRequest, res: Response): Promise<void> {
     const entityId = typeof req.query.entityId === "string" ? req.query.entityId.trim() : "";
     const cursor = typeof req.query.cursor === "string" ? req.query.cursor.trim() : "";
     const limit = parseLimit(req.query.limit);
+    const view = typeof req.query.view === "string" ? req.query.view.trim().toLowerCase() : "";
 
     const rows = await prisma.auditLog.findMany({
       where: {
@@ -106,6 +108,11 @@ export async function list(req: AuthRequest, res: Response): Promise<void> {
     const hasMore = rows.length > limit;
     const items = hasMore ? rows.slice(0, limit) : rows;
     const nextCursor = hasMore ? items[items.length - 1]?.id ?? null : null;
+
+    if (view === "summary") {
+      res.json({ items: await enrichAuditLogsForSummary(items), nextCursor });
+      return;
+    }
 
     res.json({ items, nextCursor });
   } catch (err) {

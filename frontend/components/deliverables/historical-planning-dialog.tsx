@@ -7,7 +7,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { DeliverableDurationStatisticsItem } from "@/lib/api";
-import { LOW_NAME_CONSISTENCY_THRESHOLD } from "@/lib/api";
 
 type Props = {
   open: boolean;
@@ -27,10 +26,6 @@ function formatDays(value: number | null): string {
   return `${Math.max(1, Math.round(value))} days`;
 }
 
-function formatSimilarity(value: number): string {
-  return `${Math.round(value * 100)}%`;
-}
-
 export function HistoricalPlanningDialog({
   open,
   onOpenChange,
@@ -38,7 +33,6 @@ export function HistoricalPlanningDialog({
   history,
 }: Props) {
   const projects = history?.contributingProjects ?? [];
-  const showDiagnostics = process.env.NODE_ENV !== "production";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -75,20 +69,7 @@ export function HistoricalPlanningDialog({
                     ) : null}
                     <dt className="text-slate-500">Deliverable</dt>
                     <dd className="text-slate-800 dark:text-slate-200">
-                      <span>{project.matchedDeliverableName}</span>
-                      {typeof project.nameSimilarity === "number" ? (
-                        <span
-                          className={
-                            project.nameSimilarity < LOW_NAME_CONSISTENCY_THRESHOLD
-                              ? "ml-2 text-xs font-medium text-amber-700 dark:text-amber-300"
-                              : "ml-2 text-xs text-slate-500 dark:text-slate-400"
-                          }
-                        >
-                          {project.nameSimilarity < LOW_NAME_CONSISTENCY_THRESHOLD
-                            ? `low similarity (${formatSimilarity(project.nameSimilarity)})`
-                            : `${formatSimilarity(project.nameSimilarity)} name match`}
-                        </span>
-                      ) : null}
+                      {project.matchedDeliverableName}
                     </dd>
                     <dt className="text-slate-500">Planning</dt>
                     <dd className="font-medium text-slate-900 dark:text-white">
@@ -118,39 +99,6 @@ export function HistoricalPlanningDialog({
               ))}
             </dl>
           </div>
-
-          {showDiagnostics && (history?.projectDiagnostics.length ?? 0) > 0 ? (
-            <details className="rounded-md border border-dashed border-slate-300 p-3 dark:border-slate-700">
-              <summary className="cursor-pointer text-sm font-medium text-slate-700 dark:text-slate-200">
-                Why these projects?
-              </summary>
-              <div className="mt-3 space-y-3">
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                  Projects considered
-                </p>
-                <ul className="divide-y divide-slate-200 text-sm dark:divide-slate-700">
-                  {history?.projectDiagnostics.map((project) => {
-                    const reason =
-                      project.reason === "USED"
-                        ? "Used — equivalent work with a planning duration"
-                        : project.reason === "NO_EQUIVALENT_DELIVERABLE"
-                          ? `No equivalent ${deliverableName} found`
-                          : project.reason === "NO_PLANNING_DURATION"
-                            ? "Equivalent work found, but no planning duration was available"
-                            : "Not used because a closer comparison was available";
-                    return (
-                      <li key={project.projectId} className="py-2">
-                        <p className="font-medium text-slate-800 dark:text-slate-100">
-                          {project.used ? "✓" : "✕"} {project.projectName}
-                        </p>
-                        <p className="mt-0.5 text-xs text-slate-500">{reason}</p>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            </details>
-          ) : null}
         </div>
       </DialogContent>
     </Dialog>

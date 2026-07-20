@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Loader2, AlertTriangle } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -432,33 +432,19 @@ export default function DeliverablesPage() {
     const unavailableMessage = history?.unavailableReason
       ? "No planning information from previous projects is available yet for this deliverable."
       : undefined;
-    const lowNameConsistency = history?.lowNameConsistency === true;
-    const nameConsistencyTooltip = lowNameConsistency
-      ? "These figures blend differently-named work — review before relying on them."
-      : undefined;
     const renderValue = (value: number | null | undefined) => {
       if (durationHistoryLoading) {
         return <span className="block h-4 w-8 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />;
       }
       if (!history?.statistics.available) return "—";
       return (
-        <span className="inline-flex items-center gap-1">
-          <button
-            type="button"
-            className="font-medium underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
-            onClick={() => setSelectedHistory({ deliverableName: d.name, history })}
-          >
-            {formatHistoryDays(value)}
-          </button>
-          {lowNameConsistency ? (
-            <span title={nameConsistencyTooltip}>
-              <AlertTriangle
-                className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400"
-                aria-label={nameConsistencyTooltip}
-              />
-            </span>
-          ) : null}
-        </span>
+        <button
+          type="button"
+          className="font-medium underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+          onClick={() => setSelectedHistory({ deliverableName: d.name, history })}
+        >
+          {formatHistoryDays(value)}
+        </button>
       );
     };
     return (
