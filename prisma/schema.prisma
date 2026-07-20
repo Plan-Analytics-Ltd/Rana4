@@ -101,6 +101,8 @@ model Company {
   recommendationProfiles       RecommendationProfile[]
   intelligenceTrustProfiles    IntelligenceTrustProfile[]
   engineeringKnowledgeEntries  EngineeringKnowledgeEntry[]
+  engineeringRuleProposals     EngineeringRuleProposal[]
+  engineeringLearnedRules      EngineeringLearnedRule[]
   relationships                     Relationship[]
   deliverableRelationships          DeliverableRelationship[]
   deliverableActivityRelationships  DeliverableActivityRelationship[]
@@ -1106,4 +1108,53 @@ model EngineeringKnowledgeEntry {
   @@unique([companyId, fingerprint])
   @@index([companyId, status])
   @@map("engineering_knowledge_entries")
+}
+
+model EngineeringRuleProposal {
+  id                String   @id @default(cuid())
+  companyId         String   @map("company_id")
+  /// OBJECT | WORK | DISCIPLINE_OBJECT_FALLBACK | DELIVERABLE_TYPE
+  kind              String   @db.VarChar(32)
+  /// The id this proposal would create/extend, e.g. "combined_mep" or an
+  /// existing id it adds a new pattern to, e.g. "mechanical"
+  targetId          String   @map("target_id") @db.VarChar(64)
+  targetLabel       String   @map("target_label") @db.VarChar(128)
+  /// The regex/keyword pattern being proposed
+  proposedPattern   String   @map("proposed_pattern") @db.Text
+  /// Human-readable evidence summary shown in the review UI
+  rationale         String   @db.Text
+  supportingFingerprints Json @default("[]") @map("supporting_fingerprints")
+  occurrences       Int      @map("occurrences")
+  projectCount      Int      @map("project_count")
+  confirmedDecisionCount Int @map("confirmed_decision_count")
+  consistency       Float    // 0..1, share of occurrences resolving the same way
+  confidenceScore   Float    @map("confidence_score")
+  status            String   @default("PENDING") @db.VarChar(16) // PENDING | APPROVED | REJECTED
+  reviewedBy        String?  @map("reviewed_by") @db.VarChar(255)
+  reviewNotes       String?  @map("review_notes") @db.Text
+  createdAt         DateTime @default(now()) @map("created_at")
+  reviewedAt        DateTime? @map("reviewed_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, kind, targetId, proposedPattern])
+  @@index([companyId, status])
+  @@map("engineering_rule_proposals")
+}
+
+model EngineeringLearnedRule {
+  id              String   @id @default(cuid())
+  companyId       String   @map("company_id")
+  kind            String   @db.VarChar(32)
+  targetId        String   @map("target_id") @db.VarChar(64)
+  targetLabel     String   @map("target_label") @db.VarChar(128)
+  pattern         String   @db.Text
+  sourceProposalId String  @map("source_proposal_id")
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, kind, active])
+  @@map("engineering_learned_rules")
 }

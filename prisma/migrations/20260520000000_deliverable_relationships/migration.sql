@@ -1,9 +1,9 @@
 -- CreateTable
 CREATE TABLE "deliverable_relationships" (
-    "id" UUID NOT NULL,
-    "fragnet_id" UUID NOT NULL,
-    "predecessor_deliverable_id" UUID NOT NULL,
-    "successor_deliverable_id" UUID NOT NULL,
+    "id" TEXT NOT NULL,
+    "fragnet_id" TEXT NOT NULL,
+    "predecessor_deliverable_id" TEXT NOT NULL,
+    "successor_deliverable_id" TEXT NOT NULL,
     "relationship_type" "RelationshipType" NOT NULL,
     "lag" INTEGER NOT NULL DEFAULT 0,
     "project_id" TEXT NOT NULL,
