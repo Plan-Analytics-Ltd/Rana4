@@ -21,14 +21,14 @@
 7. **Complexity bonuses** — reward logic density, WBS breadth/depth, and workstreams for programmes 100+ activities
 8. **Confidence** — high confidence requires multi-source agreement and wider score margins
 
-## Post-calibration (REDACTED-SITE baseline)
+## Post-calibration (synthetic healthcare baseline)
 
 | Field | Result |
 |-------|--------|
-| Project name | ✓ REDACTED-SITE Emergency Care Building (from filename composition) |
+| Project name | ✓ Northvale Emergency Care Wing (from filename composition) |
 | Project type | ✓ Healthcare |
-| Client | ⚠ Partial — no explicit client in civils XER (correct behaviour) |
-| Stage | ✓ Construction |
-| Complexity | ✓ Very High (88/100) |
+| Client | ⚠ Partial — no explicit client in baseline civils XER (correct behaviour) |
+| Stage | ✓ Detailed Design |
+| Complexity | ✓ High (59/100 at ~550 activities) |
 
 Client remains unknown unless NHS/client text appears in the programme — by design.

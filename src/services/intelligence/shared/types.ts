@@ -25,6 +25,8 @@ export type ImportedActivityRow = {
   freeFloatDays?: number;
   isCritical?: boolean;
   status?: string;
+  /** Raw Primavera TASK.task_type (e.g. TT_Task, TT_Rsrc, TT_FinMile). */
+  p6TaskType?: string;
   classificationTags?: Record<string, string>;
 };
 

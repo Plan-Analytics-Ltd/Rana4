@@ -13,7 +13,6 @@ import { usePathname } from "next/navigation";
 import { GlobalAskRanaFloating } from "@/components/ask-rana/global-ask-rana-assistant";
 import { detectAskRanaPageContext, type AskRanaPageContext } from "@/lib/ask-rana-page-context";
 import { useProject } from "@/contexts/project-context";
-import { useIntelligenceDrawerOptional } from "@/contexts/intelligence-drawer-context";
 import { useAskRanaChat } from "@/hooks/use-ask-rana-chat";
 
 type DeliverableFocus = {
@@ -23,7 +22,6 @@ type DeliverableFocus = {
 
 type AskRanaContextValue = {
   open: boolean;
-  intelligenceDrawerOpen: boolean;
   openAssistant: () => void;
   closeAssistant: () => void;
   toggleAssistant: () => void;
@@ -37,23 +35,15 @@ const AskRanaContext = createContext<AskRanaContextValue | null>(null);
 export function AskRanaProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { selectedProjectId } = useProject();
-  const drawer = useIntelligenceDrawerOptional();
   const [open, setOpen] = useState(false);
   const [deliverableFocus, setDeliverableFocusState] = useState<DeliverableFocus>(null);
-
-  const intelligenceDrawerOpen = !!drawer?.state;
 
   const setDeliverableFocus = useCallback((focus: DeliverableFocus) => {
     setDeliverableFocusState(focus);
   }, []);
 
-  // Drawer open → deliverable context; drawer closed → programme-level (unless explicit page focus).
-  const activeDeliverableId = intelligenceDrawerOpen
-    ? drawer?.state?.deliverableId ?? null
-    : deliverableFocus?.deliverableId ?? null;
-  const activeDeliverableName = intelligenceDrawerOpen
-    ? drawer?.state?.deliverableName ?? null
-    : deliverableFocus?.deliverableName ?? null;
+  const activeDeliverableId = deliverableFocus?.deliverableId ?? null;
+  const activeDeliverableName = deliverableFocus?.deliverableName ?? null;
 
   const pageContext = useMemo(
     () =>
@@ -61,18 +51,15 @@ export function AskRanaProvider({ children }: { children: ReactNode }) {
         pathname: pathname ?? "/app",
         deliverableId: activeDeliverableId,
         deliverableName: activeDeliverableName,
-        intelligenceDrawerOpen,
       }),
-    [pathname, activeDeliverableId, activeDeliverableName, intelligenceDrawerOpen]
+    [pathname, activeDeliverableId, activeDeliverableName]
   );
-
-  const chatActive = open || intelligenceDrawerOpen;
 
   const chat = useAskRanaChat({
     projectId: selectedProjectId,
     pageContext,
-    enabled: chatActive,
-    loadDeliverableData: !!pageContext.deliverableId && chatActive,
+    enabled: open,
+    loadDeliverableData: !!pageContext.deliverableId && open,
   });
 
   const openAssistant = useCallback(() => setOpen(true), []);
@@ -82,7 +69,6 @@ export function AskRanaProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       open,
-      intelligenceDrawerOpen,
       openAssistant,
       closeAssistant,
       toggleAssistant,
@@ -92,7 +78,6 @@ export function AskRanaProvider({ children }: { children: ReactNode }) {
     }),
     [
       open,
-      intelligenceDrawerOpen,
       openAssistant,
       closeAssistant,
       toggleAssistant,
@@ -111,7 +96,6 @@ export function AskRanaProvider({ children }: { children: ReactNode }) {
           onOpenChange={setOpen}
           pageContext={pageContext}
           chat={chat}
-          intelligenceDrawerOpen={intelligenceDrawerOpen}
         />
       ) : null}
     </AskRanaContext.Provider>
@@ -138,7 +122,7 @@ export function useRegisterAskRanaDeliverable(args: {
   const { deliverableId, deliverableName, enabled = true } = args;
 
   useEffect(() => {
-    if (!ctx || !enabled || !deliverableId || ctx.intelligenceDrawerOpen) return;
+    if (!ctx || !enabled || !deliverableId) return;
     ctx.setDeliverableFocus({ deliverableId, deliverableName });
     return () => ctx.setDeliverableFocus(null);
   }, [ctx, deliverableId, deliverableName, enabled]);

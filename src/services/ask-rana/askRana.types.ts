@@ -32,6 +32,12 @@ export type AskRanaDeliverableContext = {
   currentDurationDays: number | null;
 };
 
+export type AskRanaLinkedActivityContext = {
+  activityCode: string;
+  name: string;
+  p6TaskType: string | null;
+};
+
 export type AskRanaPreviousProjectsContext = {
   available: boolean;
   currentDurationDays: number | null;
@@ -83,6 +89,8 @@ export type AskRanaProjectEvolutionContext = {
     durationChangeDays: number | null;
   }>;
   showFullTimeline: boolean;
+  /** True when only the Baseline programme has been imported — no updates to compare yet. */
+  baselineOnly?: boolean;
 };
 
 export type AskRanaProgrammeLogicContext = {
@@ -137,9 +145,19 @@ export type AskRanaTrustContext = {
   summary: string | null;
 };
 
+export type AskRanaProjectIntelligenceContext = {
+  available: boolean;
+  overallAssessment: string | null;
+  facts: string[];
+};
+
 export type AskRanaEvidencePackage = {
   deliverable: AskRanaDeliverableContext;
+  /** Live activities for the deliverable — Primavera task type metadata for future reasoning. */
+  linkedActivities?: AskRanaLinkedActivityContext[];
   plannerQuery?: PlannerQuery;
+  /** Programme-level aggregation — Ask Rana reasons over this before deliverable drill-down. */
+  projectIntelligence: AskRanaProjectIntelligenceContext | null;
   previousProjects: AskRanaPreviousProjectsContext | null;
   projectEvolution: AskRanaProjectEvolutionContext | null;
   programmeLogic: AskRanaProgrammeLogicContext | null;

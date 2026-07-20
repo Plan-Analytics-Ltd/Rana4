@@ -1,7 +1,12 @@
 import { getDeliverableIntelligenceAnalysis } from "../intelligence/orchestration/intelligenceOrchestrator.service.js";
+import { prisma } from "../../utils/prisma.js";
 import { getDeliverableProjectEvolution } from "../intelligence/shared/deliverableProjectEvolution.service.js";
 import { getSimilarProjects } from "../intelligence/shared/similarity.service.js";
 import { listLessonsLearned } from "../intelligence/learning/lessonsLearned.service.js";
+import {
+  getProjectIntelligence,
+  projectIntelligenceToAskRanaFacts,
+} from "../intelligence/project/projectIntelligence.service.js";
 import { formatClassificationLabel } from "../intelligence/shared/durationEvidence.service.js";
 import { trustBandLabel } from "../intelligence/trust/intelligenceTrust.service.js";
 import { resolveEvidenceDomains } from "./askRanaEvidenceScopeResolver.service.js";
@@ -12,12 +17,54 @@ import type {
   AskRanaEvidencePackage,
   AskRanaRequest,
 } from "./askRana.types.js";
+import { humanizeBaselineOnlyGap, baselineOnlyPrimaryMessage } from "./askRanaBaselineOnlyConversation.service.js";
+import {
+  buildPlannerRevisionStoryLabel,
+  computeLiveUpdateIndices,
+} from "../intelligence/shared/programmeIdentity.service.js";
 
 function humanRole(role: string | null): string {
   if (role === "BASELINE") return "Baseline";
   if (role === "AS_BUILT") return "As-built";
   if (role === "LIVE_IMPORT") return "Programme update";
   return role?.replace(/_/g, " ") ?? "Update";
+}
+
+/** One canonical story label per revision — never duplicate as "Latest Update" and "Update N". */
+function buildCanonicalRevisionLabels(
+  revisions: Array<{ role: string | null; programmeState: string | null; label: string }>
+): { labels: string[]; aliasToCanonical: Map<string, string> } {
+  const liveIndices = computeLiveUpdateIndices(
+    revisions.map((r) => ({
+      snapshotRole: r.role,
+      programmeState: r.programmeState,
+    }))
+  );
+  const labels = revisions.map((rev, index) => {
+    const meta = liveIndices.get(index) ?? null;
+    return buildPlannerRevisionStoryLabel({
+      snapshotRole: rev.role,
+      programmeState: rev.programmeState,
+      liveUpdateIndex: meta?.index ?? null,
+      isLatestLiveUpdate: meta?.isLatest ?? false,
+      totalLiveUpdates: meta?.total ?? 0,
+    });
+  });
+  const aliasToCanonical = new Map<string, string>();
+  for (let i = 0; i < revisions.length; i++) {
+    const raw = revisions[i]!.label.trim();
+    const canonical = labels[i]!;
+    if (raw && raw !== canonical) aliasToCanonical.set(raw, canonical);
+  }
+  const latestCanonical = labels[labels.length - 1];
+  if (latestCanonical) {
+    aliasToCanonical.set("Latest Update", latestCanonical);
+  }
+  return { labels, aliasToCanonical };
+}
+
+function canonicalRevisionLabel(label: string, aliasToCanonical: Map<string, string>): string {
+  return aliasToCanonical.get(label) ?? label;
 }
 
 function humanTrend(trend: string | null): string | null {
@@ -90,8 +137,10 @@ export async function buildAskRanaEvidencePackage(
     !projectScope && (domains.includes("projectEvolution") || domains.includes("programmeLogic"));
   const needsLessons = domains.includes("lessonsLearned");
   const needsSimilar = domains.includes("similarProjects") || projectScope;
+  // Always load project intelligence so Rana has programme-level context first.
+  const needsProjectIntelligence = true;
 
-  const [analysis, evolution, lessons, similarProjects] = await Promise.all([
+  const [analysis, evolution, lessons, similarProjects, projectIntelligence] = await Promise.all([
     needsAnalysis
       ? getDeliverableIntelligenceAnalysis({
           projectId: request.projectId,
@@ -115,6 +164,12 @@ export async function buildAskRanaEvidencePackage(
           limit: 8,
         }).catch(() => null)
       : Promise.resolve(null),
+    needsProjectIntelligence
+      ? getProjectIntelligence({
+          projectId: request.projectId,
+          companyId: request.companyId,
+        }).catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   const deliverableName = projectScope
@@ -123,13 +178,30 @@ export async function buildAskRanaEvidencePackage(
   const classification = analysis?.deliverable.classification
     ? formatClassificationLabel(String(analysis.deliverable.classification))
     : null;
+  // Planned duration only — never fall back to evolution remaining-work series.
   const currentDurationDays =
     analysis?.durationView?.current.durationDays ??
     analysis?.currentDurationDays ??
     evolution?.durationView?.current.durationDays ??
-    evolution?.projectEvolutionIntelligence?.latest ??
-    evolution?.evolution.finalDuration ??
     null;
+
+  const linkedActivities = deliverableId
+    ? (
+        await prisma.activity.findMany({
+          where: {
+            deliverableId,
+            projectId: request.projectId,
+            companyId: request.companyId,
+          },
+          select: { activityCode: true, name: true, p6TaskType: true },
+          orderBy: { activityCode: "asc" },
+        })
+      ).map((a) => ({
+        activityCode: a.activityCode,
+        name: a.name,
+        p6TaskType: a.p6TaskType,
+      }))
+    : undefined;
 
   const pkg: AskRanaEvidencePackage = {
     deliverable: {
@@ -137,7 +209,15 @@ export async function buildAskRanaEvidencePackage(
       classification,
       currentDurationDays,
     },
+    linkedActivities,
     plannerQuery,
+    projectIntelligence: projectIntelligence
+      ? {
+          available: true,
+          overallAssessment: projectIntelligence.overallAssessment,
+          facts: projectIntelligenceToAskRanaFacts(projectIntelligence),
+        }
+      : null,
     previousProjects: null,
     projectEvolution: null,
     programmeLogic: null,
@@ -204,36 +284,46 @@ export async function buildAskRanaEvidencePackage(
       evidenceGaps.push("Open a deliverable to ask about its revision history on this project.");
     } else if (evolution && evolution.revisions.length > 0) {
       const intel = evolution.projectEvolutionIntelligence;
+      const baselineOnly = evolution.revisions.length === 1;
       const q = request.question.toLowerCase();
       const showFullTimeline = /\b(revision history|show timeline|show me the timeline|timeline)\b/.test(q);
+      const { labels: canonicalLabels, aliasToCanonical } = buildCanonicalRevisionLabels(
+        evolution.revisions
+      );
+      const canon = (label: string) => canonicalRevisionLabel(label, aliasToCanonical);
       pkg.projectEvolution = {
         available: true,
         revisionCount: evolution.revisions.length,
-        summary: intel.summary,
+        baselineOnly,
+        summary: baselineOnly ? baselineOnlyPrimaryMessage(pkg) : intel.summary,
         baselineDays: intel.baseline,
         latestDays: intel.latest,
         netChangeDays: intel.netChange,
-        trend: humanTrend(intel.trend),
-        changePattern: intel.changePattern,
-        volatility: intel.volatility,
-        howChangedSummary: intel.howChangedSummary,
-        timelineHighlights: intel.timelineHighlights,
-        plannerObservations: intel.plannerObservations,
+        trend: baselineOnly ? null : humanTrend(intel.trend),
+        changePattern: baselineOnly ? null : intel.changePattern,
+        volatility: baselineOnly ? null : intel.volatility,
+        howChangedSummary: baselineOnly ? null : intel.howChangedSummary,
+        timelineHighlights: baselineOnly ? [] : intel.timelineHighlights,
+        plannerObservations: baselineOnly
+          ? []
+          : intel.plannerObservations.filter(
+              (obs) => !/\b(only one programme revision|more updates are needed)\b/i.test(obs)
+            ),
         revisionHighlights: intel.revisionHighlights.map((h) => ({
-          label: h.revisionLabel,
+          label: canon(h.revisionLabel),
           role: evolution.revisions[h.revisionIndex]?.role ?? h.role,
           durationDays: h.durationDays,
           changeDays: h.durationChangeDays,
           reason: h.highlightReason,
         })),
         stablePeriods: intel.stablePeriods.map((p) => ({
-          startLabel: p.startLabel,
-          endLabel: p.endLabel,
+          startLabel: canon(p.startLabel),
+          endLabel: canon(p.endLabel),
           durationDays: p.durationDays,
           revisionCount: p.revisionCount,
         })),
-        revisions: evolution.revisions.map((r) => ({
-          label: r.label,
+        revisions: evolution.revisions.map((r, i) => ({
+          label: canonicalLabels[i]!,
           role: humanRole(r.role),
           importedAt: r.importedAt,
           durationDays: r.durationDays,
@@ -242,20 +332,26 @@ export async function buildAskRanaEvidencePackage(
         showFullTimeline,
       };
     } else {
-      evidenceGaps.push("No revision history on this project yet.");
+      evidenceGaps.push(
+        humanizeBaselineOnlyGap("No revision history on this project yet.")
+      );
     }
   }
 
   if (domains.includes("programmeLogic")) {
     if (projectScope) {
       evidenceGaps.push("Open a deliverable to ask about programme logic, float, or relationships.");
+    } else if (evolution && evolution.revisions.length === 1) {
+      // Baseline only — no programme updates to compare logic against yet.
     } else if (evolution?.programmeLogicEvolution?.length) {
       const hasEvents = evolution.programmeLogicEvolution.some((r) => r.events.length > 0);
+      const { aliasToCanonical } = buildCanonicalRevisionLabels(evolution.revisions);
+      const canon = (label: string) => canonicalRevisionLabel(label, aliasToCanonical);
       pkg.programmeLogic = {
         available: hasEvents || evolution.programmeLogicSummary != null,
         summary: evolution.programmeLogicSummary,
         revisions: evolution.programmeLogicEvolution.map((r) => ({
-          label: r.revisionLabel,
+          label: canon(r.revisionLabel),
           relationshipCount: r.relationshipCount,
           relationshipCountChange: r.relationshipCountChange,
           events: r.events.slice(0, 12).map((e) => ({
@@ -269,7 +365,9 @@ export async function buildAskRanaEvidencePackage(
         })),
       };
     } else {
-      evidenceGaps.push("No programme logic revision history available for this deliverable.");
+      evidenceGaps.push(
+        humanizeBaselineOnlyGap("No programme logic revision history available for this deliverable.")
+      );
     }
   }
 

@@ -9,7 +9,15 @@ const WBS_NAME_MAX_LEN = 100;
 
 /** Trim, collapse spaces, cap length (preserves prefixes/codes; no aggressive shortening). */
 export function sanitizeWbsName(name: string): string {
-  const collapsed = String(name).trim().replace(/\s+/g, " ");
+  const collapsed = String(name)
+    .trim()
+    .replace(/\u2014/g, "--")
+    .replace(/\u2013/g, "-")
+    .replace(/\u2212/g, "-")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/\u00A0/g, " ")
+    .replace(/\s+/g, " ");
   if (collapsed.length <= WBS_NAME_MAX_LEN) return collapsed;
   return collapsed.slice(0, WBS_NAME_MAX_LEN).replace(/\s+$/g, "").trim();
 }

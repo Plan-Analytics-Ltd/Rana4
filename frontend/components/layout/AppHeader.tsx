@@ -10,8 +10,6 @@ import { useSearch } from "@/contexts/search-context";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { IntelligenceModeToggle } from "@/components/layout/IntelligenceModeToggle";
-import { useIntelligenceMode } from "@/contexts/intelligence-mode-context";
 
 function getBreadcrumbs(pathname: string): { label: string; href: string }[] {
   if (pathname === "/app") return [{ label: "Dashboard", href: "/app" }];
@@ -34,8 +32,6 @@ const pageTitles: Record<string, string> = {
   "/app/activities": "Activities",
   "/app/activity-codes": "Activity codes",
   "/app/deliverables": "Deliverables",
-  "/app/intelligence": "What We've Learned",
-  "/app/intelligence/comparison": "Project Comparison",
   "/app/export": "Export",
   "/app/import": "Import",
   "/app/schedule": "Planning Workspace",
@@ -48,19 +44,9 @@ export function AppHeader() {
   const { user, logout } = useAuth();
   const { projects, selectedProjectId, setSelectedProjectId, loading: projectsLoading } = useProject();
   const { query, setQuery, clear } = useSearch();
-  const { isIntelligenceMode } = useIntelligenceMode();
   const breadcrumbs = pathname.startsWith("/app") ? getBreadcrumbs(pathname) : [];
-  const pageTitle = isIntelligenceMode
-    ? pathname === "/app/schedule"
-      ? "Project Evolution"
-      : pathname === "/app/import"
-        ? "Imports"
-        : pathname === "/app/deliverables"
-          ? "Deliverable Analysis"
-          : pathname === "/app/intelligence/comparison"
-            ? "Project Comparison"
-            : pageTitles[pathname] ?? breadcrumbs[breadcrumbs.length - 1]?.label ?? "Rana4"
-    : pathname === "/app/schedule"
+  const pageTitle =
+    pathname === "/app/schedule"
       ? "Planning Workspace"
       : pageTitles[pathname] ?? breadcrumbs[breadcrumbs.length - 1]?.label ?? "Rana4";
 
@@ -85,8 +71,6 @@ export function AppHeader() {
               </span>
             ))}
           </nav>
-          <div className="hidden h-8 w-px shrink-0 bg-slate-200 sm:block dark:bg-slate-700" aria-hidden />
-          <IntelligenceModeToggle />
         </div>
 
         <div className="flex min-w-0 flex-wrap items-center gap-3 lg:gap-4">
@@ -130,7 +114,7 @@ export function AppHeader() {
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={isIntelligenceMode ? "Search intelligence workspace…" : "Search by ID or name…"}
+              placeholder="Search by ID or name…"
               className="h-10 pl-10 pr-10"
               aria-label={`Search ${pageTitle}`}
             />

@@ -269,6 +269,7 @@ type FullDataActivity = {
   name: string;
   bestDuration: number;
   likelyDuration: number;
+  p6TaskType?: string | null;
   assignedResources: unknown;
   isSharedAcrossDeliverables?: boolean;
   isInherited?: boolean;
@@ -357,6 +358,7 @@ export async function getFullData(req: AuthRequest, res: Response): Promise<void
         name: true,
         bestDuration: true,
         likelyDuration: true,
+        p6TaskType: true,
         assignedResources: true,
         fragnetId: true,
         deliverableId: true,
@@ -460,6 +462,7 @@ export async function getFullData(req: AuthRequest, res: Response): Promise<void
             name: String(a.name),
             bestDuration: Number(a.bestDuration ?? 1),
             likelyDuration: Number(a.likelyDuration ?? 1),
+            p6TaskType: a.p6TaskType ?? null,
             assignedResources: a.assignedResources,
             isSharedAcrossDeliverables: Boolean(a.isSharedAcrossDeliverables),
             isInherited: Boolean(a.isInherited),
@@ -493,6 +496,7 @@ export async function getFullData(req: AuthRequest, res: Response): Promise<void
                   name: String(a.name),
                   bestDuration: Number(a.bestDuration ?? 1),
                   likelyDuration: Number(a.likelyDuration ?? 1),
+                  p6TaskType: a.p6TaskType ?? null,
                   assignedResources: a.assignedResources,
                   isSharedAcrossDeliverables: Boolean(a.isSharedAcrossDeliverables),
                   isInherited: Boolean(a.isInherited),
@@ -679,6 +683,7 @@ export async function getFullData(req: AuthRequest, res: Response): Promise<void
             name: a.name,
             bestDuration: a.bestDuration,
             likelyDuration: a.likelyDuration,
+            p6TaskType: a.p6TaskType ?? null,
             assignedResources: a.assignedResources,
             isSharedAcrossDeliverables: a.isSharedAcrossDeliverables,
             isInherited: a.isInherited,

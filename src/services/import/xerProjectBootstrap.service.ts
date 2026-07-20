@@ -8,6 +8,11 @@ import {
   deliverableDurationFromActivities,
   type PlannedActivity,
 } from "./xerEntityPlan.service.js";
+import { captureBaselineSnapshotFromImport } from "../intelligence/shared/programmeSnapshotCapture.service.js";
+import {
+  buildRevisionDisplayLabel,
+  extractProgrammeNameFromXerBuffer,
+} from "../intelligence/shared/programmeIdentity.service.js";
 
 export type XerProjectDetails = {
   name: string;
@@ -21,6 +26,7 @@ export type XerProjectDetails = {
 export type XerProjectImportResult = {
   projectId: string;
   projectName: string;
+  baselineSnapshotId: string;
   created: {
     standards: number;
     fragnets: number;
@@ -165,6 +171,7 @@ export async function importProjectFromXer(
               totalFloat: a.totalFloatDays != null ? Math.round(a.totalFloatDays) : undefined,
               freeFloat: a.freeFloatDays != null ? Math.round(a.freeFloatDays) : undefined,
               isCritical: a.isCritical === true,
+              p6TaskType: a.p6TaskType?.trim().slice(0, 32) || undefined,
             },
           });
           activityByFragAndCode.set(`${normalize(frag.name)}||${normalize(a.activityCode)}`, {
@@ -244,6 +251,97 @@ export async function importProjectFromXer(
     });
   }
 
+  const programmeDisplayName =
+    extractProgrammeNameFromXerBuffer(buffer, fileName, nameStr) ?? nameStr;
+  const baselineLabel = buildRevisionDisplayLabel({
+    programmeDisplayName,
+    snapshotVersion: 1,
+    snapshotRole: "BASELINE",
+    fallbackLabel: nameStr,
+  });
+
+  const liveActivities = await prisma.activity.findMany({
+    where: { projectId: importResult.projectId, companyId },
+    select: {
+      id: true,
+      activityCode: true,
+      deliverableId: true,
+      fragnetId: true,
+      name: true,
+    },
+  });
+  const liveDeliverables = await prisma.deliverable.findMany({
+    where: { projectId: importResult.projectId, companyId },
+    select: { id: true, name: true },
+  });
+  const liveRelationships = await prisma.relationship.findMany({
+    where: { projectId: importResult.projectId, companyId },
+    include: {
+      predecessorActivity: { select: { activityCode: true } },
+      successorActivity: { select: { activityCode: true } },
+    },
+  });
+
+  const parsedByCode = new Map(
+    plan.parsed.activities.map((a) => [a.activityCode.trim().toUpperCase(), a])
+  );
+
+  const baselineActivities = liveActivities.map((live) => {
+    const row = parsedByCode.get(live.activityCode.trim().toUpperCase());
+    return {
+      activityCode: live.activityCode,
+      activityId: live.id,
+      deliverableId: live.deliverableId,
+      fragnetId: live.fragnetId,
+      name: row?.name ?? live.name,
+      originalDurationDays: row?.originalDurationDays,
+      remainingDurationDays: row?.remainingDurationDays,
+      actualDurationDays: row?.actualDurationDays,
+      percentComplete: row?.percentComplete,
+      startDate: row?.startDate,
+      finishDate: row?.finishDate,
+      actualStart: row?.actualStart,
+      actualFinish: row?.actualFinish,
+      earlyStart: row?.earlyStart,
+      earlyFinish: row?.earlyFinish,
+      lateStart: row?.lateStart,
+      lateFinish: row?.lateFinish,
+      totalFloatDays: row?.totalFloatDays,
+      freeFloatDays: row?.freeFloatDays,
+      isCritical: row?.isCritical,
+      status: row?.status,
+      p6TaskType: row?.p6TaskType,
+    };
+  });
+
+  const baseline = await captureBaselineSnapshotFromImport({
+    projectId: importResult.projectId,
+    companyId,
+    userId,
+    label: baselineLabel,
+    sourceFileName: fileName,
+    programmeDisplayName,
+    scheduleDate: plan.scheduleStartDate,
+    activities: baselineActivities,
+    deliverables: liveDeliverables.map((d) => ({ name: d.name, deliverableId: d.id })),
+    relationships: liveRelationships.map((r) => ({
+      predecessorActivityCode: r.predecessorActivity.activityCode,
+      successorActivityCode: r.successorActivity.activityCode,
+      relationshipType: r.relationshipType,
+      lag: r.lag,
+      matchedRelationshipId: r.id,
+    })),
+    matchResult: {
+      matchedActivities: baselineActivities.length,
+      unmatchedActivityCodes: [],
+      matchedDeliverables: liveDeliverables.length,
+      unmatchedDeliverableNames: [],
+      matchedRelationships: liveRelationships.length,
+      unmatchedRelationships: 0,
+    },
+    metrics: plan.parsed.metrics,
+  });
+
   await auditLog({
     userId,
     companyId,
@@ -251,9 +349,9 @@ export async function importProjectFromXer(
     action: "CREATE_PROJECT_FROM_XER",
     entity: "Project",
     entityId: importResult.projectId,
-    details: { fileName, ...importResult.created },
+    details: { fileName, baselineSnapshotId: baseline.snapshotId, ...importResult.created },
   });
 
-  return importResult;
+  return { ...importResult, baselineSnapshotId: baseline.snapshotId };
   });
 }

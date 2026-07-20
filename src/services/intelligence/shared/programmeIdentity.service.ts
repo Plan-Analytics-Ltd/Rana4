@@ -74,7 +74,7 @@ export function extractProgrammeNameFromXerBuffer(
   return resolveCanonicalProgrammeName(sources);
 }
 
-export { buildPlannerRevisionStoryLabel, computeLiveUpdateIndices } from "./plannerLanguage.service.js";
+export { buildPlannerRevisionStoryLabel, computeLiveUpdateIndices, resolveLatestRevisionStoryLabel } from "./plannerLanguage.service.js";
 
 /** Planner-facing revision label: canonical programme name + story revision name. */
 export function buildRevisionDisplayLabel(args: {

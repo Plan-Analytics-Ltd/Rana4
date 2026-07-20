@@ -28,14 +28,14 @@ export function serializeAskRanaEvidenceForPrompt(
     parts.push(
       section("Previous completed projects", [
         p.comparisonAssessment ? `Assessment: ${p.comparisonAssessment}` : "",
-        p.typicalRangeLabel ? `Typical range on similar work: ${p.typicalRangeLabel}` : "",
-        p.typicalDurationDays != null ? `Typical duration: around ${p.typicalDurationDays} days` : "",
+        p.typicalRangeLabel ? `Typical planned duration range on similar work: ${p.typicalRangeLabel}` : "",
+        p.typicalDurationDays != null ? `Typical planned duration: around ${p.typicalDurationDays} days` : "",
         p.sampleSize > 0
           ? `Based on ${p.completedProjectCount} completed project${p.completedProjectCount === 1 ? "" : "s"} · ${p.sampleSize} comparable work package${p.sampleSize === 1 ? "" : "s"}`
           : "No completed projects available for comparison yet",
         ...p.comparableWork.slice(0, 6).map(
           (w) =>
-            `${w.deliverableName} on ${w.projectName}${w.durationDays != null ? ` — ${w.durationDays} days` : ""}`
+            `${w.deliverableName} on ${w.projectName}${w.durationDays != null ? ` — ${w.durationDays} days planned` : ""}`
         ),
         ...p.observations,
       ])
@@ -50,19 +50,19 @@ export function serializeAskRanaEvidenceForPrompt(
       section("This project's revisions", [
         e.summary ? `Summary: ${e.summary}` : "",
         e.baselineDays != null && e.latestDays != null
-          ? `Baseline ${e.baselineDays} days → latest ${e.latestDays} days${e.netChangeDays != null ? ` (net ${e.netChangeDays > 0 ? "+" : ""}${e.netChangeDays})` : ""}`
+          ? `Remaining work: baseline ${e.baselineDays} days → latest ${e.latestDays} days${e.netChangeDays != null ? ` (net ${e.netChangeDays > 0 ? "+" : ""}${e.netChangeDays})` : ""}`
           : "",
-        e.trend ? `Trend: ${e.trend}` : "",
+        e.trend ? `Remaining-work trend: ${e.trend}` : "",
         e.changePattern ? `Change pattern: ${e.changePattern}` : "",
         e.volatility ? `Volatility: ${e.volatility}` : "",
-        e.howChangedSummary ? `How it changed: ${e.howChangedSummary}` : "",
+        e.howChangedSummary ? `How remaining work changed: ${e.howChangedSummary}` : "",
         ...e.timelineHighlights,
         ...e.plannerObservations,
         ...e.revisionHighlights.map(
-          (h) => `${h.label}: ${h.durationDays} days${h.changeDays != null ? ` (${h.changeDays > 0 ? "+" : ""}${h.changeDays})` : ""} — ${h.reason}`
+          (h) => `${h.label}: ${h.durationDays} days remaining work${h.changeDays != null ? ` (${h.changeDays > 0 ? "+" : ""}${h.changeDays})` : ""} — ${h.reason}`
         ),
         ...e.stablePeriods.map(
-          (s) => `Stable at ${s.durationDays} days from ${s.startLabel} to ${s.endLabel} (${s.revisionCount} revisions)`
+          (s) => `Remaining work stable at ${s.durationDays} days from ${s.startLabel} to ${s.endLabel} (${s.revisionCount} revisions)`
         ),
       ])
     );
@@ -77,7 +77,7 @@ export function serializeAskRanaEvidenceForPrompt(
                 r.durationChangeDays != null && r.durationChangeDays !== 0
                   ? ` (${r.durationChangeDays > 0 ? "+" : ""}${r.durationChangeDays})`
                   : "";
-            return `${r.label}${r.role ? ` [${r.role}]` : ""}: ${r.durationDays ?? "—"} days${change}${date ? `, imported ${date}` : ""}`;
+            return `${r.label}${r.role ? ` [${r.role}]` : ""}: ${r.durationDays ?? "—"} days remaining work${change}${date ? `, imported ${date}` : ""}`;
           })
         )
       );

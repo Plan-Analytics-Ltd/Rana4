@@ -30,6 +30,11 @@ import {
 } from "../services/intelligence/recommendations/recommendationEngine.service.js";
 import { runPostImportLearningRefresh } from "../services/intelligence/learning/learningRefresh.service.js";
 import { buildOrganisationKnowledge } from "../services/intelligence/matching/organisationKnowledge.service.js";
+import {
+  buildOrganisationalMemoryPresentation,
+  getWorkPackageBrief,
+} from "../services/intelligence/presentation/organisationalMemoryPresentation.service.js";
+import { buildProgrammeReviewPresentation } from "../services/intelligence/presentation/programmeReviewPresentation.service.js";
 
 const INSIGHT_TYPES: LearnedInsightType[] = [
   "DURATION_OVERRUN",
@@ -412,6 +417,45 @@ export async function postRegenerateInsights(req: AuthRequest, res: Response): P
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err instanceof Error ? err.message : "Regeneration failed" });
+  }
+}
+
+/** GET /intelligence/organisational-memory — work-package-centric organisational memory for planners */
+export async function getOrganisationalMemory(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const report = await buildOrganisationalMemoryPresentation(req.user.companyId);
+    res.json(report);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to load organisational memory" });
+  }
+}
+
+/** GET /intelligence/work-package-brief/:key */
+export async function getWorkPackageBriefHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const key = decodeURIComponent(String(req.params.key ?? "").trim()).toLowerCase();
+    if (!key) {
+      res.status(400).json({ error: "Work package key is required" });
+      return;
+    }
+    const brief = await getWorkPackageBrief(req.user.companyId, key);
+    if (!brief) {
+      res.status(404).json({ error: "Work package not found in organisational memory" });
+      return;
+    }
+    res.json({ brief });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to load work package brief" });
   }
 }
 

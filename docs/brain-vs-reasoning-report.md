@@ -22,58 +22,58 @@ Read-only comparison report. No database writes. No changes recommended or appli
 
 | # | Classification | Concept | Status | Deliverable | Project | Decision identity | Reasoned identity | Source | Field notes | Fragnet / WBS | Activities fed to reasoning | Neighbours |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | **DISAGREE** | Additional Engineering Management Works | DEVELOPER_MODIFIED | Additional Engineering Management Works | REDACTED-CODE REDACTED-SITE June 2026 Programme | `project_management/project_management/coordination (type=?, stage=stage_3)` | `?/?/review (type=report, stage=stage_3)` | LLM_REASONED | engineeringWork: coordination vs review (DISAGREE)<br>deliverableType: null -> report (more specific) | EW-001 - Review Additional Works | Produce M&T report and Update specs<br>Produce Hazard Log + Class 3 Risk Assessment<br>Undertake BWIC Co-ordination | Additional Structural Works<br>Additional Ground Investigation<br>Additional Drainage Works |
-| 2 | **AGREE** | Additional Ground Investigation | DEVELOPER_MODIFIED | Additional Ground Investigation | REDACTED-CODE REDACTED-SITE June 2026 Programme | `ground_investigation/?/inspection (type=report, stage=stage_3)` | `?/?/inspection (type=report, stage=stage_3)` | LLM_REASONED | — | EW-001 - Review Additional Works | Specify additional Ground Investigation<br>Mobilise Ground Investigation (By others)<br>Fielworks Ground Investigation (By others)<br>Lab Testing Ground Investigation (By others)<br>GET- Confirmation from client to proceed with spec<br>Produce GIR | Additional Structural Works<br>Additional Engineering Management Works<br>Additional Drainage Works |
-| 3 | **DISAGREE** | Additional Structural Works | DEVELOPER_MODIFIED | Additional Structural Works | REDACTED-CODE REDACTED-SITE June 2026 Programme | `structural/?/coordination (type=?, stage=stage_3)` | `structural/slabs/review (type=report, stage=stage_3)` | LLM_MERGED | engineeringObject: null -> slabs (more specific)<br>engineeringWork: coordination vs review (DISAGREE)<br>deliverableType: null -> report (more specific) | EW-001 - Review Additional Works | Produce Specification for Link Structure Surveys<br>Remove Movement Joint<br>Update transfer slab thickness<br>Update cantilever screen support<br>Coordinate masonry supports<br>Review & update structure to accomodate shower recesses<br>Update Slab Thickenings<br>Canopy Update - Level 07<br>Update entrance area structure<br>WD Request for Link Structure foundation assessment<br>MMD conducts scoping exercise for Link structure foundations<br>Retrack the Ambulance bay<br>GET - Receive Ambulance Bay info from Trust<br>VI - 016 Ambulance Bay Tracking Documentation<br>GET - Receive comments on Cantilever Screen Support from Design Team<br>GET - Masonry support details from specialist | Additional Ground Investigation<br>Additional Engineering Management Works<br>Additional Drainage Works |
-| 4 | **AGREE** | Ambulance Bay Canopy | DEVELOPER_MODIFIED | Ambulance Bay Canopy | REDACTED-CODE REDACTED-SITE June 2026 Programme | `structural/steelwork/detailing (type=drawing, stage=stage_3)` | `structural/steelwork/detailing (type=drawing, stage=stage_3)` | LLM_REASONED | — | Secondary Steelwork | Secondary steelwork drawings - Ambulance bay canopy<br>Wilmott Dixon Review Secondary Steelwork Drawings<br>Update & Reissue Secondary Steelwork Drawings<br>GET - Formal Acceptance of Secondary Steelwork Drawings - Ambulance bay canopy | Partitions<br>Elevations<br>Ceilings<br>Detailed Design |
-| 5 | **AGREE** | Architectural Setting Out | DEVELOPER_MODIFIED | Architectural Setting Out | REDACTED-CODE REDACTED-SITE June 2026 Programme | `project_management/project_management/detailing (type=drawing, stage=stage_3)` | `?/?/detailing (type=drawing, stage=stage_3)` | LLM_MERGED | — | GET Milestones | GET - Architectural Setting out of Upstands & Slab Edges - Level 6<br>GET - Architectural Setting out of Upstands & Slab Edges - Level 7<br>GET - Architectural Setting out of Upstands & Slab Edges - Level 8<br>GET - Architectural Setting out of Upstands & Slab Edges - Level 9<br>GET - Architectural Setting out of Upstands & Slab Edges - Level 10<br>GET - Architectural Setting out of Upstands & Slab Edges - Level 11<br>GET - Architectural Setting out of Upstands & Slab Edges - Level 12<br>GET -Architectural Details for Contractor Proposal drawings<br>GET - Updated architectural Setting out of Upstands & Slab Edges - Level 6<br>GET - Updated architectural Setting out of Upstands & Slab Edges - Level 7<br>GET - Updated architectural Setting out of Upstands & Slab Edges - Level 9<br>GET - Updated architectural Setting out of Upstands & Slab Edges - Level 8 | Drainage<br>Link Structure Survey<br>GI<br>Equipment Specifications<br>BWIC<br>Enabling Works |
-| 6 | **AGREE** | BWIC | DEVELOPER_MODIFIED | BWIC | REDACTED-CODE REDACTED-SITE June 2026 Programme | `project_management/project_management/coordination (type=milestone, stage=stage_3)` | `?/?/coordination (type=milestone, stage=stage_3)` | LLM_MERGED | — | GET Milestones | GET Final BWIC Locations & Sizes & Plant Weights - Level 6<br>GET Final BWIC Locations & Sizes & Plant Weights - Level 7<br>GET Final BWIC Locations & Sizes & Plant Weights - Level 8<br>GET Final BWIC Locations & Sizes & Plant Weights - Level 9<br>GET Final BWIC Locations & Sizes & Plant Weights - Level 10<br>GET Final BWIC Locations & Sizes & Plant Weights - Level 11<br>GET Final BWIC Locations & Sizes & Plant Weights - Level 12<br>GET Final BWIC locations through walls | Drainage<br>Link Structure Survey<br>GI<br>Equipment Specifications<br>Enabling Works<br>Architectural Setting Out |
-| 7 | **AGREE** | CE-015 GL6 Foundation Alteration Feasibility — Work package | DEVELOPER_MODIFIED | CE-015 GL6 Foundation Alteration Feasibility — Work package | REDACTED-CODE REDACTED-SITE June 2026 Programme | `structural/foundations/design (type=?, stage=stage_3)` | `structural/foundations/design (type=?, stage=stage_3)` | LLM_REASONED | — | CE-015 GL6 Foundation Alteration Feasibility | Receive survey information for existing GL6 Foundations<br>Additional GI<br>Design options for GL6 Foundations alterations<br>Agree option for GL6 Foundations<br>Final Design and detailing for GL6 Foundations | *(none)* |
-| 8 | **AGREE** | Ceilings | DEVELOPER_MODIFIED | Ceilings | REDACTED-CODE REDACTED-SITE June 2026 Programme | `structural/steelwork/detailing (type=drawing, stage=stage_3)` | `structural/steelwork/detailing (type=drawing, stage=stage_3)` | LLM_REASONED | — | Secondary Steelwork | Secondary steelwork drawings - Theatre ceilings<br>Wilmott Dixon Review Secondary Steelwork Drawings<br>Update & Reissue Secondary Steelwork Drawings<br>GET - Formal Acceptance of Secondary Steelwork Drawings - Theatre ceilings | Partitions<br>Ambulance Bay Canopy<br>Elevations<br>Detailed Design |
-| 9 | **AGREE** | Contract Award — Work package | DEVELOPER_MODIFIED | Contract Award — Work package | REDACTED-CODE REDACTED-SITE June 2026 Programme | `project_management/project_management/milestone (type=milestone, stage=stage_3)` | `project_management/project_management/milestone (type=milestone, stage=stage_3)` | LLM_REASONED | — | Contract Award | Confirmation of contract award<br>Agreed scope | *(none)* |
+| 1 | **DISAGREE** | Additional Engineering Management Works | DEVELOPER_MODIFIED | Additional Engineering Management Works | SYN1 Northvale June 2026 Programme | `project_management/project_management/coordination (type=?, stage=stage_3)` | `?/?/review (type=report, stage=stage_3)` | LLM_REASONED | engineeringWork: coordination vs review (DISAGREE)<br>deliverableType: null -> report (more specific) | EW-001 - Review Additional Works | Produce M&T report and Update specs<br>Produce Hazard Log + Class 3 Risk Assessment<br>Undertake BWIC Co-ordination | Additional Structural Works<br>Additional Ground Investigation<br>Additional Drainage Works |
+| 2 | **AGREE** | Additional Ground Investigation | DEVELOPER_MODIFIED | Additional Ground Investigation | SYN1 Northvale June 2026 Programme | `ground_investigation/?/inspection (type=report, stage=stage_3)` | `?/?/inspection (type=report, stage=stage_3)` | LLM_REASONED | — | EW-001 - Review Additional Works | Specify additional Ground Investigation<br>Mobilise Ground Investigation (By others)<br>Fielworks Ground Investigation (By others)<br>Lab Testing Ground Investigation (By others)<br>GET- Confirmation from client to proceed with spec<br>Produce GIR | Additional Structural Works<br>Additional Engineering Management Works<br>Additional Drainage Works |
+| 3 | **DISAGREE** | Additional Structural Works | DEVELOPER_MODIFIED | Additional Structural Works | SYN1 Northvale June 2026 Programme | `structural/?/coordination (type=?, stage=stage_3)` | `structural/slabs/review (type=report, stage=stage_3)` | LLM_MERGED | engineeringObject: null -> slabs (more specific)<br>engineeringWork: coordination vs review (DISAGREE)<br>deliverableType: null -> report (more specific) | EW-001 - Review Additional Works | Produce Specification for Link Structure Surveys<br>Remove Movement Joint<br>Update transfer slab thickness<br>Update cantilever screen support<br>Coordinate masonry supports<br>Review & update structure to accomodate shower recesses<br>Update Slab Thickenings<br>Canopy Update - Level 07<br>Update entrance area structure<br>WD Request for Link Structure foundation assessment<br>MMD conducts scoping exercise for Link structure foundations<br>Retrack the Ambulance bay<br>GET - Receive Ambulance Bay info from Trust<br>VI - 016 Ambulance Bay Tracking Documentation<br>GET - Receive comments on Cantilever Screen Support from Design Team<br>GET - Masonry support details from specialist | Additional Ground Investigation<br>Additional Engineering Management Works<br>Additional Drainage Works |
+| 4 | **AGREE** | Ambulance Bay Canopy | DEVELOPER_MODIFIED | Ambulance Bay Canopy | SYN1 Northvale June 2026 Programme | `structural/steelwork/detailing (type=drawing, stage=stage_3)` | `structural/steelwork/detailing (type=drawing, stage=stage_3)` | LLM_REASONED | — | Secondary Steelwork | Secondary steelwork drawings - Ambulance bay canopy<br>Wilmott Dixon Review Secondary Steelwork Drawings<br>Update & Reissue Secondary Steelwork Drawings<br>GET - Formal Acceptance of Secondary Steelwork Drawings - Ambulance bay canopy | Partitions<br>Elevations<br>Ceilings<br>Detailed Design |
+| 5 | **AGREE** | Architectural Setting Out | DEVELOPER_MODIFIED | Architectural Setting Out | SYN1 Northvale June 2026 Programme | `project_management/project_management/detailing (type=drawing, stage=stage_3)` | `?/?/detailing (type=drawing, stage=stage_3)` | LLM_MERGED | — | GET Milestones | GET - Architectural Setting out of Upstands & Slab Edges - Level 6<br>GET - Architectural Setting out of Upstands & Slab Edges - Level 7<br>GET - Architectural Setting out of Upstands & Slab Edges - Level 8<br>GET - Architectural Setting out of Upstands & Slab Edges - Level 9<br>GET - Architectural Setting out of Upstands & Slab Edges - Level 10<br>GET - Architectural Setting out of Upstands & Slab Edges - Level 11<br>GET - Architectural Setting out of Upstands & Slab Edges - Level 12<br>GET -Architectural Details for Contractor Proposal drawings<br>GET - Updated architectural Setting out of Upstands & Slab Edges - Level 6<br>GET - Updated architectural Setting out of Upstands & Slab Edges - Level 7<br>GET - Updated architectural Setting out of Upstands & Slab Edges - Level 9<br>GET - Updated architectural Setting out of Upstands & Slab Edges - Level 8 | Drainage<br>Link Structure Survey<br>GI<br>Equipment Specifications<br>BWIC<br>Enabling Works |
+| 6 | **AGREE** | BWIC | DEVELOPER_MODIFIED | BWIC | SYN1 Northvale June 2026 Programme | `project_management/project_management/coordination (type=milestone, stage=stage_3)` | `?/?/coordination (type=milestone, stage=stage_3)` | LLM_MERGED | — | GET Milestones | GET Final BWIC Locations & Sizes & Plant Weights - Level 6<br>GET Final BWIC Locations & Sizes & Plant Weights - Level 7<br>GET Final BWIC Locations & Sizes & Plant Weights - Level 8<br>GET Final BWIC Locations & Sizes & Plant Weights - Level 9<br>GET Final BWIC Locations & Sizes & Plant Weights - Level 10<br>GET Final BWIC Locations & Sizes & Plant Weights - Level 11<br>GET Final BWIC Locations & Sizes & Plant Weights - Level 12<br>GET Final BWIC locations through walls | Drainage<br>Link Structure Survey<br>GI<br>Equipment Specifications<br>Enabling Works<br>Architectural Setting Out |
+| 7 | **AGREE** | CE-015 GL6 Foundation Alteration Feasibility — Work package | DEVELOPER_MODIFIED | CE-015 GL6 Foundation Alteration Feasibility — Work package | SYN1 Northvale June 2026 Programme | `structural/foundations/design (type=?, stage=stage_3)` | `structural/foundations/design (type=?, stage=stage_3)` | LLM_REASONED | — | CE-015 GL6 Foundation Alteration Feasibility | Receive survey information for existing GL6 Foundations<br>Additional GI<br>Design options for GL6 Foundations alterations<br>Agree option for GL6 Foundations<br>Final Design and detailing for GL6 Foundations | *(none)* |
+| 8 | **AGREE** | Ceilings | DEVELOPER_MODIFIED | Ceilings | SYN1 Northvale June 2026 Programme | `structural/steelwork/detailing (type=drawing, stage=stage_3)` | `structural/steelwork/detailing (type=drawing, stage=stage_3)` | LLM_REASONED | — | Secondary Steelwork | Secondary steelwork drawings - Theatre ceilings<br>Wilmott Dixon Review Secondary Steelwork Drawings<br>Update & Reissue Secondary Steelwork Drawings<br>GET - Formal Acceptance of Secondary Steelwork Drawings - Theatre ceilings | Partitions<br>Ambulance Bay Canopy<br>Elevations<br>Detailed Design |
+| 9 | **AGREE** | Contract Award — Work package | DEVELOPER_MODIFIED | Contract Award — Work package | SYN1 Northvale June 2026 Programme | `project_management/project_management/milestone (type=milestone, stage=stage_3)` | `project_management/project_management/milestone (type=milestone, stage=stage_3)` | LLM_REASONED | — | Contract Award | Confirmation of contract award<br>Agreed scope | *(none)* |
 | 10 | **DISAGREE** | Design (Developed Design Report - MEP) | DEVELOPER_MODIFIED | New Design Specification - MEP | Leighton Hospital | `mechanical/mechanical_systems/design (type=report, stage=developed_design)` | `mechanical/mechanical_systems/design (type=specification, stage=?)` | LLM_REASONED | deliverableType: report vs specification (DISAGREE)<br>variant (1×, DISAGREE): mechanical/mechanical_systems/design (type=specification, stage=?) — deliverableType: report vs specification (DISAGREE)<br>variant (2×, AGREE): mechanical/mechanical_systems/design (type=report, stage=?) | Combined MEP Services | NBS MEP Specification | Developed Design Report - MEP<br>New Design Schematics - MEP<br>Developed Design Drawing - MEP<br>Updated Technical Note - MEP<br>New 3D Model - MEP<br>New Design Schedule - MEP |
 | 11 | **AGREE** | Design Schematics (New Design Schematics - Mechanical) | DEVELOPER_MODIFIED | New Design Schematics - MEP | Leighton Hospital | `mechanical/mechanical_systems/design (type=drawing, stage=stage_2)` | `?/?/design (type=drawing, stage=?)` | LLM_MERGED | variant (1×, AGREE): ?/?/design (type=drawing, stage=?)<br>variant (2×, AGREE): mechanical/mechanical_systems/design (type=drawing, stage=?) | Combined MEP Services | Fire Hydrants Schematic<br>Above Ground Drainage Schematics - Cluster 1-13<br>Above Ground Drainage Schematics - Hub<br>GA Plans Primary Pipework Distribution Schematics - CSSD Building<br>GA Plans Primary Pipework Distribution Schematics - Main Building | New Design Specification - MEP<br>Developed Design Report - MEP<br>Developed Design Drawing - MEP<br>Updated Technical Note - MEP<br>New 3D Model - MEP<br>New Design Schedule - MEP |
-| 12 | **AGREE** | Detailed Design (core) | DEVELOPER_MODIFIED | Detailed Design | REDACTED-CODE REDACTED-SITE June 2026 Programme | `structural/core/design (type=?, stage=stage_3)` | `structural/core/design (type=?, stage=stage_3)` | LLM_MERGED | — | Structural Design | Column design<br>Wall design<br>Update core riser openings | Core General Arrangements<br>Column Elevations<br>Wall Elevations<br>Structural Design — Work package<br>Reinforcement Detailing<br>Model/Drawing Development |
-| 13 | **AGREE** | Detailed Design (drainage) | DEVELOPER_MODIFIED | Detailed Design | REDACTED-CODE REDACTED-SITE June 2026 Programme | `civil/drainage/design (type=?, stage=stage_3)` | `civil/drainage/design (type=?, stage=stage_3)` | LLM_MERGED | — | Drainage Design | Drainage design | Model/Drawing Development |
-| 14 | **AGREE** | Detailed Design (foundations) | DEVELOPER_MODIFIED | Detailed Design | REDACTED-CODE REDACTED-SITE June 2026 Programme | `structural/foundations/design (type=?, stage=stage_3)` | `structural/foundations/design (type=?, stage=stage_3)` | LLM_MERGED | — | Foundations | Agree vertical loads<br>Calculate wind and notional loads<br>Detailed load-take-down<br>Stability Analysis<br>Foundation analysis and design | Reinforcement Detailing<br>Model Drawing/Development |
-| 15 | **AGREE** | Detailed Design (link bridge) | DEVELOPER_MODIFIED | Detailed Design | REDACTED-CODE REDACTED-SITE June 2026 Programme | `structural/link_bridge/design (type=?, stage=stage_3)` | `structural/link_bridge/design (type=?, stage=stage_3)` | LLM_MERGED | — | Link Structure | GET - Confirmed Link Structure Design Option<br>Link Structure Options Study | VI-061 Confirmation of Link Bridge 'Option 2' as preferred design solution<br>VI-019 Desktop Study - Link Bridge Foundations<br>VI-052 Link Bridge - Option 1 (Early Stage 3 Structural Analysis)<br>VI-046 Link Bridge Surveys |
-| 16 | **DISAGREE** | Detailed Design (slabs, Level 9) | DEVELOPER_MODIFIED | Detailed Design | REDACTED-CODE REDACTED-SITE June 2026 Programme | `structural/slabs/design (type=?, stage=stage_3)` | `structural/slabs/analysis (type=analysis, stage=stage_3)` | LLM_MERGED | engineeringWork: design vs analysis (DISAGREE)<br>deliverableType: null -> analysis (more specific)<br>variant (2×, DISAGREE): structural/slabs/analysis (type=analysis, stage=stage_3) — engineeringWork: design vs analysis (DISAGREE); deliverableType: null -> analysis (more specific)<br>variant (2×, REASONING_MORE_COMPLETE): structural/slabs/design (type=milestone, stage=stage_3) — deliverableType: null -> milestone (more specific)<br>variant (1×, AGREE): ?/slabs/design (type=?, stage=stage_3)<br>variant (1×, AGREE): structural/slabs/design (type=?, stage=stage_3) | Level 12 | Slab analysis - Level 12 | Model/Drawing Development<br>Reinforcement Detailing |
-| 17 | **AGREE** | Detailed Design (steelwork) | DEVELOPER_MODIFIED | Detailed Design | REDACTED-CODE REDACTED-SITE June 2026 Programme | `structural/steelwork/design (type=drawing, stage=stage_3)` | `structural/steelwork/design (type=drawing, stage=stage_3)` | LLM_MERGED | — | Secondary Steelwork | Secondary steelwork design - theatre ceilings<br>Secondary steelwork design - partitions<br>Secondary steelwork design - elevations<br>Secondary steelwork design - Ambulance bay canopy<br>GET - Architectural Partition Layout<br>GET - RPA and BWIC info to release theatre steelwork design<br>GET - Peads link corridor canopy interface strategy confirmation<br>Update Secondary steelwork design - partitions<br>Update Secondary steelwork design - elevations (blast louvres)<br>Theatre ceiling coordination | Partitions<br>Ambulance Bay Canopy<br>Elevations<br>Ceilings |
-| 18 | **AGREE** | Detailed Design (walls/slabs, Level 7) | DEVELOPER_MODIFIED | Detailed Design | REDACTED-CODE REDACTED-SITE June 2026 Programme | `structural/slabs/design (type=?, stage=stage_3)` | `?/slabs/design (type=?, stage=stage_3)` | LLM_MERGED | — | Level 7 | Slab analysis - Level 07<br>GET - Curtain wall deflection tolerance update | Model/Drawing Development<br>Reinforcement Detailing |
+| 12 | **AGREE** | Detailed Design (core) | DEVELOPER_MODIFIED | Detailed Design | SYN1 Northvale June 2026 Programme | `structural/core/design (type=?, stage=stage_3)` | `structural/core/design (type=?, stage=stage_3)` | LLM_MERGED | — | Structural Design | Column design<br>Wall design<br>Update core riser openings | Core General Arrangements<br>Column Elevations<br>Wall Elevations<br>Structural Design — Work package<br>Reinforcement Detailing<br>Model/Drawing Development |
+| 13 | **AGREE** | Detailed Design (drainage) | DEVELOPER_MODIFIED | Detailed Design | SYN1 Northvale June 2026 Programme | `civil/drainage/design (type=?, stage=stage_3)` | `civil/drainage/design (type=?, stage=stage_3)` | LLM_MERGED | — | Drainage Design | Drainage design | Model/Drawing Development |
+| 14 | **AGREE** | Detailed Design (foundations) | DEVELOPER_MODIFIED | Detailed Design | SYN1 Northvale June 2026 Programme | `structural/foundations/design (type=?, stage=stage_3)` | `structural/foundations/design (type=?, stage=stage_3)` | LLM_MERGED | — | Foundations | Agree vertical loads<br>Calculate wind and notional loads<br>Detailed load-take-down<br>Stability Analysis<br>Foundation analysis and design | Reinforcement Detailing<br>Model Drawing/Development |
+| 15 | **AGREE** | Detailed Design (link bridge) | DEVELOPER_MODIFIED | Detailed Design | SYN1 Northvale June 2026 Programme | `structural/link_bridge/design (type=?, stage=stage_3)` | `structural/link_bridge/design (type=?, stage=stage_3)` | LLM_MERGED | — | Link Structure | GET - Confirmed Link Structure Design Option<br>Link Structure Options Study | VI-061 Confirmation of Link Bridge 'Option 2' as preferred design solution<br>VI-019 Desktop Study - Link Bridge Foundations<br>VI-052 Link Bridge - Option 1 (Early Stage 3 Structural Analysis)<br>VI-046 Link Bridge Surveys |
+| 16 | **DISAGREE** | Detailed Design (slabs, Level 9) | DEVELOPER_MODIFIED | Detailed Design | SYN1 Northvale June 2026 Programme | `structural/slabs/design (type=?, stage=stage_3)` | `structural/slabs/analysis (type=analysis, stage=stage_3)` | LLM_MERGED | engineeringWork: design vs analysis (DISAGREE)<br>deliverableType: null -> analysis (more specific)<br>variant (2×, DISAGREE): structural/slabs/analysis (type=analysis, stage=stage_3) — engineeringWork: design vs analysis (DISAGREE); deliverableType: null -> analysis (more specific)<br>variant (2×, REASONING_MORE_COMPLETE): structural/slabs/design (type=milestone, stage=stage_3) — deliverableType: null -> milestone (more specific)<br>variant (1×, AGREE): ?/slabs/design (type=?, stage=stage_3)<br>variant (1×, AGREE): structural/slabs/design (type=?, stage=stage_3) | Level 12 | Slab analysis - Level 12 | Model/Drawing Development<br>Reinforcement Detailing |
+| 17 | **AGREE** | Detailed Design (steelwork) | DEVELOPER_MODIFIED | Detailed Design | SYN1 Northvale June 2026 Programme | `structural/steelwork/design (type=drawing, stage=stage_3)` | `structural/steelwork/design (type=drawing, stage=stage_3)` | LLM_MERGED | — | Secondary Steelwork | Secondary steelwork design - theatre ceilings<br>Secondary steelwork design - partitions<br>Secondary steelwork design - elevations<br>Secondary steelwork design - Ambulance bay canopy<br>GET - Architectural Partition Layout<br>GET - RPA and BWIC info to release theatre steelwork design<br>GET - Peads link corridor canopy interface strategy confirmation<br>Update Secondary steelwork design - partitions<br>Update Secondary steelwork design - elevations (blast louvres)<br>Theatre ceiling coordination | Partitions<br>Ambulance Bay Canopy<br>Elevations<br>Ceilings |
+| 18 | **AGREE** | Detailed Design (walls/slabs, Level 7) | DEVELOPER_MODIFIED | Detailed Design | SYN1 Northvale June 2026 Programme | `structural/slabs/design (type=?, stage=stage_3)` | `?/slabs/design (type=?, stage=stage_3)` | LLM_MERGED | — | Level 7 | Slab analysis - Level 07<br>GET - Curtain wall deflection tolerance update | Model/Drawing Development<br>Reinforcement Detailing |
 | 19 | **AGREE** | Developed Design Drawing - Electrical | DEVELOPER_APPROVED | Developed Design Drawing - Electrical | Leighton Hospital | `electrical/electrical_systems/design (type=design_drawing, stage=?)` | `electrical/electrical_systems/design (type=design_drawing, stage=?)` | LLM_REASONED | — | Electrical Services | Sitewide HV Ring Networks (1:1000)<br>Generator House & HV Intake Layout & Schematic (1:100)<br>Generator Room Arrangement (1:50)<br>Main Switchroom & UPS Room Layout (1:30)<br>Switchroom & Riser Layouts (1:40)<br>Main Building Security Zoning<br>Containment Strategy - Level 00 - Sheets 1-4 (1:100)<br>Containment Strategy - Level 01 - Sheets 1-4 (1:100)<br>Containment Strategy - Level 02 - Sheets 1-4 (1:100)<br>Containment Strategy - Level 05 - Sheet 2 & 3 (1:100)<br>LV Distribution Site Layout (1:1000)<br>Distribution Zoning Strategy Layout - Level 00 - Sheets 1-4 (1:100)<br>Distribution Zoning Strategy Layout - Level 01 - Sheets 1-4 (1:100)<br>Distribution Zoning Strategy Layout - Level 02 - Sheets 1-4 (1:100)<br>Distribution Zoning Strategy Layout - Level 03 - Sheets 1-4 (1:100)<br>Distribution Zoning Strategy Layout - Level 04 - Sheets 1-4 (1:100)<br>Distribution Zoning Strategy Layout - Level 05 - Sheets 1-4 (1:100)<br>Main Switch Gear & Distribution Routes Dwgs 4 Sheets<br>Lighting Strategy Layout Sheets 1 & 2 (1:100)<br>Lighting Strategy Layout Sheet 1 of 1 (1:100) 2<br>Lighting Strategy Layout Sheet 1 of 1 (1:100) 3<br>Lighting Strategy Layout Sheet 1 of 1 (1:100) 4<br>Lighting Strategy Layout Sheet 1 of 1 (1:100) 5<br>Lighting Strategy Layout Sheet 1 of 1 (1:100) 6<br>Lightning Protection Dwg 2 Sheets (1:400)<br>Sitewide External Lighting Philosophy (1:1000) | New Design Schematics - Electrical<br>Updated Technical Note - Electrical<br>Developed Design Schematics - Electrical<br>Developed Design Schedule - Electrical |
 | 20 | **AGREE** | Developed Design Drawing - MEP | DEVELOPER_APPROVED | Developed Design Drawing - MEP | Leighton Hospital | `mechanical/plant_room/design (type=design_drawing, stage=?)` | `mechanical/plant_room/design (type=design_drawing, stage=?)` | LLM_REASONED | — | Combined MEP Services | External Services Layout (1:1000)<br>CSSD Plantroom (1:100)<br>Cluster 01-A & 01-B Plantrooms (1:100)<br>Cluster 02-A & 03-A Plantrooms (1:100)<br>Cluster 04-A & 04-B Plantrooms (1:100)<br>Cluster 05-A & 05-B Plantrooms (1:100)<br>Cluster 06-A & 06-B Plantrooms (1:100)<br>Cluster 07-A Plantrooms (1:100)<br>Cluster 09-A & 09-B Plantrooms (1:100)<br>Cluster 11-A & 11-B Plantrooms (1:100)<br>Cluster 12-A & 12-B Plantrooms (1:100)<br>Cluster 13-A & 13-B Plantrooms (1:100)<br>Cluster 06-A & 09-A Plantrooms (1:100)<br>Cluster 01-A & 04-A Plantrooms (1:100)<br>Cluster 11-A & 13-A Plantrooms (1:100)<br>Energy Centre-A & B Plantrooms (1:100)<br>Generator House-A & B Plantrooms (1:100)<br>Med Gas Manifold Plantrooms (1:100)<br>Shallow Geothermal Closed Loop Borehole Array 1:1000<br>Energy Strategy Report | New Design Specification - MEP<br>Developed Design Report - MEP<br>New Design Schematics - MEP<br>Updated Technical Note - MEP<br>New 3D Model - MEP<br>New Design Schedule - MEP |
 | 21 | **AGREE** | Developed Design Schedule - Electrical | DEVELOPER_MODIFIED | Developed Design Schedule - Electrical | Leighton Hospital | `electrical/electrical_systems/design (type=schedule, stage=?)` | `electrical/electrical_systems/design (type=schedule, stage=?)` | LLM_REASONED | — | Electrical Services | Internal Lighting Luminaire Schedule | New Design Schematics - Electrical<br>Updated Technical Note - Electrical<br>Developed Design Schematics - Electrical<br>Developed Design Drawing - Electrical |
 | 22 | **AGREE** | Developed Design Schedule - Mechanical | DEVELOPER_MODIFIED | Developed Design Schedule - Mechanical | Leighton Hospital | `mechanical/mechanical_systems/design (type=schedule, stage=?)` | `mechanical/mechanical_systems/design (type=schedule, stage=?)` | LLM_REASONED | — | Mechanical Services | AHU Resiliency Strategy<br>Medical Gas Requirements Room Matrix | New Design Schematics - Mechanical<br>Developed Design Report - Mechanical<br>Developed Design Schematics - Mechanical<br>Updated Technical Note - Mechanical |
 | 23 | **AGREE** | Developed Design Schematics - Electrical | DEVELOPER_MODIFIED | New Design Schematics - Electrical | Leighton Hospital | `electrical/electrical_systems/design (type=drawing, stage=?)` | `electrical/electrical_systems/design (type=drawing, stage=?)` | LLM_REASONED | — | Electrical Services | Fire Alarm Schematic - CSSD Building<br>CSSD Building Security System Schematic<br>Containment Strategy - Sheet 1 (1:100)<br>Distribution Zoning Strategy Layout<br>Main Switch Gear & Distribution Routes Dwgs<br>Lighting Strategy Layout Sheet 1 of 1 (1:100)<br>Lightning Protection Dwg (1:400) | Updated Technical Note - Electrical<br>Developed Design Schematics - Electrical<br>Developed Design Schedule - Electrical<br>Developed Design Drawing - Electrical |
-| 24 | **AGREE** | Drainage | DEVELOPER_MODIFIED | Drainage | REDACTED-CODE REDACTED-SITE June 2026 Programme | `public_health/drainage/coordination (type=milestone, stage=stage_3)` | `public_health/drainage/coordination (type=milestone, stage=stage_3)` | LLM_MERGED | — | GET Milestones | GET Receive drainage pop-up locations & flow rates from SDS | Link Structure Survey<br>GI<br>Equipment Specifications<br>BWIC<br>Enabling Works<br>Architectural Setting Out |
-| 25 | **AGREE** | Due Diligence — Work package | DEVELOPER_MODIFIED | Due Diligence — Work package | REDACTED-CODE REDACTED-SITE June 2026 Programme | `project_management/project_management/review (type=report, stage=stage_3)` | `project_management/project_management/review (type=report, stage=stage_3)` | LLM_REASONED | — | Due Diligence | Stability Analysis Review<br>Slab Analysis review<br>Load-take down / Colum / Foundation review<br>Model review<br>Geotechnical information review<br>Civil engineering information review<br>Due-diligence report submission<br>Review DD works with WD / UHP<br>Undertake Onboarding | *(none)* |
-| 26 | **AGREE** | Enabling Works | DEVELOPER_MODIFIED | Enabling Works | REDACTED-CODE REDACTED-SITE June 2026 Programme | `project_management/project_management/milestone (type=milestone, stage=stage_3)` | `project_management/project_management/milestone (type=milestone, stage=stage_3)` | LLM_REASONED | — | GET Milestones | GET Enabling Works Information | Drainage<br>Link Structure Survey<br>GI<br>Equipment Specifications<br>BWIC<br>Architectural Setting Out |
-| 27 | **AGREE** | Equipment Specifications | DEVELOPER_MODIFIED | Equipment Specifications | REDACTED-CODE REDACTED-SITE June 2026 Programme | `project_management/project_management/design (type=specification, stage=stage_3)` | `?/?/design (type=specification, stage=stage_3)` | LLM_MERGED | — | GET Milestones | GET Imaging Equipment Specifications | Drainage<br>Link Structure Survey<br>GI<br>BWIC<br>Enabling Works<br>Architectural Setting Out |
-| 28 | **AGREE** | External Finishes Works — Work package | DEVELOPER_MODIFIED | External Finishes Works — Work package | REDACTED-CODE REDACTED-SITE June 2026 Programme | `?/?/detailing (type=design_drawing, stage=stage_3)` | `?/?/detailing (type=design_drawing, stage=stage_3)` | LLM_REASONED | — | External Finishes Works | Produce draft plan drawings<br>Coordinate with architecture team<br>Produce detailed drawings with typical details<br>Issue to Wilmott Dixon<br>GET - External works drawings from  Architect | *(none)* |
-| 29 | **AGREE** | GI | DEVELOPER_MODIFIED | GI | REDACTED-CODE REDACTED-SITE June 2026 Programme | `project_management/project_management/milestone (type=milestone, stage=stage_3)` | `project_management/project_management/milestone (type=milestone, stage=stage_3)` | LLM_REASONED | — | GET Milestones | GET Additional GI | Drainage<br>Link Structure Survey<br>Equipment Specifications<br>BWIC<br>Enabling Works<br>Architectural Setting Out |
-| 30 | **DISAGREE** | MMD/Client Programme Alignment - Prolongation | DEVELOPER_MODIFIED | MMD/Client Programme Alignment - Prolongation | REDACTED-CODE REDACTED-SITE June 2026 Programme | `project_management/project_management/coordination (type=programme, stage=stage_3)` | `project_management/project_management/review (type=programme, stage=stage_3)` | LLM_REASONED | engineeringWork: coordination vs review (DISAGREE) | Change | Programme Prolongation | *(none)* |
-| 31 | **AGREE** | Model Development (Level 7) | DEVELOPER_MODIFIED | Model/Drawing Development | REDACTED-CODE REDACTED-SITE June 2026 Programme | `structural/?/general_arrangement (type=drawing, stage=stage_3)` | `?/?/general_arrangement (type=drawing, stage=stage_3)` | LLM_MERGED | — | Level 7 | General Arrangement - Level 07<br>Wilmott Dixon Review Level 07 General Arrangement Drawings<br>Update & Reissue General Arrangement Drawings<br>GET - Formal Acceptance of Level 07 General Arrangement Drawings | Reinforcement Detailing<br>Detailed Design |
-| 32 | **AGREE** | Model Drawing/Development (foundations) | DEVELOPER_APPROVED | Model Drawing/Development | REDACTED-CODE REDACTED-SITE June 2026 Programme | `structural/foundations/general_arrangement (type=general_arrangement, stage=stage_3)` | `structural/foundations/general_arrangement (type=general_arrangement, stage=stage_3)` | LLM_MERGED | — | Foundations | Foundation General Arrangement Drawings<br>Wilmott Dixon Review Foundation General Arrangement Drawings<br>Update & Reissue General Arrangement Drawings<br>GET - Formal Acceptance of Foundation General Arrangement Drawings | Detailed Design<br>Reinforcement Detailing |
-| 33 | **AGREE** | Model/Drawing Development (drainage) | DEVELOPER_APPROVED | Model/Drawing Development | REDACTED-CODE REDACTED-SITE June 2026 Programme | `public_health/drainage/design (type=design_drawing, stage=stage_3)` | `public_health/drainage/design (type=design_drawing, stage=stage_3)` | LLM_MERGED | — | Drainage Design | Develop drainage design drawings and issue | Detailed Design |
-| 34 | **AGREE** | Model/Drawing Development (Structural Design) | DEVELOPER_APPROVED | Model/Drawing Development | REDACTED-CODE REDACTED-SITE June 2026 Programme | `structural/?/design (type=drawing, stage=stage_3)` | `structural/?/design (type=drawing, stage=stage_3)` | LLM_MERGED | — | Structural Design | Front end-guidance strategy drawings<br>Loading Plans etc | Core General Arrangements<br>Column Elevations<br>Wall Elevations<br>Structural Design — Work package<br>Reinforcement Detailing<br>Detailed Design |
+| 24 | **AGREE** | Drainage | DEVELOPER_MODIFIED | Drainage | SYN1 Northvale June 2026 Programme | `public_health/drainage/coordination (type=milestone, stage=stage_3)` | `public_health/drainage/coordination (type=milestone, stage=stage_3)` | LLM_MERGED | — | GET Milestones | GET Receive drainage pop-up locations & flow rates from SDS | Link Structure Survey<br>GI<br>Equipment Specifications<br>BWIC<br>Enabling Works<br>Architectural Setting Out |
+| 25 | **AGREE** | Due Diligence — Work package | DEVELOPER_MODIFIED | Due Diligence — Work package | SYN1 Northvale June 2026 Programme | `project_management/project_management/review (type=report, stage=stage_3)` | `project_management/project_management/review (type=report, stage=stage_3)` | LLM_REASONED | — | Due Diligence | Stability Analysis Review<br>Slab Analysis review<br>Load-take down / Colum / Foundation review<br>Model review<br>Geotechnical information review<br>Civil engineering information review<br>Due-diligence report submission<br>Review DD works with WD / UHP<br>Undertake Onboarding | *(none)* |
+| 26 | **AGREE** | Enabling Works | DEVELOPER_MODIFIED | Enabling Works | SYN1 Northvale June 2026 Programme | `project_management/project_management/milestone (type=milestone, stage=stage_3)` | `project_management/project_management/milestone (type=milestone, stage=stage_3)` | LLM_REASONED | — | GET Milestones | GET Enabling Works Information | Drainage<br>Link Structure Survey<br>GI<br>Equipment Specifications<br>BWIC<br>Architectural Setting Out |
+| 27 | **AGREE** | Equipment Specifications | DEVELOPER_MODIFIED | Equipment Specifications | SYN1 Northvale June 2026 Programme | `project_management/project_management/design (type=specification, stage=stage_3)` | `?/?/design (type=specification, stage=stage_3)` | LLM_MERGED | — | GET Milestones | GET Imaging Equipment Specifications | Drainage<br>Link Structure Survey<br>GI<br>BWIC<br>Enabling Works<br>Architectural Setting Out |
+| 28 | **AGREE** | External Finishes Works — Work package | DEVELOPER_MODIFIED | External Finishes Works — Work package | SYN1 Northvale June 2026 Programme | `?/?/detailing (type=design_drawing, stage=stage_3)` | `?/?/detailing (type=design_drawing, stage=stage_3)` | LLM_REASONED | — | External Finishes Works | Produce draft plan drawings<br>Coordinate with architecture team<br>Produce detailed drawings with typical details<br>Issue to Wilmott Dixon<br>GET - External works drawings from  Architect | *(none)* |
+| 29 | **AGREE** | GI | DEVELOPER_MODIFIED | GI | SYN1 Northvale June 2026 Programme | `project_management/project_management/milestone (type=milestone, stage=stage_3)` | `project_management/project_management/milestone (type=milestone, stage=stage_3)` | LLM_REASONED | — | GET Milestones | GET Additional GI | Drainage<br>Link Structure Survey<br>Equipment Specifications<br>BWIC<br>Enabling Works<br>Architectural Setting Out |
+| 30 | **DISAGREE** | MMD/Client Programme Alignment - Prolongation | DEVELOPER_MODIFIED | MMD/Client Programme Alignment - Prolongation | SYN1 Northvale June 2026 Programme | `project_management/project_management/coordination (type=programme, stage=stage_3)` | `project_management/project_management/review (type=programme, stage=stage_3)` | LLM_REASONED | engineeringWork: coordination vs review (DISAGREE) | Change | Programme Prolongation | *(none)* |
+| 31 | **AGREE** | Model Development (Level 7) | DEVELOPER_MODIFIED | Model/Drawing Development | SYN1 Northvale June 2026 Programme | `structural/?/general_arrangement (type=drawing, stage=stage_3)` | `?/?/general_arrangement (type=drawing, stage=stage_3)` | LLM_MERGED | — | Level 7 | General Arrangement - Level 07<br>Wilmott Dixon Review Level 07 General Arrangement Drawings<br>Update & Reissue General Arrangement Drawings<br>GET - Formal Acceptance of Level 07 General Arrangement Drawings | Reinforcement Detailing<br>Detailed Design |
+| 32 | **AGREE** | Model Drawing/Development (foundations) | DEVELOPER_APPROVED | Model Drawing/Development | SYN1 Northvale June 2026 Programme | `structural/foundations/general_arrangement (type=general_arrangement, stage=stage_3)` | `structural/foundations/general_arrangement (type=general_arrangement, stage=stage_3)` | LLM_MERGED | — | Foundations | Foundation General Arrangement Drawings<br>Wilmott Dixon Review Foundation General Arrangement Drawings<br>Update & Reissue General Arrangement Drawings<br>GET - Formal Acceptance of Foundation General Arrangement Drawings | Detailed Design<br>Reinforcement Detailing |
+| 33 | **AGREE** | Model/Drawing Development (drainage) | DEVELOPER_APPROVED | Model/Drawing Development | SYN1 Northvale June 2026 Programme | `public_health/drainage/design (type=design_drawing, stage=stage_3)` | `public_health/drainage/design (type=design_drawing, stage=stage_3)` | LLM_MERGED | — | Drainage Design | Develop drainage design drawings and issue | Detailed Design |
+| 34 | **AGREE** | Model/Drawing Development (Structural Design) | DEVELOPER_APPROVED | Model/Drawing Development | SYN1 Northvale June 2026 Programme | `structural/?/design (type=drawing, stage=stage_3)` | `structural/?/design (type=drawing, stage=stage_3)` | LLM_MERGED | — | Structural Design | Front end-guidance strategy drawings<br>Loading Plans etc | Core General Arrangements<br>Column Elevations<br>Wall Elevations<br>Structural Design — Work package<br>Reinforcement Detailing<br>Detailed Design |
 | 35 | **AGREE** | New Design Drawing - Public Health | DEVELOPER_APPROVED | New Design Drawing - Public Health | Leighton Hospital | `public_health/drainage/detailing (type=design_drawing, stage=?)` | `public_health/drainage/detailing (type=design_drawing, stage=?)` | LLM_MERGED | — | Public Health Services | Details Standard Drainage (One sheet) | Updated Technical Note - Public Health |
 | 36 | **AGREE** | New Design Report - Acoustics | DEVELOPER_MODIFIED | New Design Report - Acoustics | Leighton Hospital | `acoustics/acoustics/design (type=report, stage=?)` | `acoustics/acoustics/design (type=report, stage=?)` | LLM_REASONED | — | Acoustics | RIBA Stage Acoustic Strategy Report | New Technical Note - Acoustics |
 | 37 | **AGREE** | New Design Report - Fire Safety Engineering | DEVELOPER_MODIFIED | New Design Report - Fire Safety Engineering | Leighton Hospital | `fire_engineering/fire_safety/design (type=report, stage=?)` | `fire_engineering/fire_safety/design (type=report, stage=?)` | LLM_REASONED | — | Fire Safety Engineering | RIBA Stage Fire Strategy Report | New Technical Note - Fire Safety Engineering |
 | 38 | **AGREE** | New Technical Note - Acoustics | DEVELOPER_APPROVED | New Technical Note - Acoustics | Leighton Hospital | `acoustics/acoustics/analysis (type=technical_note, stage=?)` | `acoustics/acoustics/analysis (type=technical_note, stage=?)` | LLM_MERGED | — | Acoustics | Atrium acoustic absorption for reverberation - calcs in a model | New Design Report - Acoustics |
-| 39 | **DISAGREE** | Partitions | DEVELOPER_MODIFIED | Partitions | REDACTED-CODE REDACTED-SITE June 2026 Programme | `structural/steelwork/detailing (type=drawing, stage=stage_3)` | `structural/steelwork/detailing (type=design_drawing, stage=stage_3)` | LLM_REASONED | deliverableType: drawing vs design_drawing (DISAGREE) | Secondary Steelwork | Secondary steelwork drawings - partitions<br>Wilmott Dixon Review Secondary Steelwork Drawings<br>Update & Reissue Secondary Steelwork Drawings<br>GET - Formal Acceptance of Secondary Steelwork Drawings - partitions<br>GET - Confirmation of pressure stabiliser vent positions | Ambulance Bay Canopy<br>Elevations<br>Ceilings<br>Detailed Design |
+| 39 | **DISAGREE** | Partitions | DEVELOPER_MODIFIED | Partitions | SYN1 Northvale June 2026 Programme | `structural/steelwork/detailing (type=drawing, stage=stage_3)` | `structural/steelwork/detailing (type=design_drawing, stage=stage_3)` | LLM_REASONED | deliverableType: drawing vs design_drawing (DISAGREE) | Secondary Steelwork | Secondary steelwork drawings - partitions<br>Wilmott Dixon Review Secondary Steelwork Drawings<br>Update & Reissue Secondary Steelwork Drawings<br>GET - Formal Acceptance of Secondary Steelwork Drawings - partitions<br>GET - Confirmation of pressure stabiliser vent positions | Ambulance Bay Canopy<br>Elevations<br>Ceilings<br>Detailed Design |
 | 40 | **AGREE** | Report - Sustainability - BREEAM | DEVELOPER_MODIFIED | Report - Sustainability - BREEAM | Leighton Hospital | `sustainability/?/calculation (type=report, stage=?)` | `?/?/? (type=report, stage=?)` | LLM_REASONED | — | Sustainability | BREEAM Stage 3 Summary Report<br>Mat 06 RIBA 2 Material Efficiency Report<br>MAT 05 Design for Durability & Resiliance | Report - Sustainability - Net Zero Carbon<br>Report - Sustainability - Environment / Sustainability |
 | 41 | **DISAGREE** | Report - Sustainability - Environment / Sustainability | DEVELOPER_MODIFIED | Report - Sustainability - Environment / Sustainability | Leighton Hospital | `sustainability/?/modelling (type=report, stage=?)` | `sustainability/?/analysis (type=report, stage=?)` | LLM_REASONED | engineeringWork: modelling vs analysis (DISAGREE) | Sustainability | Operational Energy Modelling Report (TM-54)<br>Thermal Comfort<br>Indoor Air quality Plan | Report - Sustainability - Net Zero Carbon<br>Report - Sustainability - BREEAM |
 | 42 | **DISAGREE** | Report - Sustainability - Net Zero Carbon | DEVELOPER_MODIFIED | Report - Sustainability - Net Zero Carbon | Leighton Hospital | `sustainability/?/calculation (type=report, stage=?)` | `?/?/analysis (type=report, stage=?)` | LLM_REASONED | engineeringWork: calculation vs analysis (DISAGREE) | Sustainability | Net Zero Carbon summary report<br>NHS NZC WLC Toolkit 1&2<br>NHS NZC OEC Toolkit 1&2<br>NHS NZC Design Management Tool 1&2 | Report - Sustainability - Environment / Sustainability<br>Report - Sustainability - BREEAM |
-| 43 | **DISAGREE** | Retired Activities — Work package | DEVELOPER_MODIFIED | Retired Activities — Work package | REDACTED-CODE REDACTED-SITE June 2026 Programme | `structural/link_bridge/detailing (type=drawing, stage=stage_3)` | `structural/link_bridge/design (type=general_arrangement, stage=stage_3)` | LLM_REASONED | engineeringWork: detailing vs design (DISAGREE)<br>deliverableType: drawing vs general_arrangement (DISAGREE) | Retired Activities | Masonry / lintel detailing<br>Development of model and sheets<br>Detailed connection intent for precast wall panels<br>Assess existing structure for support of new link structure<br>Design & analysis of new link structure steelwork<br>Produce Link Structure General Arrangement Drawings<br>Wilmott Dixon Review Link Structure General Arrangement Drawings<br>Update & Reissue Link Structure Drawings<br>GET - Formal Acceptance of Link Structure General Arrangement Drawings<br>Produce Reinforcement Detailing for Composite Slabs<br>Link Structure Reinforcement Drawings Released<br>Liaise with LLFA regarding increase in discharge rate | *(none)* |
-| 44 | **AGREE** | Structural Design — Work package | DEVELOPER_APPROVED | Structural Design — Work package | REDACTED-CODE REDACTED-SITE June 2026 Programme | `structural/?/design (type=?, stage=stage_3)` | `structural/?/design (type=?, stage=stage_3)` | LLM_REASONED | — | Structural Design | CP Drawings Issue | Core General Arrangements<br>Column Elevations<br>Wall Elevations<br>Reinforcement Detailing<br>Detailed Design<br>Model/Drawing Development |
+| 43 | **DISAGREE** | Retired Activities — Work package | DEVELOPER_MODIFIED | Retired Activities — Work package | SYN1 Northvale June 2026 Programme | `structural/link_bridge/detailing (type=drawing, stage=stage_3)` | `structural/link_bridge/design (type=general_arrangement, stage=stage_3)` | LLM_REASONED | engineeringWork: detailing vs design (DISAGREE)<br>deliverableType: drawing vs general_arrangement (DISAGREE) | Retired Activities | Masonry / lintel detailing<br>Development of model and sheets<br>Detailed connection intent for precast wall panels<br>Assess existing structure for support of new link structure<br>Design & analysis of new link structure steelwork<br>Produce Link Structure General Arrangement Drawings<br>Wilmott Dixon Review Link Structure General Arrangement Drawings<br>Update & Reissue Link Structure Drawings<br>GET - Formal Acceptance of Link Structure General Arrangement Drawings<br>Produce Reinforcement Detailing for Composite Slabs<br>Link Structure Reinforcement Drawings Released<br>Liaise with LLFA regarding increase in discharge rate | *(none)* |
+| 44 | **AGREE** | Structural Design — Work package | DEVELOPER_APPROVED | Structural Design — Work package | SYN1 Northvale June 2026 Programme | `structural/?/design (type=?, stage=stage_3)` | `structural/?/design (type=?, stage=stage_3)` | LLM_REASONED | — | Structural Design | CP Drawings Issue | Core General Arrangements<br>Column Elevations<br>Wall Elevations<br>Reinforcement Detailing<br>Detailed Design<br>Model/Drawing Development |
 | 45 | **DISAGREE** | Updated Technical Note - Electrical | DEVELOPER_APPROVED | Updated Technical Note - Electrical | Leighton Hospital | `electrical/electrical_systems/technical_note (type=technical_note, stage=?)` | `electrical/electrical_systems/design (type=technical_note, stage=?)` | LLM_MERGED | engineeringWork: technical_note vs design (DISAGREE) | Electrical Services | Emergency Standby Power Generation<br>IPS/UPS Power Systems<br>LV Power Distribution Systems<br>HV Power Supply System | New Design Schematics - Electrical<br>Developed Design Schematics - Electrical<br>Developed Design Schedule - Electrical<br>Developed Design Drawing - Electrical |
 | 46 | **DISAGREE** | Updated Technical Note - MEP | DEVELOPER_APPROVED | Updated Technical Note - MEP | Leighton Hospital | `mechanical/mechanical_systems/technical_note (type=technical_note, stage=?)` | `mechanical/mechanical_systems/design (type=technical_note, stage=?)` | LLM_MERGED | engineeringWork: technical_note vs design (DISAGREE) | Combined MEP Services | Primary Heating & Cooling System | New Design Specification - MEP<br>Developed Design Report - MEP<br>New Design Schematics - MEP<br>Developed Design Drawing - MEP<br>New 3D Model - MEP<br>New Design Schedule - MEP |
 | 47 | **DISAGREE** | Updated Technical Note - Public Health | DEVELOPER_APPROVED | Updated Technical Note - Public Health | Leighton Hospital | `public_health/public_health_system/technical_note (type=technical_note, stage=?)` | `public_health/public_health_system/design (type=technical_note, stage=?)` | LLM_MERGED | engineeringWork: technical_note vs design (DISAGREE) | Public Health Services | Cold Water Distribution System | New Design Drawing - Public Health |
-| 48 | **AGREE** | VI-019 Desktop Study - Link Bridge Foundations | DEVELOPER_MODIFIED | VI-019 Desktop Study - Link Bridge Foundations | REDACTED-CODE REDACTED-SITE June 2026 Programme | `structural/foundations/analysis (type=assessment, stage=stage_3)` | `structural/foundations/analysis (type=assessment, stage=stage_3)` | LLM_MERGED | — | Link Structure | VI-019 Notification Date<br>Foundation Assessment Study | Detailed Design<br>VI-061 Confirmation of Link Bridge 'Option 2' as preferred design solution<br>VI-052 Link Bridge - Option 1 (Early Stage 3 Structural Analysis)<br>VI-046 Link Bridge Surveys |
-| 49 | **REASONING_MORE_COMPLETE** | VI-027 - Inclusion of Paeds Link | REJECTED | VI-027 - Inclusion of Paeds Link | REDACTED-CODE REDACTED-SITE June 2026 Programme | `?/?/?` | `?/link_bridge/analysis (type=report, stage=stage_3)` | LLM_REASONED | engineeringObject: null -> link_bridge (more specific)<br>engineeringWork: null -> analysis (more specific)<br>deliverableType: null -> report (more specific)<br>lifecycleStage: null -> stage_3 (more specific) | Paeds Link Corridor | Notification Date<br>Undertake feasibility study for Peads Link Corridor<br>GET - Notification from WD not to continue | *(none)* |
-| 50 | **AGREE** | VI-045 - Generator Compound — Work package | DEVELOPER_MODIFIED | VI-045 - Generator Compound — Work package | REDACTED-CODE REDACTED-SITE June 2026 Programme | `structural/foundations/design (type=milestone, stage=stage_3)` | `structural/foundations/design (type=milestone, stage=stage_3)` | LLM_MERGED | — | VI-045 - Generator Compound | GET - Fixed Compound layout<br>GET - Final equipment weights<br>Stage 3 Structural Design<br>Stage 3 Drainage Design<br>Generator Compound Stage 3 Complete | *(none)* |
-| 51 | **AGREE** | VI-046 Link Bridge Surveys | DEVELOPER_MODIFIED | VI-046 Link Bridge Surveys | REDACTED-CODE REDACTED-SITE June 2026 Programme | `structural/link_bridge/inspection (type=survey, stage=stage_3)` | `?/link_bridge/inspection (type=survey, stage=stage_3)` | LLM_REASONED | — | Link Structure | Prepare Survey Specification<br>Supervise Surveys<br>Update GIR<br>GET - Receive final GI results | Detailed Design<br>VI-061 Confirmation of Link Bridge 'Option 2' as preferred design solution<br>VI-019 Desktop Study - Link Bridge Foundations<br>VI-052 Link Bridge - Option 1 (Early Stage 3 Structural Analysis) |
-| 52 | **AGREE** | VI-061 Confirmation of Link Bridge 'Option 2' as preferred design solution | DEVELOPER_MODIFIED | VI-061 Confirmation of Link Bridge 'Option 2' as preferred design solution | REDACTED-CODE REDACTED-SITE June 2026 Programme | `structural/link_bridge/design (type=milestone, stage=stage_3)` | `structural/link_bridge/design (type=milestone, stage=stage_3)` | LLM_REASONED | — | Link Structure | GET - Architect layout and floor levels<br>GET - Architect Wall and Roof Buildups<br>GET - Initial fabricator input<br>Superstructure design<br>Foundation design<br>Stage 3 Drawing Issue<br>Project Team Review of Stage 3 Information<br>Stage 4 Structure and Foundations (P Issue)<br>Project Team Review<br>Updates to information following review<br>Link Bridge Structural C01 Issue | Detailed Design<br>VI-019 Desktop Study - Link Bridge Foundations<br>VI-052 Link Bridge - Option 1 (Early Stage 3 Structural Analysis)<br>VI-046 Link Bridge Surveys |
+| 48 | **AGREE** | VI-019 Desktop Study - Link Bridge Foundations | DEVELOPER_MODIFIED | VI-019 Desktop Study - Link Bridge Foundations | SYN1 Northvale June 2026 Programme | `structural/foundations/analysis (type=assessment, stage=stage_3)` | `structural/foundations/analysis (type=assessment, stage=stage_3)` | LLM_MERGED | — | Link Structure | VI-019 Notification Date<br>Foundation Assessment Study | Detailed Design<br>VI-061 Confirmation of Link Bridge 'Option 2' as preferred design solution<br>VI-052 Link Bridge - Option 1 (Early Stage 3 Structural Analysis)<br>VI-046 Link Bridge Surveys |
+| 49 | **REASONING_MORE_COMPLETE** | VI-027 - Inclusion of Paeds Link | REJECTED | VI-027 - Inclusion of Paeds Link | SYN1 Northvale June 2026 Programme | `?/?/?` | `?/link_bridge/analysis (type=report, stage=stage_3)` | LLM_REASONED | engineeringObject: null -> link_bridge (more specific)<br>engineeringWork: null -> analysis (more specific)<br>deliverableType: null -> report (more specific)<br>lifecycleStage: null -> stage_3 (more specific) | Paeds Link Corridor | Notification Date<br>Undertake feasibility study for Peads Link Corridor<br>GET - Notification from WD not to continue | *(none)* |
+| 50 | **AGREE** | VI-045 - Generator Compound — Work package | DEVELOPER_MODIFIED | VI-045 - Generator Compound — Work package | SYN1 Northvale June 2026 Programme | `structural/foundations/design (type=milestone, stage=stage_3)` | `structural/foundations/design (type=milestone, stage=stage_3)` | LLM_MERGED | — | VI-045 - Generator Compound | GET - Fixed Compound layout<br>GET - Final equipment weights<br>Stage 3 Structural Design<br>Stage 3 Drainage Design<br>Generator Compound Stage 3 Complete | *(none)* |
+| 51 | **AGREE** | VI-046 Link Bridge Surveys | DEVELOPER_MODIFIED | VI-046 Link Bridge Surveys | SYN1 Northvale June 2026 Programme | `structural/link_bridge/inspection (type=survey, stage=stage_3)` | `?/link_bridge/inspection (type=survey, stage=stage_3)` | LLM_REASONED | — | Link Structure | Prepare Survey Specification<br>Supervise Surveys<br>Update GIR<br>GET - Receive final GI results | Detailed Design<br>VI-061 Confirmation of Link Bridge 'Option 2' as preferred design solution<br>VI-019 Desktop Study - Link Bridge Foundations<br>VI-052 Link Bridge - Option 1 (Early Stage 3 Structural Analysis) |
+| 52 | **AGREE** | VI-061 Confirmation of Link Bridge 'Option 2' as preferred design solution | DEVELOPER_MODIFIED | VI-061 Confirmation of Link Bridge 'Option 2' as preferred design solution | SYN1 Northvale June 2026 Programme | `structural/link_bridge/design (type=milestone, stage=stage_3)` | `structural/link_bridge/design (type=milestone, stage=stage_3)` | LLM_REASONED | — | Link Structure | GET - Architect layout and floor levels<br>GET - Architect Wall and Roof Buildups<br>GET - Initial fabricator input<br>Superstructure design<br>Foundation design<br>Stage 3 Drawing Issue<br>Project Team Review of Stage 3 Information<br>Stage 4 Structure and Foundations (P Issue)<br>Project Team Review<br>Updates to information following review<br>Link Bridge Structural C01 Issue | Detailed Design<br>VI-019 Desktop Study - Link Bridge Foundations<br>VI-052 Link Bridge - Option 1 (Early Stage 3 Structural Analysis)<br>VI-046 Link Bridge Surveys |
 
 ## Per-decision detail
 
@@ -82,7 +82,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** DISAGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `d090b4b8cbd5560ae366816d`
-- **Deliverable:** Additional Engineering Management Works — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Additional Engineering Management Works — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `project_management/project_management/coordination (type=?, stage=stage_3)`
 - **Reasoned identity:** `?/?/review (type=report, stage=stage_3)` (source=LLM_REASONED, matched rows=1)
 - **Fragnet / WBS:** EW-001 - Review Additional Works
@@ -100,7 +100,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `0a9531202de56c1564fbe456`
-- **Deliverable:** Additional Ground Investigation — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Additional Ground Investigation — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `ground_investigation/?/inspection (type=report, stage=stage_3)`
 - **Reasoned identity:** `?/?/inspection (type=report, stage=stage_3)` (source=LLM_REASONED, matched rows=1)
 - **Fragnet / WBS:** EW-001 - Review Additional Works
@@ -118,7 +118,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** DISAGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `81f64d7e742d35ce0eb2b175`
-- **Deliverable:** Additional Structural Works — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Additional Structural Works — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `structural/?/coordination (type=?, stage=stage_3)`
 - **Reasoned identity:** `structural/slabs/review (type=report, stage=stage_3)` (source=LLM_MERGED, matched rows=1)
 - **Fragnet / WBS:** EW-001 - Review Additional Works
@@ -150,7 +150,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `68e5d44dd19afac5401f4fc0`
-- **Deliverable:** Ambulance Bay Canopy — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Ambulance Bay Canopy — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `structural/steelwork/detailing (type=drawing, stage=stage_3)`
 - **Reasoned identity:** `structural/steelwork/detailing (type=drawing, stage=stage_3)` (source=LLM_REASONED, matched rows=1)
 - **Fragnet / WBS:** Secondary Steelwork
@@ -166,7 +166,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `acb87f258c45325d0154e2fb`
-- **Deliverable:** Architectural Setting Out — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Architectural Setting Out — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `project_management/project_management/detailing (type=drawing, stage=stage_3)`
 - **Reasoned identity:** `?/?/detailing (type=drawing, stage=stage_3)` (source=LLM_MERGED, matched rows=1)
 - **Fragnet / WBS:** GET Milestones
@@ -190,7 +190,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `9383d2207d27e5f25d58420a`
-- **Deliverable:** BWIC — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** BWIC — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `project_management/project_management/coordination (type=milestone, stage=stage_3)`
 - **Reasoned identity:** `?/?/coordination (type=milestone, stage=stage_3)` (source=LLM_MERGED, matched rows=1)
 - **Fragnet / WBS:** GET Milestones
@@ -210,7 +210,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `882f329be77fcb8512af10ef`
-- **Deliverable:** CE-015 GL6 Foundation Alteration Feasibility — Work package — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** CE-015 GL6 Foundation Alteration Feasibility — Work package — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `structural/foundations/design (type=?, stage=stage_3)`
 - **Reasoned identity:** `structural/foundations/design (type=?, stage=stage_3)` (source=LLM_REASONED, matched rows=1)
 - **Fragnet / WBS:** CE-015 GL6 Foundation Alteration Feasibility
@@ -226,7 +226,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `0477d3196272727d9ca68366`
-- **Deliverable:** Ceilings — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Ceilings — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `structural/steelwork/detailing (type=drawing, stage=stage_3)`
 - **Reasoned identity:** `structural/steelwork/detailing (type=drawing, stage=stage_3)` (source=LLM_REASONED, matched rows=1)
 - **Fragnet / WBS:** Secondary Steelwork
@@ -242,7 +242,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `fb3c464bdeca7365c1f244a6`
-- **Deliverable:** Contract Award — Work package — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Contract Award — Work package — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `project_management/project_management/milestone (type=milestone, stage=stage_3)`
 - **Reasoned identity:** `project_management/project_management/milestone (type=milestone, stage=stage_3)` (source=LLM_REASONED, matched rows=1)
 - **Fragnet / WBS:** Contract Award
@@ -292,7 +292,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `c9b3ddc49bd67dbbe86f4eac`
-- **Deliverable:** Detailed Design — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Detailed Design — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `structural/core/design (type=?, stage=stage_3)`
 - **Reasoned identity:** `structural/core/design (type=?, stage=stage_3)` (source=LLM_MERGED, matched rows=1)
 - **Fragnet / WBS:** Structural Design
@@ -307,7 +307,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `e5a95632ace21d0e28cfc9c0`
-- **Deliverable:** Detailed Design — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Detailed Design — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `civil/drainage/design (type=?, stage=stage_3)`
 - **Reasoned identity:** `civil/drainage/design (type=?, stage=stage_3)` (source=LLM_MERGED, matched rows=1)
 - **Fragnet / WBS:** Drainage Design
@@ -320,7 +320,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `c1e7f0e7965ab4ccf4ea690d`
-- **Deliverable:** Detailed Design — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Detailed Design — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `structural/foundations/design (type=?, stage=stage_3)`
 - **Reasoned identity:** `structural/foundations/design (type=?, stage=stage_3)` (source=LLM_MERGED, matched rows=1)
 - **Fragnet / WBS:** Foundations
@@ -337,7 +337,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `b83c99a779af566139fe9283`
-- **Deliverable:** Detailed Design — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Detailed Design — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `structural/link_bridge/design (type=?, stage=stage_3)`
 - **Reasoned identity:** `structural/link_bridge/design (type=?, stage=stage_3)` (source=LLM_MERGED, matched rows=1)
 - **Fragnet / WBS:** Link Structure
@@ -351,7 +351,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** DISAGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `856cf83af769543fb132fe3e`
-- **Deliverable:** Detailed Design — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Detailed Design — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `structural/slabs/design (type=?, stage=stage_3)`
 - **Reasoned identity:** `structural/slabs/analysis (type=analysis, stage=stage_3)` (source=LLM_MERGED, matched rows=6)
 - **Fragnet / WBS:** Level 12
@@ -371,7 +371,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `235f3c06c6db1cb5cf14f82b`
-- **Deliverable:** Detailed Design — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Detailed Design — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `structural/steelwork/design (type=drawing, stage=stage_3)`
 - **Reasoned identity:** `structural/steelwork/design (type=drawing, stage=stage_3)` (source=LLM_MERGED, matched rows=1)
 - **Fragnet / WBS:** Secondary Steelwork
@@ -393,7 +393,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `8a7da4fb09dff42f803f4efd`
-- **Deliverable:** Detailed Design — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Detailed Design — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `structural/slabs/design (type=?, stage=stage_3)`
 - **Reasoned identity:** `?/slabs/design (type=?, stage=stage_3)` (source=LLM_MERGED, matched rows=1)
 - **Fragnet / WBS:** Level 7
@@ -523,7 +523,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `7de6ec24280cb5f1687bdd19`
-- **Deliverable:** Drainage — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Drainage — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `public_health/drainage/coordination (type=milestone, stage=stage_3)`
 - **Reasoned identity:** `public_health/drainage/coordination (type=milestone, stage=stage_3)` (source=LLM_MERGED, matched rows=1)
 - **Fragnet / WBS:** GET Milestones
@@ -536,7 +536,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `6747be119fae4bcd66c16c3c`
-- **Deliverable:** Due Diligence — Work package — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Due Diligence — Work package — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `project_management/project_management/review (type=report, stage=stage_3)`
 - **Reasoned identity:** `project_management/project_management/review (type=report, stage=stage_3)` (source=LLM_REASONED, matched rows=1)
 - **Fragnet / WBS:** Due Diligence
@@ -556,7 +556,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `7063c055ede768e6f3fcaf78`
-- **Deliverable:** Enabling Works — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Enabling Works — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `project_management/project_management/milestone (type=milestone, stage=stage_3)`
 - **Reasoned identity:** `project_management/project_management/milestone (type=milestone, stage=stage_3)` (source=LLM_REASONED, matched rows=1)
 - **Fragnet / WBS:** GET Milestones
@@ -569,7 +569,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `e6f0a65f33a0d70d2033a367`
-- **Deliverable:** Equipment Specifications — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Equipment Specifications — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `project_management/project_management/design (type=specification, stage=stage_3)`
 - **Reasoned identity:** `?/?/design (type=specification, stage=stage_3)` (source=LLM_MERGED, matched rows=1)
 - **Fragnet / WBS:** GET Milestones
@@ -582,7 +582,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `fe2aff9901ff42baa4186ee1`
-- **Deliverable:** External Finishes Works — Work package — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** External Finishes Works — Work package — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `?/?/detailing (type=design_drawing, stage=stage_3)`
 - **Reasoned identity:** `?/?/detailing (type=design_drawing, stage=stage_3)` (source=LLM_REASONED, matched rows=1)
 - **Fragnet / WBS:** External Finishes Works
@@ -598,7 +598,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `d470a2c24dd0df37c208dfee`
-- **Deliverable:** GI — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** GI — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `project_management/project_management/milestone (type=milestone, stage=stage_3)`
 - **Reasoned identity:** `project_management/project_management/milestone (type=milestone, stage=stage_3)` (source=LLM_REASONED, matched rows=1)
 - **Fragnet / WBS:** GET Milestones
@@ -611,7 +611,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** DISAGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `61ccdbcea9a2cc2eb8abae25`
-- **Deliverable:** MMD/Client Programme Alignment - Prolongation — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** MMD/Client Programme Alignment - Prolongation — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `project_management/project_management/coordination (type=programme, stage=stage_3)`
 - **Reasoned identity:** `project_management/project_management/review (type=programme, stage=stage_3)` (source=LLM_REASONED, matched rows=1)
 - **Fragnet / WBS:** Change
@@ -625,7 +625,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `2fd3011377f2800028e5686a`
-- **Deliverable:** Model/Drawing Development — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Model/Drawing Development — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `structural/?/general_arrangement (type=drawing, stage=stage_3)`
 - **Reasoned identity:** `?/?/general_arrangement (type=drawing, stage=stage_3)` (source=LLM_MERGED, matched rows=7)
 - **Fragnet / WBS:** Level 7
@@ -641,7 +641,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_APPROVED
 - **Fingerprint:** `f737e3f2a41043359f208f33`
-- **Deliverable:** Model Drawing/Development — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Model Drawing/Development — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `structural/foundations/general_arrangement (type=general_arrangement, stage=stage_3)`
 - **Reasoned identity:** `structural/foundations/general_arrangement (type=general_arrangement, stage=stage_3)` (source=LLM_MERGED, matched rows=1)
 - **Fragnet / WBS:** Foundations
@@ -657,7 +657,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_APPROVED
 - **Fingerprint:** `68b748c1cfebb97d5022770a`
-- **Deliverable:** Model/Drawing Development — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Model/Drawing Development — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `public_health/drainage/design (type=design_drawing, stage=stage_3)`
 - **Reasoned identity:** `public_health/drainage/design (type=design_drawing, stage=stage_3)` (source=LLM_MERGED, matched rows=1)
 - **Fragnet / WBS:** Drainage Design
@@ -670,7 +670,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_APPROVED
 - **Fingerprint:** `3b909ddd94c25442207aaef9`
-- **Deliverable:** Model/Drawing Development — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Model/Drawing Development — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `structural/?/design (type=drawing, stage=stage_3)`
 - **Reasoned identity:** `structural/?/design (type=drawing, stage=stage_3)` (source=LLM_MERGED, matched rows=1)
 - **Fragnet / WBS:** Structural Design
@@ -736,7 +736,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** DISAGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `24d765837f2986144a2f7b57`
-- **Deliverable:** Partitions — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Partitions — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `structural/steelwork/detailing (type=drawing, stage=stage_3)`
 - **Reasoned identity:** `structural/steelwork/detailing (type=design_drawing, stage=stage_3)` (source=LLM_REASONED, matched rows=1)
 - **Fragnet / WBS:** Secondary Steelwork
@@ -805,7 +805,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** DISAGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `e67251f62aa3e4f0095ee7a0`
-- **Deliverable:** Retired Activities — Work package — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Retired Activities — Work package — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `structural/link_bridge/detailing (type=drawing, stage=stage_3)`
 - **Reasoned identity:** `structural/link_bridge/design (type=general_arrangement, stage=stage_3)` (source=LLM_REASONED, matched rows=1)
 - **Fragnet / WBS:** Retired Activities
@@ -831,7 +831,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_APPROVED
 - **Fingerprint:** `55d197741fabb6d2b2fe877e`
-- **Deliverable:** Structural Design — Work package — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** Structural Design — Work package — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `structural/?/design (type=?, stage=stage_3)`
 - **Reasoned identity:** `structural/?/design (type=?, stage=stage_3)` (source=LLM_REASONED, matched rows=1)
 - **Fragnet / WBS:** Structural Design
@@ -892,7 +892,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `2237f8d85f009579e0b22a92`
-- **Deliverable:** VI-019 Desktop Study - Link Bridge Foundations — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** VI-019 Desktop Study - Link Bridge Foundations — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `structural/foundations/analysis (type=assessment, stage=stage_3)`
 - **Reasoned identity:** `structural/foundations/analysis (type=assessment, stage=stage_3)` (source=LLM_MERGED, matched rows=1)
 - **Fragnet / WBS:** Link Structure
@@ -906,7 +906,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** REASONING_MORE_COMPLETE
 - **Status:** REJECTED
 - **Fingerprint:** `7d8a17f1f0894951e60c96f5`
-- **Deliverable:** VI-027 - Inclusion of Paeds Link — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** VI-027 - Inclusion of Paeds Link — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `?/?/?`
 - **Reasoned identity:** `?/link_bridge/analysis (type=report, stage=stage_3)` (source=LLM_REASONED, matched rows=1)
 - **Fragnet / WBS:** Paeds Link Corridor
@@ -925,7 +925,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `a8503648a904e1908faba250`
-- **Deliverable:** VI-045 - Generator Compound — Work package — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** VI-045 - Generator Compound — Work package — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `structural/foundations/design (type=milestone, stage=stage_3)`
 - **Reasoned identity:** `structural/foundations/design (type=milestone, stage=stage_3)` (source=LLM_MERGED, matched rows=1)
 - **Fragnet / WBS:** VI-045 - Generator Compound
@@ -941,7 +941,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `3562f0042bac267d9d2df7c0`
-- **Deliverable:** VI-046 Link Bridge Surveys — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** VI-046 Link Bridge Surveys — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `structural/link_bridge/inspection (type=survey, stage=stage_3)`
 - **Reasoned identity:** `?/link_bridge/inspection (type=survey, stage=stage_3)` (source=LLM_REASONED, matched rows=1)
 - **Fragnet / WBS:** Link Structure
@@ -957,7 +957,7 @@ Read-only comparison report. No database writes. No changes recommended or appli
 - **Classification:** AGREE
 - **Status:** DEVELOPER_MODIFIED
 - **Fingerprint:** `5a1f1c828cc8a8c88a890b4a`
-- **Deliverable:** VI-061 Confirmation of Link Bridge 'Option 2' as preferred design solution — REDACTED-CODE REDACTED-SITE June 2026 Programme
+- **Deliverable:** VI-061 Confirmation of Link Bridge 'Option 2' as preferred design solution — SYN1 Northvale June 2026 Programme
 - **Decision identity:** `structural/link_bridge/design (type=milestone, stage=stage_3)`
 - **Reasoned identity:** `structural/link_bridge/design (type=milestone, stage=stage_3)` (source=LLM_REASONED, matched rows=1)
 - **Fragnet / WBS:** Link Structure

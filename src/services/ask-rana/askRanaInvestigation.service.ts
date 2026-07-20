@@ -72,19 +72,19 @@ export function extractDeterministicInvestigationSignals(pkg: AskRanaEvidencePac
       (evo.baselineDays != null && evo.latestDays != null && evo.baselineDays === evo.latestDays)
     ) {
       signals.push(
-        "Duration remained unchanged across revisions — rule out duration change as the primary explanation unless evidence shows otherwise."
+        "Remaining work remained unchanged across revisions — rule out remaining-work change as the primary explanation unless evidence shows otherwise."
       );
     } else if (evo.baselineDays != null && evo.latestDays != null) {
-      signals.push(`Duration moved from ${evo.baselineDays} to ${evo.latestDays} days across revisions.`);
+      signals.push(`Remaining work moved from ${evo.baselineDays} to ${evo.latestDays} days across revisions.`);
     }
 
     const stable = evo.stablePeriods?.[0];
     if (stable) {
       signals.push(
-        `The planning team appears to have settled on ${stable.durationDays} days early — duration stayed stable from ${stable.startLabel} through ${stable.endLabel} (${stable.revisionCount} updates).`
+        `Remaining work settled at ${stable.durationDays} days early — it stayed stable from ${stable.startLabel} through ${stable.endLabel} (${stable.revisionCount} updates).`
       );
     } else if (evo.changePattern?.toLowerCase().includes("stable")) {
-      signals.push("Duration pattern is stable across subsequent programme updates.");
+      signals.push("Remaining-work pattern is stable across subsequent programme updates.");
     }
   }
 
@@ -213,7 +213,7 @@ export function buildInvestigationFindings(
   }
 
   alternativeExplanations.push(
-    "Underlying planner rationale — not recorded in the imported programme"
+    "Why the planner made each decision — not available in the programme file"
   );
 
   const strongestConclusion =

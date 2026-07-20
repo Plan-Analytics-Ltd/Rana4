@@ -236,7 +236,7 @@ async function buildPipeline(deliverableId, baseClassification) {
 
 try {
   console.log("# Phase 9.3 Matching Diagnostics\n");
-  console.log(`Project: REDACTED-SITE Emergency Care Building (${projectId})`);
+  console.log(`Project: Northvale Emergency Care Wing (${projectId})`);
   console.log(`Threshold: ${THRESHOLD}%`);
   console.log(`Weights: semantic ${W.semantic}%, wbs ${W.wbsContext}%, activity ${W.activityComposition}%, duration ${W.durationBehaviour}%, stage ${W.programmeStage}%\n`);
 

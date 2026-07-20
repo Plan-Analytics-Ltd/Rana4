@@ -98,6 +98,7 @@ export function parseXerProgramme(content: string | Buffer): ParsedProgrammeImpo
     const freeFloat = hoursToDays(r.free_float_hr_cnt);
     const pct = parseFloat(String(r.phys_complete_pct ?? ""));
     const status = String(r.status_code ?? "").trim() || undefined;
+    const p6TaskType = String(r.task_type ?? "").trim() || undefined;
 
     let actualDays: number | undefined;
     const actStart = parseP6Date(r.act_start_date);
@@ -125,6 +126,7 @@ export function parseXerProgramme(content: string | Buffer): ParsedProgrammeImpo
       freeFloatDays: freeFloat,
       isCritical: totalFloat !== undefined && totalFloat <= 0,
       status,
+      p6TaskType,
     });
   }
 

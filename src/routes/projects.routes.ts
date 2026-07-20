@@ -30,6 +30,15 @@ router.post(
   programmeIntelligenceController.importProgramme
 );
 router.get("/:projectId/programme-snapshots", programmeIntelligenceController.listSnapshots);
+router.get("/:projectId/programme-revisions", programmeIntelligenceController.listProgrammeRevisions);
+router.get(
+  "/:projectId/programme-revisions/live/deliverable-durations",
+  programmeIntelligenceController.getLiveDeliverableDurationsHandler
+);
+router.get(
+  "/:projectId/programme-revisions/:snapshotId/deliverable-durations",
+  programmeIntelligenceController.getRevisionDeliverableDurationsHandler
+);
 router.post(
   "/:projectId/programme-snapshots/baseline",
   programmeIntelligenceController.createBaselineSnapshot
@@ -41,6 +50,14 @@ router.put("/:projectId/intelligence-profile", programmeIntelligenceController.u
 router.get("/:projectId/intelligence/profile", projectIntelligenceController.getIntelligenceProfile);
 router.put("/:projectId/intelligence/profile", projectIntelligenceController.putIntelligenceProfile);
 router.get("/:projectId/intelligence/similar-projects", projectIntelligenceController.getSimilarProjectsForProject);
+router.get(
+  "/:projectId/intelligence/programme-review",
+  projectIntelligenceController.getProgrammeReview
+);
+router.get(
+  "/:projectId/project-intelligence",
+  projectIntelligenceController.getProjectIntelligenceForProject
+);
 router.get(
   "/:projectId/intelligence/similar-deliverables/:deliverableId",
   projectIntelligenceController.getSimilarDeliverablesForDeliverable

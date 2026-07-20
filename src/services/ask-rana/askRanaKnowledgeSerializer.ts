@@ -27,6 +27,7 @@ export function serializeKnowledgePackageForPrompt(knowledge: AskRanaKnowledgePa
       knowledge.plannerContext.qualifiers.length > 0
         ? `- Qualifiers: ${knowledge.plannerContext.qualifiers.join(", ")}`
         : null,
+      knowledge.targetRevision ? `- Target revision: ${knowledge.targetRevision}` : null,
     ]
       .filter(Boolean)
       .join("\n")
@@ -47,8 +48,26 @@ export function serializeKnowledgePackageForPrompt(knowledge: AskRanaKnowledgePa
       .join("\n")
   );
 
-  const confirmed = section("Confirmed facts", knowledge.confirmedFacts);
+  if (knowledge.communicationGuidance.length > 0) {
+    parts.push(section("How to reason and communicate", knowledge.communicationGuidance)!);
+  }
+
+  const confirmed = section(
+    knowledge.targetRevision
+      ? `Confirmed facts for ${knowledge.targetRevision}`
+      : "Confirmed facts",
+    knowledge.confirmedFacts
+  );
   if (confirmed) parts.push(confirmed);
+
+  if (knowledge.revisionContextFacts.length > 0) {
+    parts.push(
+      section(
+        "Supporting context from neighbouring revisions (use only after answering the target revision)",
+        knowledge.revisionContextFacts
+      )!
+    );
+  }
 
   if (knowledge.investigationFindings?.strongestConclusion) {
     parts.push(
@@ -69,8 +88,23 @@ export function serializeKnowledgePackageForPrompt(knowledge: AskRanaKnowledgePa
     parts.push(section("Evidence links", knowledge.investigationFindings.evidenceLinks)!);
   }
 
-  const unknowns = section("Unknowns (not recorded in the imported programme)", knowledge.unknowns);
+  if (knowledge.changeSummaries.length > 0) {
+    parts.push(
+      section(
+        knowledge.targetRevision
+          ? `What changed in ${knowledge.targetRevision}`
+          : "What changed by revision",
+        knowledge.changeSummaries
+      )!
+    );
+  }
+
+  const unknowns = section("Not in the programme file", knowledge.unknowns);
   if (unknowns) parts.push(unknowns);
+
+  if (knowledge.communicationGuidance.length > 0) {
+    // Already emitted near the top as "How to reason and communicate"
+  }
 
   if (knowledge.evidenceNotes.length > 0) {
     parts.push(section("Evidence notes", knowledge.evidenceNotes)!);

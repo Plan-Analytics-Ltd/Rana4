@@ -55,4 +55,14 @@ export type AskRanaKnowledgePackage = {
   comparisonContext: string[];
   recommendations: string[];
   evidenceNotes: string[];
+  /** Per-revision change summaries for broad "what changed?" questions. */
+  changeSummaries: string[];
+  /** Planner-facing communication guidance for the LLM. */
+  communicationGuidance: string[];
+  /** When set, the planner asked about this revision specifically. */
+  targetRevision: string | null;
+  /** Optional neighbouring-revision context — use only after answering the target revision. */
+  revisionContextFacts: string[];
+  /** Primavera TASK.task_type per linked activity (metadata only — not used in prompts yet). */
+  activityTaskTypes: Array<{ activityCode: string; p6TaskType: string | null }>;
 };

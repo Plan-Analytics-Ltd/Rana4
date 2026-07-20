@@ -9,7 +9,7 @@ import {
   extractProgrammeNameFromXerBuffer,
   buildRevisionDisplayLabel,
 } from "./programmeIdentity.service.js";
-import { syncLiveProgrammeFromImport } from "./liveProgrammeSync.service.js";
+import { syncLiveProgrammeFromImportInTx, PROGRAMME_IMPORT_TX_OPTIONS } from "./liveProgrammeSync.service.js";
 import type { ParsedProgrammeImport, ProgrammeImportMatchResult, SnapshotSummary } from "./types.js";
 
 export type ProgrammeImportOptions = {
@@ -220,46 +220,55 @@ export async function importProgrammeSchedule(
     fallbackLabel: options.label ?? parsed.label ?? `Import ${new Date().toISOString().slice(0, 10)}`,
   });
 
-  const { snapshotId, summary } = await captureProgrammeSnapshot({
-    projectId: options.projectId,
-    companyId: options.companyId,
-    userId: options.userId,
-    sourceType,
-    snapshotRole,
-    scheduleDate: parsed.scheduleDate,
-    label: revisionLabel,
-    sourceFileName: options.sourceFileName ?? fileName,
-    metrics: parsed.metrics,
-    importSummary: {
-      programmeDisplayName,
-      liveSyncPending: snapshotRole === "LIVE_IMPORT" || snapshotRole === "AS_BUILT",
-    },
-    activities,
-    deliverables,
-    relationships,
-    matchResult,
-  });
-
-  const liveSync = await syncLiveProgrammeFromImport({
-    projectId: options.projectId,
-    companyId: options.companyId,
-    snapshotRole,
-    activities,
-    relationships,
-  });
-
-  if (liveSync.synced) {
-    await prisma.programmeSnapshot.update({
-      where: { id: snapshotId },
-      data: {
+  const { snapshotId, summary, matchResult: finalMatchResult } = await prisma.$transaction(
+    async (tx) => {
+      const { snapshotId: id, summary: capturedSummary } = await captureProgrammeSnapshot({
+        projectId: options.projectId,
+        companyId: options.companyId,
+        userId: options.userId,
+        sourceType,
+        snapshotRole,
+        scheduleDate: parsed.scheduleDate,
+        label: revisionLabel,
+        sourceFileName: options.sourceFileName ?? fileName,
+        metrics: parsed.metrics,
         importSummary: {
-          ...(summary.importSummary ?? {}),
+          programmeDisplayName,
+          liveSyncPending: snapshotRole === "LIVE_IMPORT" || snapshotRole === "AS_BUILT",
+        },
+        activities,
+        deliverables,
+        relationships,
+        matchResult,
+        tx,
+      });
+
+      const liveSync = await syncLiveProgrammeFromImportInTx(tx, {
+        projectId: options.projectId,
+        companyId: options.companyId,
+        snapshotRole,
+        activities,
+        relationships,
+      });
+
+      let summary = capturedSummary;
+      if (liveSync.synced) {
+        const importSummary = {
+          ...(capturedSummary.importSummary ?? {}),
           programmeDisplayName,
           liveSync,
-        } as object,
-      },
-    });
-  }
+        };
+        await tx.programmeSnapshot.update({
+          where: { id },
+          data: { importSummary: importSummary as object },
+        });
+        summary = { ...capturedSummary, importSummary };
+      }
+
+      return { snapshotId: id, summary, matchResult };
+    },
+    PROGRAMME_IMPORT_TX_OPTIONS
+  );
 
   // Auto-classify live deliverables (manual override always wins).
   await autoClassifyDeliverablesForProject(options.projectId, options.companyId);
@@ -274,5 +283,5 @@ export async function importProgrammeSchedule(
     console.error("[programmeImport] post-import learning refresh failed", err);
   });
 
-  return { snapshotId, summary, matchResult };
+  return { snapshotId, summary, matchResult: finalMatchResult };
 }

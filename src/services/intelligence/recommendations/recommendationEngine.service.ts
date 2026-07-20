@@ -124,10 +124,10 @@ export function generateRecommendations(
       }
       recommendations.push({
         recommendationType: "DURATION_REVIEW",
-        title: "Review duration assumption",
+        title: "Review planned duration assumption",
         summary: "The planned duration is shorter than most comparable historical deliverables.",
         recommendation:
-          "Observation: the current duration sits below the historical median. Evidence: based on comparable deliverables from previous programmes. Suggested action: review the duration assumption with the delivery team before finalising.",
+          "Observation: the current planned duration sits below the historical median. Evidence: based on comparable deliverables from previous programmes. Suggested action: review the planned duration assumption with the delivery team before finalising.",
         severity: outlier.position === "WELL_BELOW" ? "HIGH" : "MEDIUM",
         ...conf,
         evidenceCount,

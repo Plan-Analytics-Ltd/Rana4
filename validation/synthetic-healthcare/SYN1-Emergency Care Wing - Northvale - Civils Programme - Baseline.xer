@@ -1,0 +1,1171 @@
+ERMHDR	18.8	2024-01-01	Project	admin	
+%T	PROJECT
+%F	proj_id	proj_short_name	proj_name	plan_start_date	plan_end_date	last_recalc_date
+%R	P1	Programme_V2.xml-3		2024-01-01 08:00	2026-12-31 17:00	2026-06-19 16:00
+%T	PROJWBS
+%F	wbs_id	parent_wbs_id	wbs_name	proj_node_flag
+%R	1		Northvale General Hospital - Live	Y
+%R	2	1	Emergency Department	N
+%R	3	1	Ward Block	N
+%R	4	1	Operating Theatre Wing	N
+%R	5	1	Link Bridge Option	N
+%R	6	1	Structural Design	N
+%R	7	1	Foundations	N
+%R	8	1	Drainage Design	N
+%R	9	1	Secondary Steelwork	N
+%R	10	1	Contract Award	N
+%R	11	1	Plant Room	N
+%R	12	1	Clinical Areas	N
+%R	13	1	Enabling Works	N
+%R	14	2	Design package 01	N
+%R	15	3	Design package 02	N
+%R	16	4	Design package 03	N
+%R	17	5	Design package 04	N
+%R	18	6	Design package 05	N
+%R	19	7	Design package 06	N
+%R	20	8	Design package 07	N
+%R	21	9	Design package 08	N
+%R	22	10	Design package 09	N
+%R	23	11	Design package 10	N
+%R	24	12	Design package 11	N
+%R	25	13	Design package 12	N
+%R	26	2	Design package 13	N
+%R	27	3	Design package 14	N
+%R	28	4	Design package 15	N
+%R	29	5	Design package 16	N
+%R	30	6	Design package 17	N
+%R	31	7	Design package 18	N
+%R	32	8	Design package 19	N
+%R	33	9	Design package 20	N
+%R	34	10	Design package 21	N
+%R	35	11	Design package 22	N
+%R	36	12	Design package 23	N
+%R	37	13	Design package 24	N
+%R	38	2	Design package 25	N
+%R	39	3	Design package 26	N
+%R	40	4	Design package 27	N
+%R	41	5	Design package 28	N
+%R	42	6	Design package 29	N
+%R	43	7	Design package 30	N
+%R	44	8	Design package 31	N
+%R	45	9	Design package 32	N
+%R	46	10	Design package 33	N
+%R	47	11	Design package 34	N
+%R	48	12	Design package 35	N
+%R	49	13	Design package 36	N
+%R	50	2	Design package 37	N
+%R	51	3	Design package 38	N
+%R	52	4	Design package 39	N
+%R	53	5	Design package 40	N
+%R	54	6	Design package 41	N
+%R	55	7	Design package 42	N
+%R	56	8	Design package 43	N
+%R	57	9	Design package 44	N
+%T	TASK
+%F	task_id	task_code	task_name	wbs_id	status_code	phys_complete_pct
+%R	1	T0001	Structural design review	1	TK_Active	15
+%R	2	T0002	Foundation design coordination	2	TK_NotStart	0
+%R	3	T0003	Detailed design issue package	3	TK_NotStart	0
+%R	4	T0004	Technical design development	4	TK_NotStart	0
+%R	5	T0005	Reinforcement detailing package	5	TK_NotStart	0
+%R	6	T0006	Design coordination meeting	6	TK_Active	15
+%R	7	T0007	Drainage design review	7	TK_NotStart	0
+%R	8	T0008	Superstructure design check	8	TK_Complete	100
+%R	9	T0009	Model drawing development	9	TK_NotStart	0
+%R	10	T0010	Design information issue	10	TK_NotStart	0
+%R	11	T0011	Stage 3 structural design	11	TK_Active	15
+%R	12	T0012	Design review workshop	12	TK_NotStart	0
+%R	13	T0013	Operating theatre layout review	13	TK_NotStart	0
+%R	14	T0014	Theatre ceiling coordination	14	TK_NotStart	0
+%R	15	T0015	Clinical ward design	15	TK_Complete	100
+%R	16	T0016	Hospital ward finishes	16	TK_Active	15
+%R	17	T0017	ICU fit-out planning	17	TK_NotStart	0
+%R	18	T0018	Emergency department layout	18	TK_NotStart	0
+%R	19	T0019	Medical gas coordination	19	TK_NotStart	0
+%R	20	T0020	Infection control review	20	TK_NotStart	0
+%R	21	T0021	Link bridge structural survey	21	TK_Active	15
+%R	22	T0022	Link bridge foundation assessment	22	TK_Complete	100
+%R	23	T0023	Bridge deck coordination	23	TK_NotStart	0
+%R	24	T0024	Concrete pour sequence	24	TK_NotStart	0
+%R	25	T0025	Steelwork erection	25	TK_NotStart	0
+%R	26	T0026	Excavation works	26	TK_Active	15
+%R	27	T0027	Drainage installation	27	TK_NotStart	0
+%R	28	T0028	Facade panel install	28	TK_NotStart	0
+%R	29	T0029	Structural design review	29	TK_Complete	100
+%R	30	T0030	Foundation design coordination 1	30	TK_NotStart	0
+%R	31	T0031	Detailed design issue package 1	31	TK_Active	15
+%R	32	T0032	Technical design development 1	32	TK_NotStart	0
+%R	33	T0033	Reinforcement detailing package 1	33	TK_NotStart	0
+%R	34	T0034	Design coordination meeting 1	34	TK_NotStart	0
+%R	35	T0035	Drainage design review 1	35	TK_NotStart	0
+%R	36	T0036	Superstructure design check 1	36	TK_Active	15
+%R	37	T0037	Model drawing development 1	37	TK_NotStart	0
+%R	38	T0038	Design information issue 1	38	TK_NotStart	0
+%R	39	T0039	Stage 3 structural design 1	39	TK_NotStart	0
+%R	40	T0040	Design review workshop 1	40	TK_NotStart	0
+%R	41	T0041	Operating theatre layout review 1	41	TK_Active	15
+%R	42	T0042	Theatre ceiling coordination 1	42	TK_NotStart	0
+%R	43	T0043	Clinical ward design 1	43	TK_Complete	100
+%R	44	T0044	Hospital ward finishes 1	44	TK_NotStart	0
+%R	45	T0045	ICU fit-out planning 1	45	TK_NotStart	0
+%R	46	T0046	Emergency department layout 1	46	TK_Active	15
+%R	47	T0047	Medical gas coordination 1	47	TK_NotStart	0
+%R	48	T0048	Infection control review 1	48	TK_NotStart	0
+%R	49	T0049	Link bridge structural survey 1	49	TK_NotStart	0
+%R	50	T0050	Link bridge foundation assessment 1	50	TK_Complete	100
+%R	51	T0051	Bridge deck coordination 1	51	TK_Active	15
+%R	52	T0052	Concrete pour sequence 1	52	TK_NotStart	0
+%R	53	T0053	Steelwork erection 1	53	TK_NotStart	0
+%R	54	T0054	Excavation works 1	54	TK_NotStart	0
+%R	55	T0055	Drainage installation 1	55	TK_NotStart	0
+%R	56	T0056	Facade panel install 1	56	TK_Active	15
+%R	57	T0057	Structural design review 2	57	TK_Complete	100
+%R	58	T0058	Foundation design coordination 2	1	TK_NotStart	0
+%R	59	T0059	Detailed design issue package 2	2	TK_NotStart	0
+%R	60	T0060	Technical design development 2	3	TK_NotStart	0
+%R	61	T0061	Reinforcement detailing package 2	4	TK_Active	15
+%R	62	T0062	Design coordination meeting 2	5	TK_NotStart	0
+%R	63	T0063	Drainage design review 2	6	TK_NotStart	0
+%R	64	T0064	Superstructure design check 2	7	TK_Complete	100
+%R	65	T0065	Model drawing development 2	8	TK_NotStart	0
+%R	66	T0066	Design information issue 2	9	TK_Active	15
+%R	67	T0067	Stage 3 structural design 2	10	TK_NotStart	0
+%R	68	T0068	Design review workshop 2	11	TK_NotStart	0
+%R	69	T0069	Operating theatre layout review 2	12	TK_NotStart	0
+%R	70	T0070	Theatre ceiling coordination 2	13	TK_NotStart	0
+%R	71	T0071	Clinical ward design 2	14	TK_Active	15
+%R	72	T0072	Hospital ward finishes 2	15	TK_NotStart	0
+%R	73	T0073	ICU fit-out planning 2	16	TK_NotStart	0
+%R	74	T0074	Emergency department layout 2	17	TK_NotStart	0
+%R	75	T0075	Medical gas coordination 2	18	TK_NotStart	0
+%R	76	T0076	Infection control review 2	19	TK_Active	15
+%R	77	T0077	Link bridge structural survey 2	20	TK_NotStart	0
+%R	78	T0078	Link bridge foundation assessment 2	21	TK_Complete	100
+%R	79	T0079	Bridge deck coordination 2	22	TK_NotStart	0
+%R	80	T0080	Concrete pour sequence 2	23	TK_NotStart	0
+%R	81	T0081	Steelwork erection 2	24	TK_Active	15
+%R	82	T0082	Excavation works 2	25	TK_NotStart	0
+%R	83	T0083	Drainage installation 2	26	TK_NotStart	0
+%R	84	T0084	Facade panel install 2	27	TK_NotStart	0
+%R	85	T0085	Structural design review 3	28	TK_Complete	100
+%R	86	T0086	Foundation design coordination 3	29	TK_Active	15
+%R	87	T0087	Detailed design issue package 3	30	TK_NotStart	0
+%R	88	T0088	Technical design development 3	31	TK_NotStart	0
+%R	89	T0089	Reinforcement detailing package 3	32	TK_NotStart	0
+%R	90	T0090	Design coordination meeting 3	33	TK_NotStart	0
+%R	91	T0091	Drainage design review 3	34	TK_Active	15
+%R	92	T0092	Superstructure design check 3	35	TK_Complete	100
+%R	93	T0093	Model drawing development 3	36	TK_NotStart	0
+%R	94	T0094	Design information issue 3	37	TK_NotStart	0
+%R	95	T0095	Stage 3 structural design 3	38	TK_NotStart	0
+%R	96	T0096	Design review workshop 3	39	TK_Active	15
+%R	97	T0097	Operating theatre layout review 3	40	TK_NotStart	0
+%R	98	T0098	Theatre ceiling coordination 3	41	TK_NotStart	0
+%R	99	T0099	Clinical ward design 3	42	TK_Complete	100
+%R	100	T0100	Hospital ward finishes 3	43	TK_NotStart	0
+%R	101	T0101	ICU fit-out planning 3	44	TK_Active	15
+%R	102	T0102	Emergency department layout 3	45	TK_NotStart	0
+%R	103	T0103	Medical gas coordination 3	46	TK_NotStart	0
+%R	104	T0104	Infection control review 3	47	TK_NotStart	0
+%R	105	T0105	Link bridge structural survey 3	48	TK_NotStart	0
+%R	106	T0106	Link bridge foundation assessment 3	49	TK_Active	15
+%R	107	T0107	Bridge deck coordination 3	50	TK_NotStart	0
+%R	108	T0108	Concrete pour sequence 3	51	TK_NotStart	0
+%R	109	T0109	Steelwork erection 3	52	TK_NotStart	0
+%R	110	T0110	Excavation works 3	53	TK_NotStart	0
+%R	111	T0111	Drainage installation 3	54	TK_Active	15
+%R	112	T0112	Facade panel install 3	55	TK_NotStart	0
+%R	113	T0113	Structural design review 4	56	TK_Complete	100
+%R	114	T0114	Foundation design coordination 4	57	TK_NotStart	0
+%R	115	T0115	Detailed design issue package 4	1	TK_NotStart	0
+%R	116	T0116	Technical design development 4	2	TK_Active	15
+%R	117	T0117	Reinforcement detailing package 4	3	TK_NotStart	0
+%R	118	T0118	Design coordination meeting 4	4	TK_NotStart	0
+%R	119	T0119	Drainage design review 4	5	TK_NotStart	0
+%R	120	T0120	Superstructure design check 4	6	TK_Complete	100
+%R	121	T0121	Model drawing development 4	7	TK_Active	15
+%R	122	T0122	Design information issue 4	8	TK_NotStart	0
+%R	123	T0123	Stage 3 structural design 4	9	TK_NotStart	0
+%R	124	T0124	Design review workshop 4	10	TK_NotStart	0
+%R	125	T0125	Operating theatre layout review 4	11	TK_NotStart	0
+%R	126	T0126	Theatre ceiling coordination 4	12	TK_Active	15
+%R	127	T0127	Clinical ward design 4	13	TK_Complete	100
+%R	128	T0128	Hospital ward finishes 4	14	TK_NotStart	0
+%R	129	T0129	ICU fit-out planning 4	15	TK_NotStart	0
+%R	130	T0130	Emergency department layout 4	16	TK_NotStart	0
+%R	131	T0131	Medical gas coordination 4	17	TK_Active	15
+%R	132	T0132	Infection control review 4	18	TK_NotStart	0
+%R	133	T0133	Link bridge structural survey 4	19	TK_NotStart	0
+%R	134	T0134	Link bridge foundation assessment 4	20	TK_Complete	100
+%R	135	T0135	Bridge deck coordination 4	21	TK_NotStart	0
+%R	136	T0136	Concrete pour sequence 4	22	TK_Active	15
+%R	137	T0137	Steelwork erection 4	23	TK_NotStart	0
+%R	138	T0138	Excavation works 4	24	TK_NotStart	0
+%R	139	T0139	Drainage installation 4	25	TK_NotStart	0
+%R	140	T0140	Facade panel install 4	26	TK_NotStart	0
+%R	141	T0141	Structural design review 5	27	TK_Active	15
+%R	142	T0142	Foundation design coordination 5	28	TK_NotStart	0
+%R	143	T0143	Detailed design issue package 5	29	TK_NotStart	0
+%R	144	T0144	Technical design development 5	30	TK_NotStart	0
+%R	145	T0145	Reinforcement detailing package 5	31	TK_NotStart	0
+%R	146	T0146	Design coordination meeting 5	32	TK_Active	15
+%R	147	T0147	Drainage design review 5	33	TK_NotStart	0
+%R	148	T0148	Superstructure design check 5	34	TK_Complete	100
+%R	149	T0149	Model drawing development 5	35	TK_NotStart	0
+%R	150	T0150	Design information issue 5	36	TK_NotStart	0
+%R	151	T0151	Stage 3 structural design 5	37	TK_Active	15
+%R	152	T0152	Design review workshop 5	38	TK_NotStart	0
+%R	153	T0153	Operating theatre layout review 5	39	TK_NotStart	0
+%R	154	T0154	Theatre ceiling coordination 5	40	TK_NotStart	0
+%R	155	T0155	Clinical ward design 5	41	TK_Complete	100
+%R	156	T0156	Hospital ward finishes 5	42	TK_Active	15
+%R	157	T0157	ICU fit-out planning 5	43	TK_NotStart	0
+%R	158	T0158	Emergency department layout 5	44	TK_NotStart	0
+%R	159	T0159	Medical gas coordination 5	45	TK_NotStart	0
+%R	160	T0160	Infection control review 5	46	TK_NotStart	0
+%R	161	T0161	Link bridge structural survey 5	47	TK_Active	15
+%R	162	T0162	Link bridge foundation assessment 5	48	TK_Complete	100
+%R	163	T0163	Bridge deck coordination 5	49	TK_NotStart	0
+%R	164	T0164	Concrete pour sequence 5	50	TK_NotStart	0
+%R	165	T0165	Steelwork erection 5	51	TK_NotStart	0
+%R	166	T0166	Excavation works 5	52	TK_Active	15
+%R	167	T0167	Drainage installation 5	53	TK_NotStart	0
+%R	168	T0168	Facade panel install 5	54	TK_NotStart	0
+%R	169	T0169	Structural design review 6	55	TK_Complete	100
+%R	170	T0170	Foundation design coordination 6	56	TK_NotStart	0
+%R	171	T0171	Detailed design issue package 6	57	TK_Active	15
+%R	172	T0172	Technical design development 6	1	TK_NotStart	0
+%R	173	T0173	Reinforcement detailing package 6	2	TK_NotStart	0
+%R	174	T0174	Design coordination meeting 6	3	TK_NotStart	0
+%R	175	T0175	Drainage design review 6	4	TK_NotStart	0
+%R	176	T0176	Superstructure design check 6	5	TK_Active	15
+%R	177	T0177	Model drawing development 6	6	TK_NotStart	0
+%R	178	T0178	Design information issue 6	7	TK_NotStart	0
+%R	179	T0179	Stage 3 structural design 6	8	TK_NotStart	0
+%R	180	T0180	Design review workshop 6	9	TK_NotStart	0
+%R	181	T0181	Operating theatre layout review 6	10	TK_Active	15
+%R	182	T0182	Theatre ceiling coordination 6	11	TK_NotStart	0
+%R	183	T0183	Clinical ward design 6	12	TK_Complete	100
+%R	184	T0184	Hospital ward finishes 6	13	TK_NotStart	0
+%R	185	T0185	ICU fit-out planning 6	14	TK_NotStart	0
+%R	186	T0186	Emergency department layout 6	15	TK_Active	15
+%R	187	T0187	Medical gas coordination 6	16	TK_NotStart	0
+%R	188	T0188	Infection control review 6	17	TK_NotStart	0
+%R	189	T0189	Link bridge structural survey 6	18	TK_NotStart	0
+%R	190	T0190	Link bridge foundation assessment 6	19	TK_Complete	100
+%R	191	T0191	Bridge deck coordination 6	20	TK_Active	15
+%R	192	T0192	Concrete pour sequence 6	21	TK_NotStart	0
+%R	193	T0193	Steelwork erection 6	22	TK_NotStart	0
+%R	194	T0194	Excavation works 6	23	TK_NotStart	0
+%R	195	T0195	Drainage installation 6	24	TK_NotStart	0
+%R	196	T0196	Facade panel install 6	25	TK_Active	15
+%R	197	T0197	Structural design review 7	26	TK_Complete	100
+%R	198	T0198	Foundation design coordination 7	27	TK_NotStart	0
+%R	199	T0199	Detailed design issue package 7	28	TK_NotStart	0
+%R	200	T0200	Technical design development 7	29	TK_NotStart	0
+%R	201	T0201	Reinforcement detailing package 7	30	TK_Active	15
+%R	202	T0202	Design coordination meeting 7	31	TK_NotStart	0
+%R	203	T0203	Drainage design review 7	32	TK_NotStart	0
+%R	204	T0204	Superstructure design check 7	33	TK_Complete	100
+%R	205	T0205	Model drawing development 7	34	TK_NotStart	0
+%R	206	T0206	Design information issue 7	35	TK_Active	15
+%R	207	T0207	Stage 3 structural design 7	36	TK_NotStart	0
+%R	208	T0208	Design review workshop 7	37	TK_NotStart	0
+%R	209	T0209	Operating theatre layout review 7	38	TK_NotStart	0
+%R	210	T0210	Theatre ceiling coordination 7	39	TK_NotStart	0
+%R	211	T0211	Clinical ward design 7	40	TK_Active	15
+%R	212	T0212	Hospital ward finishes 7	41	TK_NotStart	0
+%R	213	T0213	ICU fit-out planning 7	42	TK_NotStart	0
+%R	214	T0214	Emergency department layout 7	43	TK_NotStart	0
+%R	215	T0215	Medical gas coordination 7	44	TK_NotStart	0
+%R	216	T0216	Infection control review 7	45	TK_Active	15
+%R	217	T0217	Link bridge structural survey 7	46	TK_NotStart	0
+%R	218	T0218	Link bridge foundation assessment 7	47	TK_Complete	100
+%R	219	T0219	Bridge deck coordination 7	48	TK_NotStart	0
+%R	220	T0220	Concrete pour sequence 7	49	TK_NotStart	0
+%R	221	T0221	Steelwork erection 7	50	TK_Active	15
+%R	222	T0222	Excavation works 7	51	TK_NotStart	0
+%R	223	T0223	Drainage installation 7	52	TK_NotStart	0
+%R	224	T0224	Facade panel install 7	53	TK_NotStart	0
+%R	225	T0225	Structural design review 8	54	TK_Complete	100
+%R	226	T0226	Foundation design coordination 8	55	TK_Active	15
+%R	227	T0227	Detailed design issue package 8	56	TK_NotStart	0
+%R	228	T0228	Technical design development 8	57	TK_NotStart	0
+%R	229	T0229	Reinforcement detailing package 8	1	TK_NotStart	0
+%R	230	T0230	Design coordination meeting 8	2	TK_NotStart	0
+%R	231	T0231	Drainage design review 8	3	TK_Active	15
+%R	232	T0232	Superstructure design check 8	4	TK_Complete	100
+%R	233	T0233	Model drawing development 8	5	TK_NotStart	0
+%R	234	T0234	Design information issue 8	6	TK_NotStart	0
+%R	235	T0235	Stage 3 structural design 8	7	TK_NotStart	0
+%R	236	T0236	Design review workshop 8	8	TK_Active	15
+%R	237	T0237	Operating theatre layout review 8	9	TK_NotStart	0
+%R	238	T0238	Theatre ceiling coordination 8	10	TK_NotStart	0
+%R	239	T0239	Clinical ward design 8	11	TK_Complete	100
+%R	240	T0240	Hospital ward finishes 8	12	TK_NotStart	0
+%R	241	T0241	ICU fit-out planning 8	13	TK_Active	15
+%R	242	T0242	Emergency department layout 8	14	TK_NotStart	0
+%R	243	T0243	Medical gas coordination 8	15	TK_NotStart	0
+%R	244	T0244	Infection control review 8	16	TK_NotStart	0
+%R	245	T0245	Link bridge structural survey 8	17	TK_NotStart	0
+%R	246	T0246	Link bridge foundation assessment 8	18	TK_Active	15
+%R	247	T0247	Bridge deck coordination 8	19	TK_NotStart	0
+%R	248	T0248	Concrete pour sequence 8	20	TK_NotStart	0
+%R	249	T0249	Steelwork erection 8	21	TK_NotStart	0
+%R	250	T0250	Excavation works 8	22	TK_NotStart	0
+%R	251	T0251	Drainage installation 8	23	TK_Active	15
+%R	252	T0252	Facade panel install 8	24	TK_NotStart	0
+%R	253	T0253	Structural design review 9	25	TK_Complete	100
+%R	254	T0254	Foundation design coordination 9	26	TK_NotStart	0
+%R	255	T0255	Detailed design issue package 9	27	TK_NotStart	0
+%R	256	T0256	Technical design development 9	28	TK_Active	15
+%R	257	T0257	Reinforcement detailing package 9	29	TK_NotStart	0
+%R	258	T0258	Design coordination meeting 9	30	TK_NotStart	0
+%R	259	T0259	Drainage design review 9	31	TK_NotStart	0
+%R	260	T0260	Superstructure design check 9	32	TK_Complete	100
+%R	261	T0261	Model drawing development 9	33	TK_Active	15
+%R	262	T0262	Design information issue 9	34	TK_NotStart	0
+%R	263	T0263	Stage 3 structural design 9	35	TK_NotStart	0
+%R	264	T0264	Design review workshop 9	36	TK_NotStart	0
+%R	265	T0265	Operating theatre layout review 9	37	TK_NotStart	0
+%R	266	T0266	Theatre ceiling coordination 9	38	TK_Active	15
+%R	267	T0267	Clinical ward design 9	39	TK_Complete	100
+%R	268	T0268	Hospital ward finishes 9	40	TK_NotStart	0
+%R	269	T0269	ICU fit-out planning 9	41	TK_NotStart	0
+%R	270	T0270	Emergency department layout 9	42	TK_NotStart	0
+%R	271	T0271	Medical gas coordination 9	43	TK_Active	15
+%R	272	T0272	Infection control review 9	44	TK_NotStart	0
+%R	273	T0273	Link bridge structural survey 9	45	TK_NotStart	0
+%R	274	T0274	Link bridge foundation assessment 9	46	TK_Complete	100
+%R	275	T0275	Bridge deck coordination 9	47	TK_NotStart	0
+%R	276	T0276	Concrete pour sequence 9	48	TK_Active	15
+%R	277	T0277	Steelwork erection 9	49	TK_NotStart	0
+%R	278	T0278	Excavation works 9	50	TK_NotStart	0
+%R	279	T0279	Drainage installation 9	51	TK_NotStart	0
+%R	280	T0280	Facade panel install 9	52	TK_NotStart	0
+%R	281	T0281	Structural design review 10	53	TK_Active	15
+%R	282	T0282	Foundation design coordination 10	54	TK_NotStart	0
+%R	283	T0283	Detailed design issue package 10	55	TK_NotStart	0
+%R	284	T0284	Technical design development 10	56	TK_NotStart	0
+%R	285	T0285	Reinforcement detailing package 10	57	TK_NotStart	0
+%R	286	T0286	Design coordination meeting 10	1	TK_Active	15
+%R	287	T0287	Drainage design review 10	2	TK_NotStart	0
+%R	288	T0288	Superstructure design check 10	3	TK_Complete	100
+%R	289	T0289	Model drawing development 10	4	TK_NotStart	0
+%R	290	T0290	Design information issue 10	5	TK_NotStart	0
+%R	291	T0291	Stage 3 structural design 10	6	TK_Active	15
+%R	292	T0292	Design review workshop 10	7	TK_NotStart	0
+%R	293	T0293	Operating theatre layout review 10	8	TK_NotStart	0
+%R	294	T0294	Theatre ceiling coordination 10	9	TK_NotStart	0
+%R	295	T0295	Clinical ward design 10	10	TK_Complete	100
+%R	296	T0296	Hospital ward finishes 10	11	TK_Active	15
+%R	297	T0297	ICU fit-out planning 10	12	TK_NotStart	0
+%R	298	T0298	Emergency department layout 10	13	TK_NotStart	0
+%R	299	T0299	Medical gas coordination 10	14	TK_NotStart	0
+%R	300	T0300	Infection control review 10	15	TK_NotStart	0
+%R	301	T0301	Link bridge structural survey 10	16	TK_Active	15
+%R	302	T0302	Link bridge foundation assessment 10	17	TK_Complete	100
+%R	303	T0303	Bridge deck coordination 10	18	TK_NotStart	0
+%R	304	T0304	Concrete pour sequence 10	19	TK_NotStart	0
+%R	305	T0305	Steelwork erection 10	20	TK_NotStart	0
+%R	306	T0306	Excavation works 10	21	TK_Active	15
+%R	307	T0307	Drainage installation 10	22	TK_NotStart	0
+%R	308	T0308	Facade panel install 10	23	TK_NotStart	0
+%R	309	T0309	Structural design review 11	24	TK_Complete	100
+%R	310	T0310	Foundation design coordination 11	25	TK_NotStart	0
+%R	311	T0311	Detailed design issue package 11	26	TK_Active	15
+%R	312	T0312	Technical design development 11	27	TK_NotStart	0
+%R	313	T0313	Reinforcement detailing package 11	28	TK_NotStart	0
+%R	314	T0314	Design coordination meeting 11	29	TK_NotStart	0
+%R	315	T0315	Drainage design review 11	30	TK_NotStart	0
+%R	316	T0316	Superstructure design check 11	31	TK_Active	15
+%R	317	T0317	Model drawing development 11	32	TK_NotStart	0
+%R	318	T0318	Design information issue 11	33	TK_NotStart	0
+%R	319	T0319	Stage 3 structural design 11	34	TK_NotStart	0
+%R	320	T0320	Design review workshop 11	35	TK_NotStart	0
+%R	321	T0321	Operating theatre layout review 11	36	TK_Active	15
+%R	322	T0322	Theatre ceiling coordination 11	37	TK_NotStart	0
+%R	323	T0323	Clinical ward design 11	38	TK_Complete	100
+%R	324	T0324	Hospital ward finishes 11	39	TK_NotStart	0
+%R	325	T0325	ICU fit-out planning 11	40	TK_NotStart	0
+%R	326	T0326	Emergency department layout 11	41	TK_Active	15
+%R	327	T0327	Medical gas coordination 11	42	TK_NotStart	0
+%R	328	T0328	Infection control review 11	43	TK_NotStart	0
+%R	329	T0329	Link bridge structural survey 11	44	TK_NotStart	0
+%R	330	T0330	Link bridge foundation assessment 11	45	TK_Complete	100
+%R	331	T0331	Bridge deck coordination 11	46	TK_Active	15
+%R	332	T0332	Concrete pour sequence 11	47	TK_NotStart	0
+%R	333	T0333	Steelwork erection 11	48	TK_NotStart	0
+%R	334	T0334	Excavation works 11	49	TK_NotStart	0
+%R	335	T0335	Drainage installation 11	50	TK_NotStart	0
+%R	336	T0336	Facade panel install 11	51	TK_Active	15
+%R	337	T0337	Structural design review 12	52	TK_Complete	100
+%R	338	T0338	Foundation design coordination 12	53	TK_NotStart	0
+%R	339	T0339	Detailed design issue package 12	54	TK_NotStart	0
+%R	340	T0340	Technical design development 12	55	TK_NotStart	0
+%R	341	T0341	Reinforcement detailing package 12	56	TK_Active	15
+%R	342	T0342	Design coordination meeting 12	57	TK_NotStart	0
+%R	343	T0343	Drainage design review 12	1	TK_NotStart	0
+%R	344	T0344	Superstructure design check 12	2	TK_Complete	100
+%R	345	T0345	Model drawing development 12	3	TK_NotStart	0
+%R	346	T0346	Design information issue 12	4	TK_Active	15
+%R	347	T0347	Stage 3 structural design 12	5	TK_NotStart	0
+%R	348	T0348	Design review workshop 12	6	TK_NotStart	0
+%R	349	T0349	Operating theatre layout review 12	7	TK_NotStart	0
+%R	350	T0350	Theatre ceiling coordination 12	8	TK_NotStart	0
+%R	351	T0351	Clinical ward design 12	9	TK_Active	15
+%R	352	T0352	Hospital ward finishes 12	10	TK_NotStart	0
+%R	353	T0353	ICU fit-out planning 12	11	TK_NotStart	0
+%R	354	T0354	Emergency department layout 12	12	TK_NotStart	0
+%R	355	T0355	Medical gas coordination 12	13	TK_NotStart	0
+%R	356	T0356	Infection control review 12	14	TK_Active	15
+%R	357	T0357	Link bridge structural survey 12	15	TK_NotStart	0
+%R	358	T0358	Link bridge foundation assessment 12	16	TK_Complete	100
+%R	359	T0359	Bridge deck coordination 12	17	TK_NotStart	0
+%R	360	T0360	Concrete pour sequence 12	18	TK_NotStart	0
+%R	361	T0361	Steelwork erection 12	19	TK_Active	15
+%R	362	T0362	Excavation works 12	20	TK_NotStart	0
+%R	363	T0363	Drainage installation 12	21	TK_NotStart	0
+%R	364	T0364	Facade panel install 12	22	TK_NotStart	0
+%R	365	T0365	Structural design review 13	23	TK_Complete	100
+%R	366	T0366	Foundation design coordination 13	24	TK_Active	15
+%R	367	T0367	Detailed design issue package 13	25	TK_NotStart	0
+%R	368	T0368	Technical design development 13	26	TK_NotStart	0
+%R	369	T0369	Reinforcement detailing package 13	27	TK_NotStart	0
+%R	370	T0370	Design coordination meeting 13	28	TK_NotStart	0
+%R	371	T0371	Drainage design review 13	29	TK_Active	15
+%R	372	T0372	Superstructure design check 13	30	TK_Complete	100
+%R	373	T0373	Model drawing development 13	31	TK_NotStart	0
+%R	374	T0374	Design information issue 13	32	TK_NotStart	0
+%R	375	T0375	Stage 3 structural design 13	33	TK_NotStart	0
+%R	376	T0376	Design review workshop 13	34	TK_Active	15
+%R	377	T0377	Operating theatre layout review 13	35	TK_NotStart	0
+%R	378	T0378	Theatre ceiling coordination 13	36	TK_NotStart	0
+%R	379	T0379	Clinical ward design 13	37	TK_Complete	100
+%R	380	T0380	Hospital ward finishes 13	38	TK_NotStart	0
+%R	381	T0381	ICU fit-out planning 13	39	TK_Active	15
+%R	382	T0382	Emergency department layout 13	40	TK_NotStart	0
+%R	383	T0383	Medical gas coordination 13	41	TK_NotStart	0
+%R	384	T0384	Infection control review 13	42	TK_NotStart	0
+%R	385	T0385	Link bridge structural survey 13	43	TK_NotStart	0
+%R	386	T0386	Link bridge foundation assessment 13	44	TK_Active	15
+%R	387	T0387	Bridge deck coordination 13	45	TK_NotStart	0
+%R	388	T0388	Concrete pour sequence 13	46	TK_NotStart	0
+%R	389	T0389	Steelwork erection 13	47	TK_NotStart	0
+%R	390	T0390	Excavation works 13	48	TK_NotStart	0
+%R	391	T0391	Drainage installation 13	49	TK_Active	15
+%R	392	T0392	Facade panel install 13	50	TK_NotStart	0
+%R	393	T0393	Structural design review 14	51	TK_Complete	100
+%R	394	T0394	Foundation design coordination 14	52	TK_NotStart	0
+%R	395	T0395	Detailed design issue package 14	53	TK_NotStart	0
+%R	396	T0396	Technical design development 14	54	TK_Active	15
+%R	397	T0397	Reinforcement detailing package 14	55	TK_NotStart	0
+%R	398	T0398	Design coordination meeting 14	56	TK_NotStart	0
+%R	399	T0399	Drainage design review 14	57	TK_NotStart	0
+%R	400	T0400	Superstructure design check 14	1	TK_Complete	100
+%R	401	T0401	Model drawing development 14	2	TK_Active	15
+%R	402	T0402	Design information issue 14	3	TK_NotStart	0
+%R	403	T0403	Stage 3 structural design 14	4	TK_NotStart	0
+%R	404	T0404	Design review workshop 14	5	TK_NotStart	0
+%R	405	T0405	Operating theatre layout review 14	6	TK_NotStart	0
+%R	406	T0406	Theatre ceiling coordination 14	7	TK_Active	15
+%R	407	T0407	Clinical ward design 14	8	TK_Complete	100
+%R	408	T0408	Hospital ward finishes 14	9	TK_NotStart	0
+%R	409	T0409	ICU fit-out planning 14	10	TK_NotStart	0
+%R	410	T0410	Emergency department layout 14	11	TK_NotStart	0
+%R	411	T0411	Medical gas coordination 14	12	TK_Active	15
+%R	412	T0412	Infection control review 14	13	TK_NotStart	0
+%R	413	T0413	Link bridge structural survey 14	14	TK_NotStart	0
+%R	414	T0414	Link bridge foundation assessment 14	15	TK_Complete	100
+%R	415	T0415	Bridge deck coordination 14	16	TK_NotStart	0
+%R	416	T0416	Concrete pour sequence 14	17	TK_Active	15
+%R	417	T0417	Steelwork erection 14	18	TK_NotStart	0
+%R	418	T0418	Excavation works 14	19	TK_NotStart	0
+%R	419	T0419	Drainage installation 14	20	TK_NotStart	0
+%R	420	T0420	Facade panel install 14	21	TK_NotStart	0
+%R	421	T0421	Structural design review 15	22	TK_Active	15
+%R	422	T0422	Foundation design coordination 15	23	TK_NotStart	0
+%R	423	T0423	Detailed design issue package 15	24	TK_NotStart	0
+%R	424	T0424	Technical design development 15	25	TK_NotStart	0
+%R	425	T0425	Reinforcement detailing package 15	26	TK_NotStart	0
+%R	426	T0426	Design coordination meeting 15	27	TK_Active	15
+%R	427	T0427	Drainage design review 15	28	TK_NotStart	0
+%R	428	T0428	Superstructure design check 15	29	TK_Complete	100
+%R	429	T0429	Model drawing development 15	30	TK_NotStart	0
+%R	430	T0430	Design information issue 15	31	TK_NotStart	0
+%R	431	T0431	Stage 3 structural design 15	32	TK_Active	15
+%R	432	T0432	Design review workshop 15	33	TK_NotStart	0
+%R	433	T0433	Operating theatre layout review 15	34	TK_NotStart	0
+%R	434	T0434	Theatre ceiling coordination 15	35	TK_NotStart	0
+%R	435	T0435	Clinical ward design 15	36	TK_Complete	100
+%R	436	T0436	Hospital ward finishes 15	37	TK_Active	15
+%R	437	T0437	ICU fit-out planning 15	38	TK_NotStart	0
+%R	438	T0438	Emergency department layout 15	39	TK_NotStart	0
+%R	439	T0439	Medical gas coordination 15	40	TK_NotStart	0
+%R	440	T0440	Infection control review 15	41	TK_NotStart	0
+%R	441	T0441	Link bridge structural survey 15	42	TK_Active	15
+%R	442	T0442	Link bridge foundation assessment 15	43	TK_Complete	100
+%R	443	T0443	Bridge deck coordination 15	44	TK_NotStart	0
+%R	444	T0444	Concrete pour sequence 15	45	TK_NotStart	0
+%R	445	T0445	Steelwork erection 15	46	TK_NotStart	0
+%R	446	T0446	Excavation works 15	47	TK_Active	15
+%R	447	T0447	Drainage installation 15	48	TK_NotStart	0
+%R	448	T0448	Facade panel install 15	49	TK_NotStart	0
+%R	449	T0449	Structural design review 16	50	TK_Complete	100
+%R	450	T0450	Foundation design coordination 16	51	TK_NotStart	0
+%R	451	T0451	Detailed design issue package 16	52	TK_Active	15
+%R	452	T0452	Technical design development 16	53	TK_NotStart	0
+%R	453	T0453	Reinforcement detailing package 16	54	TK_NotStart	0
+%R	454	T0454	Design coordination meeting 16	55	TK_NotStart	0
+%R	455	T0455	Drainage design review 16	56	TK_NotStart	0
+%R	456	T0456	Superstructure design check 16	57	TK_Active	15
+%R	457	T0457	Model drawing development 16	1	TK_NotStart	0
+%R	458	T0458	Design information issue 16	2	TK_NotStart	0
+%R	459	T0459	Stage 3 structural design 16	3	TK_NotStart	0
+%R	460	T0460	Design review workshop 16	4	TK_NotStart	0
+%R	461	T0461	Operating theatre layout review 16	5	TK_Active	15
+%R	462	T0462	Theatre ceiling coordination 16	6	TK_NotStart	0
+%R	463	T0463	Clinical ward design 16	7	TK_Complete	100
+%R	464	T0464	Hospital ward finishes 16	8	TK_NotStart	0
+%R	465	T0465	ICU fit-out planning 16	9	TK_NotStart	0
+%R	466	T0466	Emergency department layout 16	10	TK_Active	15
+%R	467	T0467	Medical gas coordination 16	11	TK_NotStart	0
+%R	468	T0468	Infection control review 16	12	TK_NotStart	0
+%R	469	T0469	Link bridge structural survey 16	13	TK_NotStart	0
+%R	470	T0470	Link bridge foundation assessment 16	14	TK_Complete	100
+%R	471	T0471	Bridge deck coordination 16	15	TK_Active	15
+%R	472	T0472	Concrete pour sequence 16	16	TK_NotStart	0
+%R	473	T0473	Steelwork erection 16	17	TK_NotStart	0
+%R	474	T0474	Excavation works 16	18	TK_NotStart	0
+%R	475	T0475	Drainage installation 16	19	TK_NotStart	0
+%R	476	T0476	Facade panel install 16	20	TK_Active	15
+%R	477	T0477	Structural design review 17	21	TK_Complete	100
+%R	478	T0478	Foundation design coordination 17	22	TK_NotStart	0
+%R	479	T0479	Detailed design issue package 17	23	TK_NotStart	0
+%R	480	T0480	Technical design development 17	24	TK_NotStart	0
+%R	481	T0481	Reinforcement detailing package 17	25	TK_Active	15
+%R	482	T0482	Design coordination meeting 17	26	TK_NotStart	0
+%R	483	T0483	Drainage design review 17	27	TK_NotStart	0
+%R	484	T0484	Superstructure design check 17	28	TK_Complete	100
+%R	485	T0485	Model drawing development 17	29	TK_NotStart	0
+%R	486	T0486	Design information issue 17	30	TK_Active	15
+%R	487	T0487	Stage 3 structural design 17	31	TK_NotStart	0
+%R	488	T0488	Design review workshop 17	32	TK_NotStart	0
+%R	489	T0489	Operating theatre layout review 17	33	TK_NotStart	0
+%R	490	T0490	Theatre ceiling coordination 17	34	TK_NotStart	0
+%R	491	T0491	Clinical ward design 17	35	TK_Active	15
+%R	492	T0492	Hospital ward finishes 17	36	TK_NotStart	0
+%R	493	T0493	ICU fit-out planning 17	37	TK_NotStart	0
+%R	494	T0494	Emergency department layout 17	38	TK_NotStart	0
+%R	495	T0495	Medical gas coordination 17	39	TK_NotStart	0
+%R	496	T0496	Infection control review 17	40	TK_Active	15
+%R	497	T0497	Link bridge structural survey 17	41	TK_NotStart	0
+%R	498	T0498	Link bridge foundation assessment 17	42	TK_Complete	100
+%R	499	T0499	Bridge deck coordination 17	43	TK_NotStart	0
+%R	500	T0500	Concrete pour sequence 17	44	TK_NotStart	0
+%R	501	T0501	Steelwork erection 17	45	TK_Active	15
+%R	502	T0502	Excavation works 17	46	TK_NotStart	0
+%R	503	T0503	Drainage installation 17	47	TK_NotStart	0
+%R	504	T0504	Facade panel install 17	48	TK_NotStart	0
+%R	505	T0505	Structural design review 18	49	TK_Complete	100
+%R	506	T0506	Foundation design coordination 18	50	TK_Active	15
+%R	507	T0507	Detailed design issue package 18	51	TK_NotStart	0
+%R	508	T0508	Technical design development 18	52	TK_NotStart	0
+%R	509	T0509	Reinforcement detailing package 18	53	TK_NotStart	0
+%R	510	T0510	Design coordination meeting 18	54	TK_NotStart	0
+%R	511	T0511	Drainage design review 18	55	TK_Active	15
+%R	512	T0512	Superstructure design check 18	56	TK_Complete	100
+%R	513	T0513	Model drawing development 18	57	TK_NotStart	0
+%R	514	T0514	Design information issue 18	1	TK_NotStart	0
+%R	515	T0515	Stage 3 structural design 18	2	TK_NotStart	0
+%R	516	T0516	Design review workshop 18	3	TK_Active	15
+%R	517	T0517	Operating theatre layout review 18	4	TK_NotStart	0
+%R	518	T0518	Theatre ceiling coordination 18	5	TK_NotStart	0
+%R	519	T0519	Clinical ward design 18	6	TK_Complete	100
+%R	520	T0520	Hospital ward finishes 18	7	TK_NotStart	0
+%R	521	T0521	ICU fit-out planning 18	8	TK_Active	15
+%R	522	T0522	Emergency department layout 18	9	TK_NotStart	0
+%R	523	T0523	Medical gas coordination 18	10	TK_NotStart	0
+%R	524	T0524	Infection control review 18	11	TK_NotStart	0
+%R	525	T0525	Link bridge structural survey 18	12	TK_NotStart	0
+%R	526	T0526	Link bridge foundation assessment 18	13	TK_Active	15
+%R	527	T0527	Bridge deck coordination 18	14	TK_NotStart	0
+%R	528	T0528	Concrete pour sequence 18	15	TK_NotStart	0
+%R	529	T0529	Steelwork erection 18	16	TK_NotStart	0
+%R	530	T0530	Excavation works 18	17	TK_NotStart	0
+%R	531	T0531	Drainage installation 18	18	TK_Active	15
+%R	532	T0532	Facade panel install 18	19	TK_NotStart	0
+%R	533	T0533	Structural design review 19	20	TK_Complete	100
+%R	534	T0534	Foundation design coordination 19	21	TK_NotStart	0
+%R	535	T0535	Detailed design issue package 19	22	TK_NotStart	0
+%R	536	T0536	Technical design development 19	23	TK_Active	15
+%R	537	T0537	Reinforcement detailing package 19	24	TK_NotStart	0
+%R	538	T0538	Design coordination meeting 19	25	TK_NotStart	0
+%R	539	T0539	Drainage design review 19	26	TK_NotStart	0
+%R	540	T0540	Superstructure design check 19	27	TK_Complete	100
+%R	541	T0541	Model drawing development 19	28	TK_Active	15
+%R	542	T0542	Design information issue 19	29	TK_NotStart	0
+%R	543	T0543	Stage 3 structural design 19	30	TK_NotStart	0
+%R	544	T0544	Design review workshop 19	31	TK_NotStart	0
+%R	545	T0545	Operating theatre layout review 19	32	TK_NotStart	0
+%R	546	T0546	Theatre ceiling coordination 19	33	TK_Active	15
+%R	547	T0547	Clinical ward design 19	34	TK_Complete	100
+%R	548	T0548	Hospital ward finishes 19	35	TK_NotStart	0
+%R	549	T0549	ICU fit-out planning 19	36	TK_NotStart	0
+%R	550	T0550	Emergency department layout 19	37	TK_NotStart	0
+%T	TASKPRED
+%F	task_id	pred_task_id	pred_type
+%R	2	1	PR_FS
+%R	3	2	PR_FS
+%R	4	3	PR_FS
+%R	5	4	PR_FS
+%R	6	5	PR_FS
+%R	7	6	PR_FS
+%R	8	7	PR_FS
+%R	9	8	PR_FS
+%R	10	9	PR_FS
+%R	11	10	PR_FS
+%R	12	11	PR_FS
+%R	13	12	PR_FS
+%R	14	13	PR_FS
+%R	15	14	PR_FS
+%R	16	15	PR_FS
+%R	17	16	PR_FS
+%R	18	17	PR_FS
+%R	19	18	PR_FS
+%R	20	19	PR_FS
+%R	21	20	PR_FS
+%R	22	21	PR_FS
+%R	23	22	PR_FS
+%R	24	23	PR_FS
+%R	25	24	PR_FS
+%R	26	25	PR_FS
+%R	27	26	PR_FS
+%R	28	27	PR_FS
+%R	29	28	PR_FS
+%R	30	29	PR_FS
+%R	31	30	PR_FS
+%R	32	31	PR_FS
+%R	33	32	PR_FS
+%R	34	33	PR_FS
+%R	35	34	PR_FS
+%R	36	35	PR_FS
+%R	37	36	PR_FS
+%R	38	37	PR_FS
+%R	39	38	PR_FS
+%R	40	39	PR_FS
+%R	41	40	PR_FS
+%R	42	41	PR_FS
+%R	43	42	PR_FS
+%R	44	43	PR_FS
+%R	45	44	PR_FS
+%R	46	45	PR_FS
+%R	47	46	PR_FS
+%R	48	47	PR_FS
+%R	49	48	PR_FS
+%R	50	49	PR_FS
+%R	51	50	PR_FS
+%R	52	51	PR_FS
+%R	53	52	PR_FS
+%R	54	53	PR_FS
+%R	55	54	PR_FS
+%R	56	55	PR_FS
+%R	57	56	PR_FS
+%R	58	57	PR_FS
+%R	59	58	PR_FS
+%R	60	59	PR_FS
+%R	61	60	PR_FS
+%R	62	61	PR_FS
+%R	63	62	PR_FS
+%R	64	63	PR_FS
+%R	65	64	PR_FS
+%R	66	65	PR_FS
+%R	67	66	PR_FS
+%R	68	67	PR_FS
+%R	69	68	PR_FS
+%R	70	69	PR_FS
+%R	71	70	PR_FS
+%R	72	71	PR_FS
+%R	73	72	PR_FS
+%R	74	73	PR_FS
+%R	75	74	PR_FS
+%R	76	75	PR_FS
+%R	77	76	PR_FS
+%R	78	77	PR_FS
+%R	79	78	PR_FS
+%R	80	79	PR_FS
+%R	81	80	PR_FS
+%R	82	81	PR_FS
+%R	83	82	PR_FS
+%R	84	83	PR_FS
+%R	85	84	PR_FS
+%R	86	85	PR_FS
+%R	87	86	PR_FS
+%R	88	87	PR_FS
+%R	89	88	PR_FS
+%R	90	89	PR_FS
+%R	91	90	PR_FS
+%R	92	91	PR_FS
+%R	93	92	PR_FS
+%R	94	93	PR_FS
+%R	95	94	PR_FS
+%R	96	95	PR_FS
+%R	97	96	PR_FS
+%R	98	97	PR_FS
+%R	99	98	PR_FS
+%R	100	99	PR_FS
+%R	101	100	PR_FS
+%R	102	101	PR_FS
+%R	103	102	PR_FS
+%R	104	103	PR_FS
+%R	105	104	PR_FS
+%R	106	105	PR_FS
+%R	107	106	PR_FS
+%R	108	107	PR_FS
+%R	109	108	PR_FS
+%R	110	109	PR_FS
+%R	111	110	PR_FS
+%R	112	111	PR_FS
+%R	113	112	PR_FS
+%R	114	113	PR_FS
+%R	115	114	PR_FS
+%R	116	115	PR_FS
+%R	117	116	PR_FS
+%R	118	117	PR_FS
+%R	119	118	PR_FS
+%R	120	119	PR_FS
+%R	121	120	PR_FS
+%R	122	121	PR_FS
+%R	123	122	PR_FS
+%R	124	123	PR_FS
+%R	125	124	PR_FS
+%R	126	125	PR_FS
+%R	127	126	PR_FS
+%R	128	127	PR_FS
+%R	129	128	PR_FS
+%R	130	129	PR_FS
+%R	131	130	PR_FS
+%R	132	131	PR_FS
+%R	133	132	PR_FS
+%R	134	133	PR_FS
+%R	135	134	PR_FS
+%R	136	135	PR_FS
+%R	137	136	PR_FS
+%R	138	137	PR_FS
+%R	139	138	PR_FS
+%R	140	139	PR_FS
+%R	141	140	PR_FS
+%R	142	141	PR_FS
+%R	143	142	PR_FS
+%R	144	143	PR_FS
+%R	145	144	PR_FS
+%R	146	145	PR_FS
+%R	147	146	PR_FS
+%R	148	147	PR_FS
+%R	149	148	PR_FS
+%R	150	149	PR_FS
+%R	151	150	PR_FS
+%R	152	151	PR_FS
+%R	153	152	PR_FS
+%R	154	153	PR_FS
+%R	155	154	PR_FS
+%R	156	155	PR_FS
+%R	157	156	PR_FS
+%R	158	157	PR_FS
+%R	159	158	PR_FS
+%R	160	159	PR_FS
+%R	161	160	PR_FS
+%R	162	161	PR_FS
+%R	163	162	PR_FS
+%R	164	163	PR_FS
+%R	165	164	PR_FS
+%R	166	165	PR_FS
+%R	167	166	PR_FS
+%R	168	167	PR_FS
+%R	169	168	PR_FS
+%R	170	169	PR_FS
+%R	171	170	PR_FS
+%R	172	171	PR_FS
+%R	173	172	PR_FS
+%R	174	173	PR_FS
+%R	175	174	PR_FS
+%R	176	175	PR_FS
+%R	177	176	PR_FS
+%R	178	177	PR_FS
+%R	179	178	PR_FS
+%R	180	179	PR_FS
+%R	181	180	PR_FS
+%R	182	181	PR_FS
+%R	183	182	PR_FS
+%R	184	183	PR_FS
+%R	185	184	PR_FS
+%R	186	185	PR_FS
+%R	187	186	PR_FS
+%R	188	187	PR_FS
+%R	189	188	PR_FS
+%R	190	189	PR_FS
+%R	191	190	PR_FS
+%R	192	191	PR_FS
+%R	193	192	PR_FS
+%R	194	193	PR_FS
+%R	195	194	PR_FS
+%R	196	195	PR_FS
+%R	197	196	PR_FS
+%R	198	197	PR_FS
+%R	199	198	PR_FS
+%R	200	199	PR_FS
+%R	201	200	PR_FS
+%R	202	201	PR_FS
+%R	203	202	PR_FS
+%R	204	203	PR_FS
+%R	205	204	PR_FS
+%R	206	205	PR_FS
+%R	207	206	PR_FS
+%R	208	207	PR_FS
+%R	209	208	PR_FS
+%R	210	209	PR_FS
+%R	211	210	PR_FS
+%R	212	211	PR_FS
+%R	213	212	PR_FS
+%R	214	213	PR_FS
+%R	215	214	PR_FS
+%R	216	215	PR_FS
+%R	217	216	PR_FS
+%R	218	217	PR_FS
+%R	219	218	PR_FS
+%R	220	219	PR_FS
+%R	221	220	PR_FS
+%R	222	221	PR_FS
+%R	223	222	PR_FS
+%R	224	223	PR_FS
+%R	225	224	PR_FS
+%R	226	225	PR_FS
+%R	227	226	PR_FS
+%R	228	227	PR_FS
+%R	229	228	PR_FS
+%R	230	229	PR_FS
+%R	231	230	PR_FS
+%R	232	231	PR_FS
+%R	233	232	PR_FS
+%R	234	233	PR_FS
+%R	235	234	PR_FS
+%R	236	235	PR_FS
+%R	237	236	PR_FS
+%R	238	237	PR_FS
+%R	239	238	PR_FS
+%R	240	239	PR_FS
+%R	241	240	PR_FS
+%R	242	241	PR_FS
+%R	243	242	PR_FS
+%R	244	243	PR_FS
+%R	245	244	PR_FS
+%R	246	245	PR_FS
+%R	247	246	PR_FS
+%R	248	247	PR_FS
+%R	249	248	PR_FS
+%R	250	249	PR_FS
+%R	251	250	PR_FS
+%R	252	251	PR_FS
+%R	253	252	PR_FS
+%R	254	253	PR_FS
+%R	255	254	PR_FS
+%R	256	255	PR_FS
+%R	257	256	PR_FS
+%R	258	257	PR_FS
+%R	259	258	PR_FS
+%R	260	259	PR_FS
+%R	261	260	PR_FS
+%R	262	261	PR_FS
+%R	263	262	PR_FS
+%R	264	263	PR_FS
+%R	265	264	PR_FS
+%R	266	265	PR_FS
+%R	267	266	PR_FS
+%R	268	267	PR_FS
+%R	269	268	PR_FS
+%R	270	269	PR_FS
+%R	271	270	PR_FS
+%R	272	271	PR_FS
+%R	273	272	PR_FS
+%R	274	273	PR_FS
+%R	275	274	PR_FS
+%R	276	275	PR_FS
+%R	277	276	PR_FS
+%R	278	277	PR_FS
+%R	279	278	PR_FS
+%R	280	279	PR_FS
+%R	281	280	PR_FS
+%R	282	281	PR_FS
+%R	283	282	PR_FS
+%R	284	283	PR_FS
+%R	285	284	PR_FS
+%R	286	285	PR_FS
+%R	287	286	PR_FS
+%R	288	287	PR_FS
+%R	289	288	PR_FS
+%R	290	289	PR_FS
+%R	291	290	PR_FS
+%R	292	291	PR_FS
+%R	293	292	PR_FS
+%R	294	293	PR_FS
+%R	295	294	PR_FS
+%R	296	295	PR_FS
+%R	297	296	PR_FS
+%R	298	297	PR_FS
+%R	299	298	PR_FS
+%R	300	299	PR_FS
+%R	301	300	PR_FS
+%R	302	301	PR_FS
+%R	303	302	PR_FS
+%R	304	303	PR_FS
+%R	305	304	PR_FS
+%R	306	305	PR_FS
+%R	307	306	PR_FS
+%R	308	307	PR_FS
+%R	309	308	PR_FS
+%R	310	309	PR_FS
+%R	311	310	PR_FS
+%R	312	311	PR_FS
+%R	313	312	PR_FS
+%R	314	313	PR_FS
+%R	315	314	PR_FS
+%R	316	315	PR_FS
+%R	317	316	PR_FS
+%R	318	317	PR_FS
+%R	319	318	PR_FS
+%R	320	319	PR_FS
+%R	321	320	PR_FS
+%R	322	321	PR_FS
+%R	323	322	PR_FS
+%R	324	323	PR_FS
+%R	325	324	PR_FS
+%R	326	325	PR_FS
+%R	327	326	PR_FS
+%R	328	327	PR_FS
+%R	329	328	PR_FS
+%R	330	329	PR_FS
+%R	331	330	PR_FS
+%R	332	331	PR_FS
+%R	333	332	PR_FS
+%R	334	333	PR_FS
+%R	335	334	PR_FS
+%R	336	335	PR_FS
+%R	337	336	PR_FS
+%R	338	337	PR_FS
+%R	339	338	PR_FS
+%R	340	339	PR_FS
+%R	341	340	PR_FS
+%R	342	341	PR_FS
+%R	343	342	PR_FS
+%R	344	343	PR_FS
+%R	345	344	PR_FS
+%R	346	345	PR_FS
+%R	347	346	PR_FS
+%R	348	347	PR_FS
+%R	349	348	PR_FS
+%R	350	349	PR_FS
+%R	351	350	PR_FS
+%R	352	351	PR_FS
+%R	353	352	PR_FS
+%R	354	353	PR_FS
+%R	355	354	PR_FS
+%R	356	355	PR_FS
+%R	357	356	PR_FS
+%R	358	357	PR_FS
+%R	359	358	PR_FS
+%R	360	359	PR_FS
+%R	361	360	PR_FS
+%R	362	361	PR_FS
+%R	363	362	PR_FS
+%R	364	363	PR_FS
+%R	365	364	PR_FS
+%R	366	365	PR_FS
+%R	367	366	PR_FS
+%R	368	367	PR_FS
+%R	369	368	PR_FS
+%R	370	369	PR_FS
+%R	371	370	PR_FS
+%R	372	371	PR_FS
+%R	373	372	PR_FS
+%R	374	373	PR_FS
+%R	375	374	PR_FS
+%R	376	375	PR_FS
+%R	377	376	PR_FS
+%R	378	377	PR_FS
+%R	379	378	PR_FS
+%R	380	379	PR_FS
+%R	381	380	PR_FS
+%R	382	381	PR_FS
+%R	383	382	PR_FS
+%R	384	383	PR_FS
+%R	385	384	PR_FS
+%R	386	385	PR_FS
+%R	387	386	PR_FS
+%R	388	387	PR_FS
+%R	389	388	PR_FS
+%R	390	389	PR_FS
+%R	391	390	PR_FS
+%R	392	391	PR_FS
+%R	393	392	PR_FS
+%R	394	393	PR_FS
+%R	395	394	PR_FS
+%R	396	395	PR_FS
+%R	397	396	PR_FS
+%R	398	397	PR_FS
+%R	399	398	PR_FS
+%R	400	399	PR_FS
+%R	401	400	PR_FS
+%R	402	401	PR_FS
+%R	403	402	PR_FS
+%R	404	403	PR_FS
+%R	405	404	PR_FS
+%R	406	405	PR_FS
+%R	407	406	PR_FS
+%R	408	407	PR_FS
+%R	409	408	PR_FS
+%R	410	409	PR_FS
+%R	411	410	PR_FS
+%R	412	411	PR_FS
+%R	413	412	PR_FS
+%R	414	413	PR_FS
+%R	415	414	PR_FS
+%R	416	415	PR_FS
+%R	417	416	PR_FS
+%R	418	417	PR_FS
+%R	419	418	PR_FS
+%R	420	419	PR_FS
+%R	421	420	PR_FS
+%R	422	421	PR_FS
+%R	423	422	PR_FS
+%R	424	423	PR_FS
+%R	425	424	PR_FS
+%R	426	425	PR_FS
+%R	427	426	PR_FS
+%R	428	427	PR_FS
+%R	429	428	PR_FS
+%R	430	429	PR_FS
+%R	431	430	PR_FS
+%R	432	431	PR_FS
+%R	433	432	PR_FS
+%R	434	433	PR_FS
+%R	435	434	PR_FS
+%R	436	435	PR_FS
+%R	437	436	PR_FS
+%R	438	437	PR_FS
+%R	439	438	PR_FS
+%R	440	439	PR_FS
+%R	441	440	PR_FS
+%R	442	441	PR_FS
+%R	443	442	PR_FS
+%R	444	443	PR_FS
+%R	445	444	PR_FS
+%R	446	445	PR_FS
+%R	447	446	PR_FS
+%R	448	447	PR_FS
+%R	449	448	PR_FS
+%R	450	449	PR_FS
+%R	451	450	PR_FS
+%R	452	451	PR_FS
+%R	453	452	PR_FS
+%R	454	453	PR_FS
+%R	455	454	PR_FS
+%R	456	455	PR_FS
+%R	457	456	PR_FS
+%R	458	457	PR_FS
+%R	459	458	PR_FS
+%R	460	459	PR_FS
+%R	461	460	PR_FS
+%R	462	461	PR_FS
+%R	463	462	PR_FS
+%R	464	463	PR_FS
+%R	465	464	PR_FS
+%R	466	465	PR_FS
+%R	467	466	PR_FS
+%R	468	467	PR_FS
+%R	469	468	PR_FS
+%R	470	469	PR_FS
+%R	471	470	PR_FS
+%R	472	471	PR_FS
+%R	473	472	PR_FS
+%R	474	473	PR_FS
+%R	475	474	PR_FS
+%R	476	475	PR_FS
+%R	477	476	PR_FS
+%R	478	477	PR_FS
+%R	479	478	PR_FS
+%R	480	479	PR_FS
+%R	481	480	PR_FS
+%R	482	481	PR_FS
+%R	483	482	PR_FS
+%R	484	483	PR_FS
+%R	485	484	PR_FS
+%R	486	485	PR_FS
+%R	487	486	PR_FS
+%R	488	487	PR_FS
+%R	489	488	PR_FS
+%R	490	489	PR_FS
+%R	491	490	PR_FS
+%R	492	491	PR_FS
+%R	493	492	PR_FS
+%R	494	493	PR_FS
+%R	495	494	PR_FS
+%R	496	495	PR_FS
+%R	497	496	PR_FS
+%R	498	497	PR_FS
+%R	499	498	PR_FS
+%R	500	499	PR_FS
+%R	501	500	PR_FS
+%R	502	501	PR_FS
+%R	503	502	PR_FS
+%R	504	503	PR_FS
+%R	505	504	PR_FS
+%R	506	505	PR_FS
+%R	507	506	PR_FS
+%R	508	507	PR_FS
+%R	509	508	PR_FS
+%R	510	509	PR_FS
+%R	511	510	PR_FS
+%R	512	511	PR_FS
+%R	513	512	PR_FS
+%R	514	513	PR_FS
+%R	515	514	PR_FS
+%R	516	515	PR_FS
+%R	517	516	PR_FS
+%R	518	517	PR_FS
+%R	519	518	PR_FS
+%R	520	519	PR_FS
+%R	521	520	PR_FS
+%R	522	521	PR_FS
+%R	523	522	PR_FS
+%R	524	523	PR_FS
+%R	525	524	PR_FS
+%R	526	525	PR_FS
+%R	527	526	PR_FS
+%R	528	527	PR_FS
+%R	529	528	PR_FS
+%R	530	529	PR_FS
+%R	531	530	PR_FS
+%R	532	531	PR_FS
+%R	533	532	PR_FS
+%R	534	533	PR_FS
+%R	535	534	PR_FS
+%R	536	535	PR_FS
+%R	537	536	PR_FS
+%R	538	537	PR_FS
+%R	539	538	PR_FS
+%R	540	539	PR_FS
+%R	541	540	PR_FS
+%R	542	541	PR_FS
+%R	543	542	PR_FS
+%R	544	543	PR_FS
+%R	545	544	PR_FS
+%R	546	545	PR_FS
+%R	547	546	PR_FS
+%R	548	547	PR_FS
+%R	549	548	PR_FS
+%R	550	549	PR_FS
+%T	CALENDAR
+%F	clndr_id	clndr_name
+%R	1	Standard 5 Day
+%R	2	Healthcare Extended
+%R	3	Design Team

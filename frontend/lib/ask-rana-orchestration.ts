@@ -234,7 +234,7 @@ export function resolveQuestionWithSession(
   const q = trimmed.toLowerCase();
 
   if (isFollowUpWhy(trimmed) && session.topic === "evolution") {
-    return { resolvedQuestion: "Why did the duration change?", isFollowUp: true };
+    return { resolvedQuestion: "Why did the remaining work change?", isFollowUp: true };
   }
 
   if (isFollowUpCompareReference(trimmed) && session.topic === "comparison") {
@@ -246,7 +246,7 @@ export function resolveQuestionWithSession(
   }
 
   if (q === "why" && session.lastIntent === "what_changed") {
-    return { resolvedQuestion: "Why did the duration change?", isFollowUp: true };
+    return { resolvedQuestion: "Why did the remaining work change?", isFollowUp: true };
   }
 
   return { resolvedQuestion: trimmed, isFollowUp: false };
@@ -382,7 +382,7 @@ export function suggestedQuestions(ctx: AskRanaContext): string[] {
   ];
 
   const previousSuggestions = [
-    "Is this duration reasonable?",
+    "Is this planned duration reasonable?",
     "Compare with previous projects.",
     "What usually happens?",
     "Why is this worth reviewing?",
@@ -391,7 +391,7 @@ export function suggestedQuestions(ctx: AskRanaContext): string[] {
   const mixedSuggestions = [
     "Explain this deliverable.",
     "What should I do next?",
-    "Is this duration reasonable?",
+    "Is this planned duration reasonable?",
     "What changed?",
     "Which revision changed the most?",
     "Compare with previous projects.",
@@ -417,13 +417,13 @@ function evolutionIntelligence(evolution: DeliverableProjectEvolutionReport): Pr
 function humanTrend(trend: string | null): string {
   switch (trend) {
     case "GROWING":
-      return "Duration trended upward across revisions.";
+      return "Remaining work trended upward across revisions.";
     case "SHRINKING":
-      return "Duration trended downward across revisions.";
+      return "Remaining work trended downward across revisions.";
     case "STABLE":
-      return "Duration remained broadly stable.";
+      return "Remaining work remained broadly stable.";
     case "OSCILLATING":
-      return "Duration moved up and down between revisions.";
+      return "Remaining work moved up and down between revisions.";
     default:
       return "Not enough revisions to establish a clear trend.";
   }
@@ -433,19 +433,19 @@ function humanVolatility(volatility: string | null): string | null {
   if (!volatility) return null;
   if (volatility === "LOW") return "Low volatility — revisions were fairly consistent.";
   if (volatility === "MODERATE") return "Moderate volatility — some variation between revisions.";
-  return "High volatility — durations shifted noticeably between revisions.";
+  return "High volatility — remaining work shifted noticeably between revisions.";
 }
 
 function humanChangePattern(pattern: string | null): string | null {
   switch (pattern) {
     case "STABLE":
-      return "Stable — no meaningful net movement.";
+      return "Stable — no meaningful net movement in remaining work.";
     case "GRADUAL":
-      return "Gradual — change built up across several revisions.";
+      return "Gradual — remaining-work change built up across several revisions.";
     case "SUDDEN":
-      return "Sudden — most movement happened in one revision step.";
+      return "Sudden — most remaining-work movement happened in one revision step.";
     case "OSCILLATING":
-      return "Oscillating — durations moved up and down.";
+      return "Oscillating — remaining work moved up and down.";
     case "MIXED":
       return "Mixed — no single clear change pattern.";
     default:
@@ -466,14 +466,14 @@ function highlightToRevision(h: ProjectEvolutionRevisionHighlight, evolution: De
 
 function formatNetChange(intel: ProjectEvolutionIntelligence): string | null {
   if (intel.baseline == null || intel.latest == null || intel.netChange == null) return null;
-  if (intel.netChange === 0) return `No net change — stayed at ${intel.latest} days.`;
+  if (intel.netChange === 0) return `No net change — remaining work stayed at ${intel.latest} days.`;
   const dir = intel.netChange > 0 ? "increased" : "reduced";
-  return `Net change: ${dir} from ${intel.baseline} to ${intel.latest} days (${intel.netChange > 0 ? "+" : ""}${intel.netChange} days).`;
+  return `Net change in remaining work: ${dir} from ${intel.baseline} to ${intel.latest} days (${intel.netChange > 0 ? "+" : ""}${intel.netChange} days).`;
 }
 
 function formatChangeStep(label: string, step: { changeDays: number; fromDays: number; toDays: number }): string {
   const dir = step.changeDays > 0 ? "increased" : "reduced";
-  return `${label}: ${dir} from ${step.fromDays} to ${step.toDays} days (${step.changeDays > 0 ? "+" : ""}${step.changeDays}).`;
+  return `${label}: remaining work ${dir} from ${step.fromDays} to ${step.toDays} days (${step.changeDays > 0 ? "+" : ""}${step.changeDays}).`;
 }
 
 function buildWhatChangedResponse(evolution: DeliverableProjectEvolutionReport): AskRanaResponse {
@@ -488,8 +488,8 @@ function buildWhatChangedResponse(evolution: DeliverableProjectEvolutionReport):
     highlightedRevisions,
     latestState:
       intel.latest != null
-        ? `Latest imported duration: ${intel.latest} days.`
-        : "Latest duration not recorded in the imported programme.",
+        ? `Latest remaining work: ${intel.latest} days.`
+        : "Latest remaining work not recorded in the imported programme.",
   };
 }
 
@@ -525,8 +525,8 @@ function buildWhyChangedResponse(evolution: DeliverableProjectEvolutionReport): 
   const howChanged =
     intel.howChangedSummary ??
     (intel.changePattern === "STABLE" && intel.baseline != null
-      ? `Duration remained at ${intel.baseline} days. The imported programme history does not record why those planning decisions were made.`
-      : "Rana can see revision durations, but the imported programme history does not record why those planning decisions were made.");
+      ? `Remaining work remained at ${intel.baseline} days. The imported programme history does not record why remaining work stayed unchanged.`
+      : "Rana can see remaining work across revisions, but the imported programme history does not record why it changed.");
 
   return {
     layout: "why_changed",
@@ -540,9 +540,9 @@ function buildWhichRevisionChangedResponse(evolution: DeliverableProjectEvolutio
   const intel = evolutionIntelligence(evolution);
   const highlights = intel.revisionHighlights.map((h) => highlightToRevision(h, evolution));
 
-  let answer = "No single revision stands out — durations stayed the same across imported revisions.";
+  let answer = "No single revision stands out — remaining work stayed the same across imported revisions.";
   if (intel.largestSingleRevisionChange) {
-    answer = `${intel.largestSingleRevisionChange.revisionLabel} had the largest single revision step (${intel.largestSingleRevisionChange.changeDays > 0 ? "+" : ""}${intel.largestSingleRevisionChange.changeDays} days).`;
+    answer = `${intel.largestSingleRevisionChange.revisionLabel} had the largest single remaining-work step (${intel.largestSingleRevisionChange.changeDays > 0 ? "+" : ""}${intel.largestSingleRevisionChange.changeDays} days).`;
   }
 
   return {
@@ -562,16 +562,16 @@ function buildStabilityAssessmentResponse(evolution: DeliverableProjectEvolution
   const intel = evolutionIntelligence(evolution);
   const stablePeriods = intel.stablePeriods.map(
     (p) =>
-      `${p.durationDays} days held from ${p.startLabel} to ${p.endLabel} (${p.revisionCount} revision${p.revisionCount === 1 ? "" : "s"}).`
+      `${p.durationDays} days remaining held from ${p.startLabel} to ${p.endLabel} (${p.revisionCount} revision${p.revisionCount === 1 ? "" : "s"}).`
   );
 
   let answer: string;
   if (intel.changePattern === "STABLE") {
-    answer = `Yes — duration remained at ${intel.baseline ?? intel.latest ?? "its current"} days across ${intel.revisionCount} revisions.`;
+    answer = `Yes — remaining work remained at ${intel.baseline ?? intel.latest ?? "its current"} days across ${intel.revisionCount} revisions.`;
   } else if (intel.longestStablePeriod) {
-    answer = `Not entirely — the longest stable run was ${intel.longestStablePeriod.revisionCount} revisions at ${intel.longestStablePeriod.durationDays} days (${intel.longestStablePeriod.startLabel} to ${intel.longestStablePeriod.endLabel}).`;
+    answer = `Not entirely — the longest stable run was ${intel.longestStablePeriod.revisionCount} revisions at ${intel.longestStablePeriod.durationDays} days remaining (${intel.longestStablePeriod.startLabel} to ${intel.longestStablePeriod.endLabel}).`;
   } else {
-    answer = "No — durations shifted between most imported revisions.";
+    answer = "No — remaining work shifted between most imported revisions.";
   }
 
   return {
@@ -606,13 +606,13 @@ function buildDurationReasonableResponse(
     expected?.mostLikelyDays ?? analysis.benchmark?.medianDuration ?? null;
   const typicalPhrase =
     expected?.rangeLabel ??
-    (typical != null && Number.isFinite(typical) ? `around ${Math.round(typical)} days` : "a typical duration");
+    (typical != null && Number.isFinite(typical) ? `around ${Math.round(typical)} days` : "a typical planned duration");
 
-  let comparison = "Rana compared this with similar work on completed projects.";
+  let comparison = "Rana compared this planned duration with similar work on completed projects.";
   if (currentDays != null && expected?.rangeLabel) {
-    comparison = `Your plan is ${Math.round(currentDays)} days. Similar work on completed projects usually sits around ${expected.rangeLabel.toLowerCase()}.`;
+    comparison = `Your planned duration is ${Math.round(currentDays)} days. Similar work on completed projects usually sits around ${expected.rangeLabel.toLowerCase()} planned.`;
   } else if (currentDays != null && typical != null) {
-    comparison = `Your plan is ${Math.round(currentDays)} days. Similar work on completed projects usually completes in ${typicalPhrase}.`;
+    comparison = `Your planned duration is ${Math.round(currentDays)} days. Similar work on completed projects usually has a typical planned duration of ${typicalPhrase}.`;
   } else if (analysis.outlier?.effectivePositionLabel) {
     comparison = analysis.outlier.effectivePositionLabel
       .replace(/historical benchmark/gi, "completed projects")
@@ -621,12 +621,12 @@ function buildDurationReasonableResponse(
 
   const answer =
     sampleSize === 0
-      ? "There aren't enough completed projects to judge whether this duration is reasonable yet."
+      ? "There aren't enough completed projects to judge whether this planned duration is reasonable yet."
       : analysis.outlier?.status === "NORMAL"
-        ? "Yes — this duration looks reasonable compared with similar work on completed projects."
+        ? "Yes — this planned duration looks reasonable compared with similar work on completed projects."
         : analysis.outlier?.status === "SLIGHTLY_HIGH" || analysis.outlier?.status === "SLIGHTLY_LOW"
-          ? "It is a bit different to what usually happens — worth a quick review with the team."
-          : "This duration is materially different to what usually happens on similar projects.";
+          ? "It is a bit different to typical planned durations — worth a quick review with the team."
+          : "This planned duration is materially different to what usually happens on similar projects.";
 
   return {
     layout: "duration_reasonable",
@@ -693,11 +693,11 @@ function buildExplainCombinedResponse(args: {
     evolutionPoints.push("No revision history on this project yet.");
   }
 
-  let recommendation = "Review both comparisons when deciding whether the current plan is right.";
+  let recommendation = "Review both comparisons when deciding whether the current planned duration is right.";
   if (analysis && ctx.hasPreviousProjects) {
     recommendation = plannerAnswerFromAnalysis({ analysis, projectId }).action;
   } else if (evolution && ctx.hasEvolution) {
-    recommendation = "Review the revision timeline and confirm the latest duration reflects the team's intent.";
+    recommendation = "Review the revision timeline and confirm the latest remaining work reflects the programme state.";
   }
 
   const summary =
@@ -801,9 +801,9 @@ function buildUsuallyHappensResponse(
   const range = expected?.rangeLabel ?? null;
 
   const answer = range
-    ? `On similar work from completed projects, durations usually sit around ${range.toLowerCase()}.`
+    ? `On similar work from completed projects, planned durations usually sit around ${range.toLowerCase()}.`
     : typical != null
-      ? `On similar work from completed projects, durations usually complete in around ${Math.round(typical)} days.`
+      ? `On similar work from completed projects, typical planned duration is around ${Math.round(typical)} days.`
       : "Rana does not have enough completed projects yet to say what usually happens.";
 
   const base = plannerAnswerFromAnalysis({ analysis, projectId });
@@ -902,7 +902,7 @@ export function plannerAnswerForQuestion(args: {
             answer: missingComparisonNote(ctx),
             why: evolutionIntelligence(evolution).summary,
             evidence: [`${ctx.revisionCount} revision${ctx.revisionCount === 1 ? "" : "s"} on this project`],
-            action: "Import completed projects to judge whether the duration is reasonable.",
+            action: "Import completed projects to judge whether the planned duration is reasonable.",
           },
         };
       }

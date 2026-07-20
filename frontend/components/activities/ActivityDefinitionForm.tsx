@@ -335,24 +335,15 @@ export function ActivityDefinitionForm(props: ActivityDefinitionFormProps) {
           value={formResourceDrafts}
           onChange={onResourceDrafts}
           disabled={submitting}
-          durationDays={Math.max(0.01, Number(formBestDuration) || 1)}
+          durationDays={(() => {
+            if (formBestDuration.trim() === "") return 1;
+            const n = Number(formBestDuration);
+            return Number.isFinite(n) ? Math.max(0, n) : 1;
+          })()}
         />
       </FormSection>
 
       {extraSections}
     </div>
   );
-}
-
-/** @deprecated Use ActivityDefinitionForm with scope="deliverable" */
-export function DeliverableActivityForm(
-  props: Omit<ActivityDefinitionFormProps, "scope"> & {
-    showDeliverable?: boolean;
-  }
-) {
-  const { showDeliverable = true, ...rest } = props;
-  if (!showDeliverable) {
-    return <ActivityDefinitionForm scope="deliverable" {...rest} onDeliverableId={undefined} />;
-  }
-  return <ActivityDefinitionForm scope="deliverable" {...rest} />;
 }

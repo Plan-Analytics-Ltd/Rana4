@@ -202,15 +202,3 @@ export function capOutlierStatusForSampleSize(sampleSize: number, raw: OutlierSt
   }
   return raw;
 }
-
-/** @deprecated Use MEDIAN_DEVIATION_THRESHOLDS — kept for findings compatibility */
-export const OUTLIER_THRESHOLDS = {
-  slightlyHighPctVsMedian: MEDIAN_DEVIATION_THRESHOLDS.slight,
-  highPctVsMedian: MEDIAN_DEVIATION_THRESHOLDS.high,
-  redFlagPctVsMedian: MEDIAN_DEVIATION_THRESHOLDS.redFlag,
-  extremePctVsMedian: MEDIAN_DEVIATION_THRESHOLDS.extreme,
-  zSlightlyHigh: 1.0,
-  zHigh: 1.5,
-  zRedFlag: 2.0,
-  zExtreme: 3.0,
-} as const;

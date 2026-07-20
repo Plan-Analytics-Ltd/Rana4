@@ -541,12 +541,12 @@ export function computeRevisionProgrammeIntelligence(args: {
     ) {
       const dir = rev.durationChangeDays > 0 ? "increased" : "reduced";
       plannerObservations.unshift(
-        `Duration ${dir} by ${Math.abs(rev.durationChangeDays)} days (${rev.durationDays ?? "—"} days in this revision).`
+        `Remaining work ${dir} by ${Math.abs(rev.durationChangeDays)} days (${rev.durationDays ?? "—"} days remaining in this revision).`
       );
     } else if (rev.durationChangeDays === 0 || rev.durationChangeDays == null) {
       const hasLogic = events.some((e) => PLANNER_VISIBLE_EVENT_TYPES.has(e.type));
       if (hasLogic) {
-        plannerObservations.push("Duration was unchanged in this revision.");
+        plannerObservations.push("Remaining work was unchanged in this revision.");
       }
     }
 

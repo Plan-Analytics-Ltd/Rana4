@@ -12,9 +12,44 @@ import type {
   InvestigationFindings,
 } from "./askRanaKnowledgePackage.types.js";
 import { hasEvolutionWithoutComparison } from "./askRanaPartialEvidence.service.js";
+import {
+  baselineOnlyFollowUpBullets,
+  baselineOnlyPrimaryMessage,
+  filterTechnicalBaselineText,
+  humanizeBaselineOnlyGap,
+  isBaselineOnlyConversationState,
+  isChangeOrRevisionQuestion,
+  shouldHumanizeGap,
+} from "./askRanaBaselineOnlyConversation.service.js";
+import {
+  buildBroadChangeGuidance,
+  buildRevisionChangeSummaries,
+  buildRevisionNeighborContext,
+  buildRevisionScopedGuidance,
+  buildSingleRevisionChangeSummary,
+  buildStoryFlowGuidance,
+  collectRevisionFocusedFacts,
+  extractRevisionTarget,
+  humanizePlannerPhrase,
+  humanizeUnknowns,
+  isBroadChangeQuestion,
+} from "./askRanaConversationPolish.service.js";
+import {
+  buildPlannerReasoningGuidance,
+  compressConfirmedFactsForFollowUp,
+  extractEstablishedProgrammeFacts,
+  isExecutivePlannerQuestion,
+  reframeLimitationPhrases,
+} from "./askRanaPlannerReasoning.service.js";
 
-function collectConfirmedFacts(pkg: AskRanaEvidencePackage): string[] {
+function collectConfirmedFacts(pkg: AskRanaEvidencePackage, baselineOnly: boolean): string[] {
   const facts: string[] = [];
+
+  // Project Intelligence first — programme understanding before deliverable drill-down.
+  if (pkg.projectIntelligence?.available) {
+    facts.push(...pkg.projectIntelligence.facts);
+  }
+
   const d = pkg.deliverable;
 
   if (d.name) facts.push(`Deliverable: ${d.name}`);
@@ -25,26 +60,30 @@ function collectConfirmedFacts(pkg: AskRanaEvidencePackage): string[] {
 
   const evo = pkg.projectEvolution;
   if (evo?.available) {
-    if (evo.summary) facts.push(evo.summary);
-    if (evo.baselineDays != null && evo.latestDays != null) {
-      facts.push(
-        `Duration: baseline ${evo.baselineDays} days → latest ${evo.latestDays} days` +
-          (evo.netChangeDays != null ? ` (net ${evo.netChangeDays > 0 ? "+" : ""}${evo.netChangeDays})` : "")
-      );
-    }
-    if (evo.howChangedSummary) facts.push(evo.howChangedSummary);
-    if (evo.trend) facts.push(`Duration trend: ${evo.trend}`);
-    if (evo.changePattern) facts.push(`Change pattern: ${evo.changePattern}`);
-    for (const h of evo.timelineHighlights.slice(0, 6)) facts.push(h);
-    for (const h of evo.revisionHighlights.slice(0, 4)) {
-      facts.push(
-        `${h.label}: ${h.durationDays} days${h.changeDays != null ? ` (${h.changeDays > 0 ? "+" : ""}${h.changeDays})` : ""} — ${h.reason}`
-      );
-    }
-    for (const s of evo.stablePeriods.slice(0, 2)) {
-      facts.push(
-        `Stable at ${s.durationDays} days from ${s.startLabel} to ${s.endLabel} (${s.revisionCount} updates)`
-      );
+    if (baselineOnly) {
+      facts.push(baselineOnlyPrimaryMessage(pkg));
+    } else {
+      if (evo.summary) facts.push(evo.summary);
+      if (evo.baselineDays != null && evo.latestDays != null) {
+        facts.push(
+          `Remaining work: baseline ${evo.baselineDays} days → latest ${evo.latestDays} days` +
+            (evo.netChangeDays != null ? ` (net ${evo.netChangeDays > 0 ? "+" : ""}${evo.netChangeDays})` : "")
+        );
+      }
+      if (evo.howChangedSummary) facts.push(evo.howChangedSummary);
+      if (evo.trend) facts.push(`Remaining-work trend: ${evo.trend}`);
+      if (evo.changePattern) facts.push(`Change pattern: ${evo.changePattern}`);
+      for (const h of evo.timelineHighlights.slice(0, 6)) facts.push(h);
+      for (const h of evo.revisionHighlights.slice(0, 4)) {
+        facts.push(
+          `${h.label}: ${h.durationDays} days remaining work${h.changeDays != null ? ` (${h.changeDays > 0 ? "+" : ""}${h.changeDays})` : ""} — ${h.reason}`
+        );
+      }
+      for (const s of evo.stablePeriods.slice(0, 2)) {
+        facts.push(
+          `Remaining work stable at ${s.durationDays} days from ${s.startLabel} to ${s.endLabel} (${s.revisionCount} updates)`
+        );
+      }
     }
   }
 
@@ -64,10 +103,10 @@ function collectConfirmedFacts(pkg: AskRanaEvidencePackage): string[] {
   if (pkg.previousProjects?.available) {
     const p = pkg.previousProjects;
     if (p.comparisonAssessment) facts.push(p.comparisonAssessment);
-    if (p.typicalRangeLabel) facts.push(`Typical range on similar work: ${p.typicalRangeLabel}`);
+    if (p.typicalRangeLabel) facts.push(`Typical planned duration range on similar work: ${p.typicalRangeLabel}`);
     if (p.currentDurationDays != null && p.typicalDurationDays != null) {
       facts.push(
-        `Current ${p.currentDurationDays} days vs typical around ${p.typicalDurationDays} days (${p.completedProjectCount} completed projects)`
+        `Current planned ${p.currentDurationDays} days vs typical planned around ${p.typicalDurationDays} days (${p.completedProjectCount} completed projects)`
       );
     }
   }
@@ -79,17 +118,23 @@ function collectConfirmedFacts(pkg: AskRanaEvidencePackage): string[] {
     for (const k of pkg.keyFactors.slice(0, 4)) facts.push(k);
   }
 
-  return [...new Set(facts.filter(Boolean))];
+  return [...new Set(facts.filter(Boolean).map(humanizePlannerPhrase))];
 }
 
 function collectUnknowns(
   pkg: AskRanaEvidencePackage,
-  verification: AskRanaVerificationResult
+  verification: AskRanaVerificationResult,
+  baselineOnly: boolean,
+  changeQuestion: boolean
 ): string[] {
   const unknowns: string[] = [];
 
-  for (const gap of verification.relevantMissingEvidence) {
-    unknowns.push(gap);
+  if (!(baselineOnly && changeQuestion)) {
+    for (const gap of verification.relevantMissingEvidence) {
+      unknowns.push(
+        baselineOnly && shouldHumanizeGap(gap) ? humanizeBaselineOnlyGap(gap) : gap
+      );
+    }
   }
 
   const evo = pkg.projectEvolution;
@@ -101,10 +146,14 @@ function collectUnknowns(
     }
   }
 
-  unknowns.push("Underlying planner rationale for individual planning decisions is not recorded in the imported programme.");
-  unknowns.push("Commercial decisions, contractor intent, and off-programme factors are not available.");
+  if (!(baselineOnly && changeQuestion)) {
+    unknowns.push(
+      "Why each planning decision was made is not in the programme file."
+    );
+    unknowns.push("Commercial decisions, contractor intent, and off-programme factors are not available.");
+  }
 
-  return [...new Set(unknowns)].slice(0, 6);
+  return humanizeUnknowns(unknowns);
 }
 
 function mergeInvestigationFindings(
@@ -121,16 +170,24 @@ export function buildAskRanaKnowledgePackage(args: {
   verification: AskRanaVerificationResult;
   responseDepth: PlannerResponseDepthResult;
   investigation: AskRanaInvestigationBrief;
+  question?: string;
+  conversation?: import("./askRana.types.js").AskRanaConversationTurn[];
 }): AskRanaKnowledgePackage {
   const { evidencePackage: pkg, plannerQuery, verification, responseDepth, investigation } = args;
+  const question = args.question ?? "";
   const findings = mergeInvestigationFindings(investigation);
+  const baselineOnly = isBaselineOnlyConversationState(pkg);
+  const changeQuestion = isChangeOrRevisionQuestion(question, plannerQuery);
+  const broadChangeQuestion = isBroadChangeQuestion(question, plannerQuery);
+  const targetRevision = baselineOnly ? null : extractRevisionTarget(question, pkg);
+  const establishedFacts = extractEstablishedProgrammeFacts(args.conversation);
 
   const comparisonContext: string[] = [];
   if (pkg.previousProjects?.available) {
     const p = pkg.previousProjects;
     for (const w of p.comparableWork.slice(0, 4)) {
       comparisonContext.push(
-        `${w.deliverableName} on ${w.projectName}${w.durationDays != null ? ` — ${w.durationDays} days` : ""}`
+        `${w.deliverableName} on ${w.projectName}${w.durationDays != null ? ` — ${w.durationDays} days planned` : ""}`
       );
     }
     for (const o of p.observations.slice(0, 3)) comparisonContext.push(o);
@@ -148,16 +205,91 @@ export function buildAskRanaKnowledgePackage(args: {
   }
   if (hasEvolutionWithoutComparison(pkg) && verification.topic === "comparison") {
     evidenceNotes.push(
-      "Partial evidence: this project's revision history is available; completed-project comparison is not."
+      "Partial evidence: this project's revision history is available; completed-project comparison is not. Lead with what the programme shows; mention thin completed-project history only after the judgement — never open with the gap."
+    );
+  }
+  if (baselineOnly && changeQuestion) {
+    evidenceNotes.push(
+      "This project only contains the Baseline programme — nothing has changed yet. Explain that naturally and describe what you can show after the first programme update. Do not apologise or mention missing evidence."
     );
   }
 
+  const communicationGuidance: string[] = [
+    ...buildPlannerReasoningGuidance({
+      question,
+      isFollowUp: verification.isFollowUp,
+      hasDetailedPriorAnswer: responseDepth.hasDetailedPriorAnswer,
+      establishedFacts,
+    }),
+  ];
+  if (targetRevision) {
+    communicationGuidance.push(buildRevisionScopedGuidance(targetRevision));
+  } else if (broadChangeQuestion && !baselineOnly) {
+    communicationGuidance.push(buildBroadChangeGuidance());
+  }
+  const storyFlow = buildStoryFlowGuidance(pkg, question);
+  if (storyFlow && !baselineOnly) {
+    communicationGuidance.push(storyFlow);
+  }
+  if (findings?.strongestConclusion && (findings.supportedConclusions?.length ?? 0) <= 1) {
+    communicationGuidance.push(
+      "When evidence supports one conclusion, state it directly (e.g. “From reviewing the programme…”) — do not hedge with phrases like “a supported reading is…”."
+    );
+  }
+  if (isExecutivePlannerQuestion(question)) {
+    communicationGuidance.push(
+      "This is an executive programme question — open with your overall assessment in one clear sentence before any chronology."
+    );
+  }
+
+  const changeSummaries =
+    targetRevision && !baselineOnly
+      ? (() => {
+          const summary = buildSingleRevisionChangeSummary(pkg, targetRevision);
+          return summary ? [summary] : [];
+        })()
+      : broadChangeQuestion && !baselineOnly
+        ? buildRevisionChangeSummaries(pkg)
+        : [];
+
+  const revisionContextFacts =
+    targetRevision && !baselineOnly ? buildRevisionNeighborContext(pkg, targetRevision) : [];
+
+  const rawConfirmedFacts =
+    targetRevision && !baselineOnly
+      ? [
+          ...(pkg.projectIntelligence?.overallAssessment
+            ? [`Programme context: ${pkg.projectIntelligence.overallAssessment}`]
+            : []),
+          ...collectRevisionFocusedFacts(pkg, targetRevision),
+        ]
+      : collectConfirmedFacts(pkg, baselineOnly && changeQuestion);
+
+  const confirmedFacts = compressConfirmedFactsForFollowUp(
+    rawConfirmedFacts,
+    establishedFacts,
+    verification.isFollowUp
+  );
+
+  const baselineConclusions =
+    baselineOnly && changeQuestion
+      ? [
+          baselineOnlyPrimaryMessage(pkg),
+          `After the first programme update is imported, I can explain ${baselineOnlyFollowUpBullets().join(", ")}.`,
+        ]
+      : [];
+
   return {
-    confirmedFacts: collectConfirmedFacts(pkg),
-    supportedConclusions: findings?.supportedConclusions ?? [],
-    alternativeExplanations: findings?.alternativeExplanations ?? [],
+    confirmedFacts,
+    supportedConclusions: [
+      ...baselineConclusions,
+      ...(findings?.supportedConclusions ?? []).map(humanizePlannerPhrase),
+    ],
+    alternativeExplanations: (findings?.alternativeExplanations ?? []).map(humanizePlannerPhrase),
     ruledOutExplanations: findings?.ruledOutExplanations ?? [],
-    unknowns: collectUnknowns(pkg, verification),
+    unknowns: reframeLimitationPhrases(
+      collectUnknowns(pkg, verification, baselineOnly, changeQuestion)
+    ),
     factualCorrections: verification.corrections,
     plannerContext: {
       intent: humanPlannerIntentLabel(plannerQuery.intent),
@@ -176,17 +308,40 @@ export function buildAskRanaKnowledgePackage(args: {
       responseDepth: responseDepth.depth,
       plannerExpectation: responseDepth.plannerExpectation,
       followUpIntent: responseDepth.followUpIntent,
-      topicsAlreadyExplained: responseDepth.topicsAlreadyExplained,
+      topicsAlreadyExplained: [
+        ...responseDepth.topicsAlreadyExplained,
+        ...establishedFacts,
+      ],
       hasDetailedPriorAnswer: responseDepth.hasDetailedPriorAnswer,
       newInformationRequested: responseDepth.newInformationRequested,
     },
     investigationFindings: findings,
     evidenceDomains: pkg.sources,
-    revisionObservations: pkg.projectEvolution?.plannerObservations?.slice(0, 6) ?? [],
+    revisionObservations:
+      baselineOnly && changeQuestion
+        ? []
+        : (pkg.projectEvolution?.plannerObservations
+            ?.filter(filterTechnicalBaselineText)
+            .filter((obs) => !targetRevision || obs.includes(targetRevision))
+            .map(humanizePlannerPhrase)
+            .slice(0, 6) ?? []),
     programmeLogicObservations:
-      pkg.programmeLogic?.revisions.flatMap((r) => r.plannerObservations).slice(0, 8) ?? [],
+      pkg.programmeLogic?.revisions
+        .filter((r) => !targetRevision || r.label === targetRevision)
+        .flatMap((r) => r.plannerObservations)
+        .map(humanizePlannerPhrase)
+        .slice(0, 8) ?? [],
     comparisonContext,
     recommendations,
     evidenceNotes,
+    changeSummaries,
+    communicationGuidance,
+    targetRevision,
+    revisionContextFacts,
+    activityTaskTypes:
+      pkg.linkedActivities?.map((a) => ({
+        activityCode: a.activityCode,
+        p6TaskType: a.p6TaskType,
+      })) ?? [],
   };
 }

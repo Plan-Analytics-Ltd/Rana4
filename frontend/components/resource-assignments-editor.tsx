@@ -36,7 +36,9 @@ export function ResourceAssignmentsEditor({ entries, value, onChange, disabled, 
 
   const labelFor = (e: RateCardEntry) => `${e.resourceName} (£${e.rate}/${e.unit})`;
 
-  const keyOf = (type: string, name: string) => `${type}||${name}`;
+  /** Must match `rateCardLookup` / `assignmentCost` keys (`type|name`, lowercased). */
+  const keyOf = (type: string, name: string) =>
+    `${type.trim().toLowerCase()}|${name.trim().toLowerCase()}`;
 
   const enforceUniqueSelections = (rows: ResourceAssignmentDraft[]): ResourceAssignmentDraft[] => {
     const seen = new Set<string>();
@@ -231,16 +233,23 @@ export function ResourceAssignmentsEditor({ entries, value, onChange, disabled, 
         </div>
       )}
       {value.length > 0 && (
-        <div className="flex flex-wrap gap-2 rounded-md border border-slate-100 bg-slate-50 p-2 text-xs dark:border-slate-700 dark:bg-slate-900">
-          <span className="font-medium text-slate-600 dark:text-slate-400">
-            {value.filter((r) => r.resourceName).length} resources
-          </span>
-          <span>·</span>
-          <span>{Math.round(summaryHours * 10) / 10}h total</span>
-          <span>·</span>
-          <span className="font-semibold text-slate-800 dark:text-slate-200">
-            £{Math.round(summaryCost).toLocaleString()} activity cost
-          </span>
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap gap-2 rounded-md border border-slate-100 bg-slate-50 p-2 text-xs dark:border-slate-700 dark:bg-slate-900">
+            <span className="font-medium text-slate-600 dark:text-slate-400">
+              {value.filter((r) => r.resourceName).length} resources
+            </span>
+            <span>·</span>
+            <span>{Math.round(summaryHours * 10) / 10}h total</span>
+            <span>·</span>
+            <span className="font-semibold text-slate-800 dark:text-slate-200">
+              £{Math.round(summaryCost).toLocaleString()} activity cost
+            </span>
+          </div>
+          {durationDays <= 0 ? (
+            <p className="text-xs text-amber-800 dark:text-amber-200/90">
+              This is a milestone (0 duration) — resource cost will always show £0.
+            </p>
+          ) : null}
         </div>
       )}
     </div>
@@ -252,7 +261,7 @@ export function draftsToPayload(rows: ResourceAssignmentDraft[]): { resourceType
   const seen = new Set<string>();
   for (const r of rows) {
     if (!r.resourceType || !r.resourceName) continue;
-    const k = `${r.resourceType}||${r.resourceName}`;
+    const k = `${r.resourceType.trim().toLowerCase()}|${r.resourceName.trim().toLowerCase()}`;
     if (seen.has(k)) continue;
     seen.add(k);
     const u = r.units.trim() === "" ? undefined : Number(r.units);

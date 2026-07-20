@@ -1,12 +1,8 @@
 "use client";
 
-import { DeliverableBenchmarkPanel } from "@/components/deliverables/deliverable-benchmark-panel";
-import { DeliverableStatusCell } from "@/components/deliverables/deliverable-status-cell";
-import { ProjectHealthBar } from "@/components/intelligence/project-health-bar";
-import { useDeliverableIntelligenceCache } from "@/lib/use-deliverable-intelligence-cache";
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Loader2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -37,6 +33,7 @@ import {
   type Fragnet,
   type RateCardEntry,
   type ActivityCodeType,
+  type DeliverableDurationStatisticsItem,
   getApiErrorMessage,
 } from "@/lib/api";
 import { useProject } from "@/contexts/project-context";
@@ -50,10 +47,13 @@ import {
 import { hasPermission } from "@/lib/project-permissions";
 import { cn } from "@/lib/utils";
 import { ActivityBulkActionsBar } from "@/components/activities/ActivityBulkActionsBar";
+import { DeliverableDurationHistory } from "@/components/deliverables/deliverable-duration-history";
+import { HistoricalPlanningDialog } from "@/components/deliverables/historical-planning-dialog";
 import { filterUserVisibleFragnets, filterUserVisibleStandards } from "@/lib/project-level-ui";
-import { DeliverableStatusBadge } from "@/components/intelligence/deliverable-status-badge";
-import { OpenInPlanningWorkspaceButton } from "@/components/intelligence/open-in-planning-workspace-button";
-import { useIntelligenceDrawerOptional } from "@/contexts/intelligence-drawer-context";
+import {
+  useDeliverableDurationDraftStatistics,
+  useDeliverableDurationStatistics,
+} from "@/lib/use-deliverable-duration-statistics";
 
 import { formatFragnetLabel } from "@/lib/planner-language";
 
@@ -66,17 +66,10 @@ export default function DeliverablesPage() {
   const mayDelete = hasPermission(selectedProjectRole, "deliverable", "delete");
   const mayEditP6Codes = hasPermission(selectedProjectRole, "activityCode", "update");
   const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
-  const deliverableIds = useMemo(() => deliverables.map((d) => d.id), [deliverables]);
-  const {
-    snapshots: intelSnapshots,
-    loading: intelLoading,
-    getSnapshot,
-  } = useDeliverableIntelligenceCache(selectedProjectId, deliverableIds);
   const [allFragnets, setAllFragnets] = useState<FragnetOption[]>([]);
   const [fragnetNameById, setFragnetNameById] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [intelligenceRefreshKey, setIntelligenceRefreshKey] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [formFragnetId, setFormFragnetId] = useState("");
@@ -91,6 +84,21 @@ export default function DeliverablesPage() {
   const [formResourceDrafts, setFormResourceDrafts] = useState<ResourceAssignmentDraft[]>([]);
   const [codeTypes, setCodeTypes] = useState<ActivityCodeType[]>([]);
   const [formP6Codes, setFormP6Codes] = useState<Record<string, string>>({});
+  const [selectedHistory, setSelectedHistory] = useState<{
+    deliverableName: string;
+    history: DeliverableDurationStatisticsItem;
+  } | null>(null);
+  const {
+    byDeliverableId: durationHistoryById,
+    loading: durationHistoryLoading,
+  } = useDeliverableDurationStatistics(selectedProjectId, deliverables);
+  const { item: formDurationHistory, loading: formDurationHistoryLoading } =
+    useDeliverableDurationDraftStatistics({
+      projectId: selectedProjectId,
+      name: formName,
+      deliverableId: editId,
+      enabled: createOpen || editId != null,
+    });
 
   const fetchCodeTypes = async () => {
     if (!selectedProjectId) {
@@ -279,7 +287,6 @@ export default function DeliverablesPage() {
         activityCodeByTypeId: buildDeliverableCodePayloadForUpdate(),
       });
       toast.success("Deliverable updated");
-      setIntelligenceRefreshKey((k) => k + 1);
       await fetchDeliverables();
       resetForm();
     } catch (err: unknown) {
@@ -405,20 +412,77 @@ export default function DeliverablesPage() {
     setCreateOpen(true);
   };
 
-  const drawer = useIntelligenceDrawerOptional();
+  const renderDurationCells = (d: Deliverable) => {
+    return (
+      <>
+        <TableCell>{d.bestDuration}</TableCell>
+        <TableCell>{d.likelyDuration}</TableCell>
+      </>
+    );
+  };
 
-  const attentionDeliverables = useMemo(() => {
-    return deliverables
-      .map((d) => ({ deliverable: d, snapshot: intelSnapshots.get(d.id) }))
-      .filter(
-        (row) => row.snapshot && (row.snapshot.attention === "review" || row.snapshot.attention === "high_risk")
-      )
-      .slice(0, 8);
-  }, [deliverables, intelSnapshots]);
+  const formatHistoryDays = (value: number | null | undefined) => {
+    if (value == null || !Number.isFinite(value) || value <= 0) return "—";
+    return Math.max(1, Math.round(value));
+  };
 
-  const openDeliverableInsight = (id: string, name: string) => {
-    if (!selectedProjectId || !drawer) return;
-    drawer.openInsight({ projectId: selectedProjectId, deliverableId: id, deliverableName: name });
+  const renderHistoryCells = (d: Deliverable) => {
+    const history = durationHistoryById.get(d.id);
+    const statistics = history?.statistics;
+    const unavailableMessage = history?.unavailableReason
+      ? "No planning information from previous projects is available yet for this deliverable."
+      : undefined;
+    const lowNameConsistency = history?.lowNameConsistency === true;
+    const nameConsistencyTooltip = lowNameConsistency
+      ? "These figures blend differently-named work — review before relying on them."
+      : undefined;
+    const renderValue = (value: number | null | undefined) => {
+      if (durationHistoryLoading) {
+        return <span className="block h-4 w-8 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />;
+      }
+      if (!history?.statistics.available) return "—";
+      return (
+        <span className="inline-flex items-center gap-1">
+          <button
+            type="button"
+            className="font-medium underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+            onClick={() => setSelectedHistory({ deliverableName: d.name, history })}
+          >
+            {formatHistoryDays(value)}
+          </button>
+          {lowNameConsistency ? (
+            <span title={nameConsistencyTooltip}>
+              <AlertTriangle
+                className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400"
+                aria-label={nameConsistencyTooltip}
+              />
+            </span>
+          ) : null}
+        </span>
+      );
+    };
+    return (
+      <>
+        <TableCell
+          title={unavailableMessage}
+          className="bg-emerald-50/50 text-emerald-900 dark:bg-emerald-950/15 dark:text-emerald-100"
+        >
+          {renderValue(statistics?.minimumDays)}
+        </TableCell>
+        <TableCell
+          title={unavailableMessage}
+          className="bg-amber-50/50 text-amber-900 dark:bg-amber-950/15 dark:text-amber-100"
+        >
+          {renderValue(statistics?.averageDays)}
+        </TableCell>
+        <TableCell
+          title={unavailableMessage}
+          className="bg-rose-50/50 text-rose-900 dark:bg-rose-950/15 dark:text-rose-100"
+        >
+          {renderValue(statistics?.maximumDays)}
+        </TableCell>
+      </>
+    );
   };
 
   return (
@@ -427,7 +491,7 @@ export default function DeliverablesPage() {
         <div>
           <h2 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">Deliverables</h2>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Start with what’s worth reviewing, then manage the detail below.
+            Manage project deliverables and planning durations.
             {refreshing ? (
               <span className="ml-2 inline-flex items-center gap-1 text-slate-400">
                 <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
@@ -438,46 +502,13 @@ export default function DeliverablesPage() {
         </div>
       </div>
 
-      <ProjectHealthBar projectId={selectedProjectId} />
-
-      <Card className="border-violet-200/70 bg-violet-50/30 dark:border-violet-900/40 dark:bg-violet-950/10">
-        <CardHeader className="flex flex-row items-start justify-between gap-3 pb-3">
-          <div>
-            <CardTitle className="text-base">Worth reviewing</CardTitle>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              These deliverables differ most from similar work on previous projects. Open one to see why.
-            </p>
-          </div>
-          <OpenInPlanningWorkspaceButton />
-        </CardHeader>
-        <CardContent>
-          {intelLoading && attentionDeliverables.length === 0 ? (
-            <p className="flex items-center gap-2 text-sm text-slate-500">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Comparing deliverables with previous projects…
-            </p>
-          ) : attentionDeliverables.length === 0 ? (
-            <p className="text-sm text-slate-600 dark:text-slate-400">
-              Nothing stands out for review right now — deliverables here are either in line with previous projects or
-              don’t have enough history yet.
-            </p>
-          ) : (
-            <div className="grid gap-2 lg:grid-cols-2">
-              {attentionDeliverables.map(({ deliverable, snapshot }) => (
-                <button
-                  key={deliverable.id}
-                  type="button"
-                  onClick={() => openDeliverableInsight(deliverable.id, deliverable.name)}
-                  className="flex w-full items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-violet-300 hover:shadow-sm dark:border-slate-700 dark:bg-slate-900/50 dark:hover:border-violet-800"
-                >
-                  <span className="truncate text-sm font-medium">{deliverable.name}</span>
-                  <DeliverableStatusBadge snapshot={snapshot} />
-                </button>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 dark:border-slate-700 dark:bg-slate-900/40">
+        <p className="text-sm font-semibold text-slate-900 dark:text-white">Previous Projects</p>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+          Planning durations shown below are calculated from previously imported projects containing equivalent
+          deliverables. Click any Min, Avg or Max value to see where it came from.
+        </p>
+      </div>
 
       {mayDelete && filteredDeliverables.length > 0 && (
         <ActivityBulkActionsBar
@@ -529,9 +560,11 @@ export default function DeliverablesPage() {
                     </TableHead>
                   ) : null}
                   <TableHead>Name</TableHead>
-                  <TableHead>Status</TableHead>
                   <TableHead>Best</TableHead>
                   <TableHead>Likely</TableHead>
+                  <TableHead className="bg-emerald-50/50 text-emerald-800 dark:bg-emerald-950/15 dark:text-emerald-200">Min</TableHead>
+                  <TableHead className="bg-amber-50/50 text-amber-800 dark:bg-amber-950/15 dark:text-amber-200">Avg</TableHead>
+                  <TableHead className="bg-rose-50/50 text-rose-800 dark:bg-rose-950/15 dark:text-rose-200">Max</TableHead>
                   <TableHead>P6 codes</TableHead>
                   <TableHead>Res.</TableHead>
                   <TableHead className="w-[120px] text-right">Actions</TableHead>
@@ -551,17 +584,8 @@ export default function DeliverablesPage() {
                       </TableCell>
                     ) : null}
                     <TableCell className="font-medium">{d.name}</TableCell>
-                    <TableCell>
-                      <DeliverableStatusCell
-                        projectId={selectedProjectId}
-                        deliverableId={d.id}
-                        deliverableName={d.name}
-                        snapshot={getSnapshot(d.id)}
-                        loading={intelLoading}
-                      />
-                    </TableCell>
-                    <TableCell>{d.bestDuration}</TableCell>
-                    <TableCell>{d.likelyDuration}</TableCell>
+                    {renderDurationCells(d)}
+                    {renderHistoryCells(d)}
                     <TableCell className="max-w-[200px] truncate text-xs text-slate-600 dark:text-slate-400" title={p6Snippet(d)}>
                       {p6Snippet(d)}
                     </TableCell>
@@ -646,6 +670,13 @@ export default function DeliverablesPage() {
                       <Input className="min-w-0" type="number" min={1} value={formLikelyDuration} onChange={(e) => setFormLikelyDuration(e.target.value)} required />
                     </div>
                   </div>
+                  <DeliverableDurationHistory
+                    deliverableName={formDurationHistory?.name ?? formName.trim()}
+                    statistics={formDurationHistory?.statistics ?? null}
+                    contributingProjects={formDurationHistory?.contributingProjects}
+                    unavailableReason={formDurationHistory?.unavailableReason}
+                    loading={formDurationHistoryLoading}
+                  />
                   {mayEditP6Codes && codeTypes.length > 0 ? (
                     <div className="space-y-3 rounded-md border border-slate-200 p-3 dark:border-slate-700">
                       <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Primavera activity codes</div>
@@ -679,7 +710,11 @@ export default function DeliverablesPage() {
                     value={formResourceDrafts}
                     onChange={setFormResourceDrafts}
                     disabled={submitting}
-                    durationDays={Math.max(0.01, Number(formBestDuration) || 1)}
+                    durationDays={(() => {
+                      if (formBestDuration.trim() === "") return 1;
+                      const n = Number(formBestDuration);
+                      return Number.isFinite(n) ? Math.max(0, n) : 1;
+                    })()}
                   />
                 </div>
                 <DialogFooter>
@@ -690,7 +725,7 @@ export default function DeliverablesPage() {
             </DialogContent>
           </Dialog>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           {loading ? (
             <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-slate-400" /></div>
           ) : deliverables.length === 0 ? (
@@ -721,9 +756,11 @@ export default function DeliverablesPage() {
                     </TableHead>
                   ) : null}
                   <TableHead>Name</TableHead>
-                  <TableHead>Status</TableHead>
                   <TableHead>Best</TableHead>
                   <TableHead>Likely</TableHead>
+                  <TableHead className="bg-emerald-50/50 text-emerald-800 dark:bg-emerald-950/15 dark:text-emerald-200">Min</TableHead>
+                  <TableHead className="bg-amber-50/50 text-amber-800 dark:bg-amber-950/15 dark:text-amber-200">Avg</TableHead>
+                  <TableHead className="bg-rose-50/50 text-rose-800 dark:bg-rose-950/15 dark:text-rose-200">Max</TableHead>
                   <TableHead>P6 codes</TableHead>
                   <TableHead>Fragnet</TableHead>
                   <TableHead>Res.</TableHead>
@@ -744,17 +781,8 @@ export default function DeliverablesPage() {
                       </TableCell>
                     ) : null}
                     <TableCell className="font-medium">{d.name}</TableCell>
-                    <TableCell>
-                      <DeliverableStatusCell
-                        projectId={selectedProjectId}
-                        deliverableId={d.id}
-                        deliverableName={d.name}
-                        snapshot={getSnapshot(d.id)}
-                        loading={intelLoading}
-                      />
-                    </TableCell>
-                    <TableCell>{d.bestDuration}</TableCell>
-                    <TableCell>{d.likelyDuration}</TableCell>
+                    {renderDurationCells(d)}
+                    {renderHistoryCells(d)}
                     <TableCell className="max-w-[200px] truncate text-xs text-slate-600 dark:text-slate-400" title={p6Snippet(d)}>
                       {p6Snippet(d)}
                     </TableCell>
@@ -831,6 +859,13 @@ export default function DeliverablesPage() {
                     />
                   </div>
                 </div>
+                <DeliverableDurationHistory
+                  deliverableName={formDurationHistory?.name ?? formName.trim()}
+                  statistics={formDurationHistory?.statistics ?? null}
+                  contributingProjects={formDurationHistory?.contributingProjects}
+                  unavailableReason={formDurationHistory?.unavailableReason}
+                  loading={formDurationHistoryLoading}
+                />
                 {mayEditP6Codes && codeTypes.length > 0 ? (
                   <div className="space-y-3 rounded-md border border-slate-200 p-3 dark:border-slate-700">
                     <div className="text-sm font-medium text-slate-800 dark:text-slate-200">Primavera activity codes</div>
@@ -866,16 +901,12 @@ export default function DeliverablesPage() {
                   value={formResourceDrafts}
                   onChange={setFormResourceDrafts}
                   disabled={submitting}
-                  durationDays={Math.max(0.01, Number(formBestDuration) || 1)}
+                  durationDays={(() => {
+                    if (formBestDuration.trim() === "") return 1;
+                    const n = Number(formBestDuration);
+                    return Number.isFinite(n) ? Math.max(0, n) : 1;
+                  })()}
                 />
-                {selectedProjectId && editId ? (
-                  <DeliverableBenchmarkPanel
-                    projectId={selectedProjectId}
-                    deliverableId={editId}
-                    enabled={editId != null}
-                    refreshKey={intelligenceRefreshKey}
-                  />
-                ) : null}
               </div>
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => resetForm()}>
@@ -889,6 +920,14 @@ export default function DeliverablesPage() {
           </DialogContent>
         </Dialog>
       ) : null}
+      <HistoricalPlanningDialog
+        open={selectedHistory != null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedHistory(null);
+        }}
+        deliverableName={selectedHistory?.deliverableName ?? ""}
+        history={selectedHistory?.history ?? null}
+      />
     </div>
   );
 }

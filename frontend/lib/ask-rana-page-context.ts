@@ -21,7 +21,7 @@ const DASHBOARD_SUGGESTIONS = [
 
 const DELIVERABLE_SUGGESTIONS = [
   "Why is this critical?",
-  "Is this duration reasonable?",
+  "Is this planned duration reasonable?",
   "What changed?",
 ];
 
@@ -41,20 +41,8 @@ export function detectAskRanaPageContext(args: {
   pathname: string;
   deliverableId?: string | null;
   deliverableName?: string | null;
-  intelligenceDrawerOpen?: boolean;
 }): AskRanaPageContext {
   const path = args.pathname.toLowerCase();
-
-  if (args.intelligenceDrawerOpen && args.deliverableId) {
-    const name = args.deliverableName?.trim() || "this deliverable";
-    return {
-      mode: "deliverable",
-      deliverableId: args.deliverableId,
-      deliverableName: args.deliverableName,
-      placeholder: `Now discussing ${name}…`,
-      suggestions: DELIVERABLE_SUGGESTIONS,
-    };
-  }
 
   if (path.includes("/intelligence/comparison")) {
     return {

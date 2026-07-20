@@ -32,6 +32,7 @@ export type Rana4ProgrammeExportV1 = {
     freeFloatDays?: number;
     isCritical?: boolean;
     status?: string;
+    p6TaskType?: string | null;
     classificationTags?: Record<string, string>;
   }>;
   deliverables: Array<{
@@ -81,6 +82,7 @@ export function buildRana4ProgrammeExport(args: {
     freeFloat?: number | null;
     isCritical: boolean;
     status: string;
+    p6TaskType?: string | null;
   }>;
   deliverables: Array<{
     id: string;
@@ -120,6 +122,7 @@ export function buildRana4ProgrammeExport(args: {
       freeFloatDays: a.freeFloat ?? undefined,
       isCritical: a.isCritical,
       status: a.status,
+      p6TaskType: a.p6TaskType ?? undefined,
     })),
     deliverables: args.deliverables.map((d) => ({ deliverableId: d.id, name: d.name })),
     relationships: args.relationships,
@@ -157,6 +160,7 @@ export function parseRana4ProgrammeJson(raw: string | Buffer): ParsedProgrammeIm
       freeFloatDays: a.freeFloatDays,
       isCritical: a.isCritical,
       status: a.status,
+      p6TaskType: a.p6TaskType ?? undefined,
       classificationTags: a.classificationTags,
     })),
     deliverables: (data.deliverables ?? []).map((d) => ({

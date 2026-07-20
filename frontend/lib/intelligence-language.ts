@@ -7,7 +7,7 @@
  * Vocabulary rules (deliberately enforced here):
  * - No "benchmark", "median", "percentile", "IQR", "snapshot", "fingerprint",
  *   "confidence", "evidence layer", "scoring", "clustering", "duration normalisation".
- * - Prefer: "similar work from previous projects", "typical duration",
+ * - Prefer: "similar work from previous projects", "typical planned duration",
  *   "how reliable is this", "how much project history", "what usually happens".
  */
 
@@ -178,9 +178,9 @@ export function insightHeadline(insight: LearnedInsight): string {
   }
 }
 
-/** Convert a raw classification token into readable words. */
+/** Convert a raw classification token into readable words. Never surfaces OTHER. */
 export function humanClassification(classification: string | null | undefined): string {
-  if (!classification) return "General work";
+  if (!classification || classification.toUpperCase() === "OTHER") return "Unclassified work";
   return classification
     .replace(/[_-]+/g, " ")
     .toLowerCase()
@@ -210,7 +210,12 @@ export function reviewThemeLabel(recommendationType: string, fallback: string): 
   const key = recommendationType.toUpperCase();
   if (key.includes("DURATION")) return "Duration assumptions";
   if (key.includes("SEQUENC") || key.includes("LOGIC")) return "Sequencing and logic";
-  if (key.includes("EVIDENCE") || key.includes("CONFIDENCE") || key.includes("LOW")) return "Gaps in project history";
+  if (key === "LOW_CONFIDENCE" || key.includes("LIMITED_EVIDENCE")) {
+    return "Limited historical evidence";
+  }
+  if (key.includes("EVIDENCE") || key.includes("CONFIDENCE") || key.includes("LOW")) {
+    return "Limited historical evidence";
+  }
   if (key.includes("VARIATION") || key.includes("VARIANCE") || key.includes("RANGE")) return "Large variation between projects";
   if (key.includes("FLOAT") || key.includes("BUFFER")) return "Schedule buffer";
   return fallback;
@@ -367,7 +372,7 @@ export function plannerAnswerFromAnalysis(args: {
     null;
   const typicalPhrase =
     expected?.rangeLabel ??
-    (typical != null && Number.isFinite(typical) ? `around ${Math.round(typical)} days` : "a typical duration");
+    (typical != null && Number.isFinite(typical) ? `around ${Math.round(typical)} days` : "a typical planned duration");
 
   const matched = analysis.evidence?.matchedDeliverables ?? [];
   const fromOtherProjects = matched.filter((m) => m.projectId !== projectId);
@@ -377,19 +382,19 @@ export function plannerAnswerFromAnalysis(args: {
     !outlierStatus || sampleSize === 0
       ? "There aren’t enough completed projects to compare this with yet."
       : outlierStatus === "NORMAL"
-        ? "This looks normal compared with similar work from completed projects."
+        ? "This planned duration looks normal compared with similar work from completed projects."
         : outlierStatus === "SLIGHTLY_HIGH" || outlierStatus === "SLIGHTLY_LOW"
-          ? "Worth a review — it’s a bit different to what usually happens on similar projects."
-          : "This deserves attention — it’s materially different to what usually happens on similar projects.";
+          ? "Worth a review — the planned duration is a bit different to what usually happens on similar projects."
+          : "This deserves attention — the planned duration is materially different to what usually happens on similar projects.";
 
   const whyParts: string[] = [];
   if (currentDays != null) {
-    whyParts.push(`Your current plan is ${Math.round(currentDays)} days.`);
+    whyParts.push(`Your current planned duration is ${Math.round(currentDays)} days.`);
   }
   if (expected?.rangeLabel) {
-    whyParts.push(`Similar work on completed projects usually sits around ${expected.rangeLabel.toLowerCase()}.`);
+    whyParts.push(`Similar work on completed projects usually sits around ${expected.rangeLabel.toLowerCase()} planned.`);
   } else if (typical != null) {
-    whyParts.push(`Similar work on completed projects usually completes in ${typicalPhrase}.`);
+    whyParts.push(`Similar work on completed projects usually has a typical planned duration of ${typicalPhrase}.`);
   }
   if (positionLabel) {
     const clean = positionLabel
@@ -417,10 +422,10 @@ export function plannerAnswerFromAnalysis(args: {
     limited
       ? "Treat this as early guidance — import more completed projects if you can, and review the supporting work packages."
       : recCount > 0
-        ? "Review the recommendations below and sanity-check the duration and sequencing with the team."
+        ? "Review the recommendations below and sanity-check the planned duration and sequencing with the team."
         : outlierStatus === "NORMAL"
           ? "No change needed based on completed projects — keep as-is unless the team has new information."
-          : "Review the assumptions with the team and decide whether the duration or approach should change.";
+          : "Review the assumptions with the team and decide whether the planned duration or approach should change.";
 
   return { answer, why, evidence, action };
 }
@@ -445,19 +450,19 @@ export function plannerAnswerFromDeliverable(args: {
     const changed = initial != null && latest != null && initial !== latest;
     return {
       answer: changed
-        ? `This deliverable has changed from ${initial} to ${latest} days across ${revCount} programme revisions.`
-        : `This deliverable has stayed at ${latest ?? initial ?? "its current"} days across ${revCount} programme revisions.`,
+        ? `Remaining work on this deliverable has changed from ${initial} to ${latest} days across ${revCount} programme revisions.`
+        : `Remaining work on this deliverable has stayed at ${latest ?? initial ?? "its current"} days across ${revCount} programme revisions.`,
       why:
         evolution.timeline.evolutionSummary ??
-        "Rana tracked how this deliverable changed each time you imported a programme update on this project.",
+        "Rana tracked how remaining work changed each time you imported a programme update on this project.",
       evidence: [
         `${revCount} revisions imported on this project`,
         largestChange != null && largestChange > 0
-          ? `Largest single revision change: ${largestChange} day${largestChange === 1 ? "" : "s"}`
-          : "No large single-step changes between revisions",
+          ? `Largest single revision change in remaining work: ${largestChange} day${largestChange === 1 ? "" : "s"}`
+          : "No large single-step changes in remaining work between revisions",
       ],
       action: changed
-        ? "Review the revision timeline and confirm the latest duration reflects the team’s intent."
+        ? "Review the revision timeline and confirm the latest remaining work reflects the programme state."
         : "No change flagged from project history — continue with the current plan unless something has shifted on site.",
     };
   }
@@ -470,14 +475,14 @@ export function plannerAnswerFromDeliverable(args: {
 
   const evolutionEvidence: string[] = [`${revCount} revisions on this project`];
   if (initial != null && latest != null && initial !== latest) {
-    evolutionEvidence.push(`Changed from ${initial} to ${latest} days on this project`);
+    evolutionEvidence.push(`Remaining work changed from ${initial} to ${latest} days on this project`);
   } else if (latest != null) {
-    evolutionEvidence.push(`Currently ${latest} days on this project`);
+    evolutionEvidence.push(`Currently ${latest} days remaining work on this project`);
   }
 
   const combinedAnswer =
     initial != null && latest != null && initial !== latest
-      ? `${comparison.answer} On this project it has also changed from ${initial} to ${latest} days across ${revCount} revisions.`
+      ? `${comparison.answer} On this project, remaining work has also changed from ${initial} to ${latest} days across ${revCount} revisions.`
       : comparison.answer;
 
   return {
@@ -486,7 +491,7 @@ export function plannerAnswerFromDeliverable(args: {
     evidence: [...comparison.evidence, ...evolutionEvidence],
     action:
       comparison.action.startsWith("No change needed") && initial != null && latest != null && initial !== latest
-        ? "Worth checking the revision timeline — this project’s history shows a change even though completed projects look normal."
+        ? "Worth checking the revision timeline — remaining work on this project has changed even though completed-project planned durations look normal."
         : comparison.action,
   };
 }

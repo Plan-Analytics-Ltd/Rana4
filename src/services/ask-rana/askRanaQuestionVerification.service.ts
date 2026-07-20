@@ -1,6 +1,12 @@
 import type { AskRanaConversationTurn, AskRanaEvidencePackage } from "./askRana.types.js";
 import { hasEvolutionWithoutComparison } from "./askRanaPartialEvidence.service.js";
 import {
+  humanizeBaselineOnlyGap,
+  isBaselineOnlyConversationState,
+  isChangeOrRevisionQuestion,
+  shouldHumanizeGap,
+} from "./askRanaBaselineOnlyConversation.service.js";
+import {
   extractExplainedTopics,
   type PlannerResponseDepth,
 } from "./askRanaResponseDepth.service.js";
@@ -132,6 +138,15 @@ function extractDoNotRepeat(conversation: AskRanaConversationTurn[] | undefined)
     if (revision) avoid.push(`revision count (${revision[1]} revisions)`);
     if (/\b10\s*(?:to|→|-)\s*5\b/.test(msg) || /\breduced from 10 to 5\b/i.test(msg)) {
       avoid.push("the 10 → 5 day change summary");
+    }
+    if (/\b0 comparable\b|\bno (?:comparable )?completed\b|\bisn'?t enough completed\b/i.test(msg)) {
+      avoid.push("zero / thin completed-project benchmarking counts");
+    }
+    if (/\badditional structural works\b/i.test(msg) && /\+?\s*8\b/i.test(msg)) {
+      avoid.push("Additional Structural Works +8 remaining-work figure");
+    }
+    if (/\b(?:four|4)\s+work packages?\b/i.test(msg) && /\bincreas/i.test(msg)) {
+      avoid.push("four work packages with increasing remaining work");
     }
   }
   return [...new Set(avoid)];
@@ -289,6 +304,8 @@ function relevantMissingEvidence(
 ): string[] {
   const missing: string[] = [];
   const scope = plannerQuery?.scope;
+  const baselineOnly = isBaselineOnlyConversationState(pkg);
+  const changeQuestion = isChangeOrRevisionQuestion(question, plannerQuery);
 
   if (topic === "out_of_scope_plant") {
     missing.push("Plant and equipment information is not included in the imported programme evidence.");
@@ -320,7 +337,10 @@ function relevantMissingEvidence(
     ) {
       continue;
     }
-    missing.push(gap);
+    if (baselineOnly && changeQuestion && shouldHumanizeGap(gap)) {
+      continue;
+    }
+    missing.push(baselineOnly && shouldHumanizeGap(gap) ? humanizeBaselineOnlyGap(gap) : gap);
   }
 
   if (
@@ -337,9 +357,13 @@ function relevantMissingEvidence(
   }
 
   if (topic === "evolution" && !pkg.projectEvolution?.available && pkg.sources.includes("projectEvolution")) {
-    if (!missing.some((m) => m.includes("revision"))) {
-      missing.push("No revision history on this project yet.");
+    if (!missing.some((m) => m.includes("revision") || m.includes("programme update"))) {
+      missing.push(humanizeBaselineOnlyGap("No revision history on this project yet."));
     }
+  }
+
+  if (baselineOnly && changeQuestion && (topic === "evolution" || scope === "PROJECT_EVOLUTION")) {
+    return [];
   }
 
   if (scope === "PREVIOUS_PROJECTS") {
@@ -392,22 +416,26 @@ function buildInstructionBlock(args: {
 
   if (args.isFollowUp && args.responseDepth !== "INVESTIGATION" && args.responseDepth !== "REPORT") {
     lines.push(
-      "This is a follow-up. Answer only the new information requested — assume the planner remembers your previous answer."
+      "This is a follow-up. Answer only what is newly asked — assume shared context. Refer briefly to earlier points; do not regenerate the previous answer or re-list established metrics."
     );
     lines.push("");
   }
 
   const explained = [...new Set([...args.doNotRepeat, ...args.topicsAlreadyExplained])];
   if (explained.length > 0) {
-    lines.push("Already established in this conversation — do not repeat unless the planner asks again:");
+    lines.push("Already established in this conversation — refer briefly if needed; do not restate in full:");
     for (const item of explained) lines.push(`- ${item}`);
     lines.push("");
   }
 
   if (args.responseDepth === "ONE_LINE" || args.responseDepth === "BRIEF") {
-    lines.push("Response length: Keep this concise. Do not use section headings or replay prior investigation.");
+    lines.push("Response length: Keep this concise. Judgement + one reason + next step if useful. No section headings or replay.");
   } else if (args.responseDepth === "STANDARD") {
-    lines.push("Response length: Focused answer only — one paragraph plus bullets if useful. No full report structure.");
+    lines.push("Response length: Focused — judgement first, brief synthesis, advice. No full report unless asked.");
+  } else if (args.responseDepth === "REPORT") {
+    lines.push(
+      "Response shape: executive assessment — Overall assessment → Key reasons → Evidence → Recommendation → Confidence/limitations (≤5 sections). Lead with judgement; never lead with gaps."
+    );
   }
 
   const scope = args.plannerQuery?.scope;
@@ -427,20 +455,20 @@ function buildInstructionBlock(args: {
     lines.push("");
     lines.push("PARTIAL EVIDENCE — response order:");
     lines.push(
-      "1. Answer the question first using this project's revision history: current duration, baseline, how it evolved, whether it stabilised, and any relevant logic/float/criticality observations."
+      "1. Lead with a professional judgement using this project's revision history (remaining work trend, planning changes, concentration of pressure)."
     );
     lines.push(
-      "2. Then briefly note you cannot yet compare with completed projects because none are imported."
+      "2. Then note that completed-project benchmarking is still thin — after the judgement, never as the opening line."
     );
     lines.push(
-      "3. Never open with 'I don't have enough evidence' or 'I don't have enough evidence about this deliverable' when revision history is available."
+      "3. Never open with “I don't have enough evidence” when programme revision history is available."
     );
     lines.push(
-      "4. Use Markdown section headings (### Summary, ### Evidence) and bullet lists where helpful — restrained, professional formatting."
+      "4. Use short Markdown headings only if they help an executive answer — restrained and professional."
     );
   } else if (args.relevantMissingEvidence.length > 0) {
     lines.push("");
-    lines.push("Missing evidence relevant to THIS question only (mention only if needed — do not list unrelated gaps):");
+    lines.push("Limitations relevant to THIS question (state after what you can assess — do not open with them):");
     for (const m of args.relevantMissingEvidence) lines.push(`- ${m}`);
   } else if (args.topic === "out_of_scope_plant" || args.topic === "out_of_scope_people") {
     lines.push("");
@@ -453,6 +481,11 @@ function buildInstructionBlock(args: {
       "Do not mention missing evidence categories (previous projects, lessons, recommendations) unless directly relevant to this specific question."
     );
   }
+
+  lines.push("");
+  lines.push(
+    "Always close substantive answers with what you would do next, grounded in the evidence."
+  );
 
   return lines.join("\n");
 }

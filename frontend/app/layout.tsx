@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/contexts/auth-context";
+import { AskRanaFeatureProvider } from "@/contexts/ask-rana-feature-context";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,8 +18,10 @@ export default function RootLayout({
       <body className="antialiased bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100">
         <ThemeProvider>
           <AuthProvider>
-            {children}
-            <Toaster position="top-right" richColors closeButton />
+            <AskRanaFeatureProvider>
+              {children}
+              <Toaster position="top-right" richColors closeButton />
+            </AskRanaFeatureProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

@@ -14,6 +14,7 @@ import {
 } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAskRanaFeature } from "@/contexts/ask-rana-feature-context";
 import { toast } from "sonner";
 
 export default function DevPanelPage() {
@@ -27,6 +28,7 @@ export default function DevPanelPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [demoteBusyId, setDemoteBusyId] = useState<string | null>(null);
   const [roleTarget, setRoleTarget] = useState<Record<string, "ADMIN" | "EDITOR" | "VIEWER">>({});
+  const { enabled: askRanaEnabled, setAskRanaEnabled } = useAskRanaFeature();
 
   const adminCountByCompany = users.reduce<Record<string, number>>((acc, u) => {
     if (u.role === "ADMIN") acc[u.companyName] = (acc[u.companyName] ?? 0) + 1;
@@ -165,10 +167,54 @@ export default function DevPanelPage() {
             {loadingData ? "Refreshing…" : "Refresh"}
           </Button>
           <Button asChild variant="outline" size="sm">
+            <Link href="/dev/engineering-brain">Engineering Brain</Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
             <Link href="/settings">Settings</Link>
           </Button>
         </div>
       </div>
+
+      <Card className="dark:border-slate-800 dark:bg-slate-900/50">
+        <CardHeader>
+          <CardTitle className="text-base">Feature Toggles</CardTitle>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Show or hide product features for demos. Preferences are saved in this browser.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <label className="flex cursor-pointer items-start gap-3 rounded-md border border-slate-200 p-3 dark:border-slate-700">
+            <input
+              type="checkbox"
+              checked={askRanaEnabled}
+              onChange={(event) => {
+                const next = event.target.checked;
+                setAskRanaEnabled(next);
+                toast.success(next ? "Ask Rana enabled" : "Ask Rana disabled");
+              }}
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-950"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium text-slate-900 dark:text-white">Enable Ask Rana</span>
+                <span
+                  className={
+                    askRanaEnabled
+                      ? "rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
+                      : "rounded bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                  }
+                >
+                  {askRanaEnabled ? "Enabled" : "Disabled"}
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                When off, the floating assistant, chat panel, and all Ask Rana entry points are hidden. Other Rana4
+                features are unaffected.
+              </p>
+            </div>
+          </label>
+        </CardContent>
+      </Card>
 
       <Card className="dark:border-slate-800 dark:bg-slate-900/50">
         <CardHeader>

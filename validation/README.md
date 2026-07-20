@@ -43,10 +43,10 @@ npm run validate:detection
 
 This compares engine output to `expected-results.json` for every dataset that contains at least one `.xer` file.
 
-## Adding a real programme (e.g. REDACTED-SITE)
+## Adding a synthetic programme
 
-1. Create or use `validation/RedactedSite/`
-2. Copy Primavera `.xer` exports into the folder
+1. Create `validation/<dataset-id>/` (see `synthetic-healthcare/` for a large example)
+2. Add one or more `.xer` files (or run `node scripts/generate-synthetic-healthcare-xer.mjs`)
 3. Set `primaryFile` in `expected-results.json` if you have multiple revisions
 4. Fill in **known truths only** in `expected-results.json` — never tune the engine to match a single project
 5. Run `npm run validate:detection` and review the report

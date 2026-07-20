@@ -14,6 +14,10 @@ import { getDeliverableDrivers } from "../services/intelligence/drivers/driverAn
 import { getDeliverableIntelligenceAnalysis } from "../services/intelligence/orchestration/intelligenceOrchestrator.service.js";
 import { getDeliverableRecommendations } from "../services/intelligence/recommendations/recommendationEngine.service.js";
 import { getDeliverableProjectEvolution } from "../services/intelligence/shared/deliverableProjectEvolution.service.js";
+import { buildProgrammeReviewPresentation } from "../services/intelligence/presentation/programmeReviewPresentation.service.js";
+import {
+  getProjectIntelligence,
+} from "../services/intelligence/project/projectIntelligence.service.js";
 
 /** GET /projects/:projectId/intelligence/profile */
 export async function getIntelligenceProfile(req: AuthRequest, res: Response): Promise<void> {
@@ -389,6 +393,64 @@ export async function getDeliverableDriversForDeliverable(req: AuthRequest, res:
     }
     console.error(err);
     res.status(500).json({ error: "Driver analysis failed" });
+  }
+}
+
+/** GET /projects/:projectId/intelligence/programme-review */
+export async function getProgrammeReview(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const projectId = String(req.params.projectId ?? "").trim();
+    const membership = await requireProjectAccess(projectId, req.user, { adminOverride: true });
+    requirePermission(membership.role, "project", "read");
+
+    const report = await buildProgrammeReviewPresentation({
+      projectId,
+      companyId: req.user.companyId,
+    });
+    res.json(report);
+  } catch (err) {
+    const status =
+      err && typeof err === "object" && "status" in err ? Number((err as { status: number }).status) : 500;
+    if (status === 404) {
+      res.status(404).json({ error: (err as Error).message });
+      return;
+    }
+    console.error(err);
+    res.status(500).json({ error: err instanceof Error ? err.message : "Failed to load programme review" });
+  }
+}
+
+/** GET /projects/:projectId/project-intelligence */
+export async function getProjectIntelligenceForProject(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const projectId = String(req.params.projectId ?? "").trim();
+    const membership = await requireProjectAccess(projectId, req.user, { adminOverride: true });
+    requirePermission(membership.role, "project", "read");
+
+    const report = await getProjectIntelligence({
+      projectId,
+      companyId: req.user.companyId,
+    });
+    res.json(report);
+  } catch (err) {
+    const status =
+      err && typeof err === "object" && "status" in err ? Number((err as { status: number }).status) : 500;
+    if (status === 404) {
+      res.status(404).json({ error: (err as Error).message });
+      return;
+    }
+    console.error(err);
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Failed to load project intelligence",
+    });
   }
 }
 

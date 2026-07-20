@@ -24,6 +24,8 @@ export type ScheduleActivity = {
   /** Set when row is a per-deliverable clone (matches export / effective schedule view). */
   sourceActivityId?: string;
   isExpandedPerDeliverable?: boolean;
+  /** Primavera TASK.task_type (e.g. TT_Task, TT_FinMile) when imported. */
+  p6TaskType?: string | null;
   relationships: { predecessors: ScheduleActivityRel[]; successors: ScheduleActivityRel[] };
 };
 
@@ -113,6 +115,7 @@ export function parseFullData(raw: ProjectFullData): ProjectFullData {
         isInherited: a.isInherited,
         templateActivityId: a.templateActivityId,
         detachedFromTemplate: a.detachedFromTemplate,
+        p6TaskType: a.p6TaskType ?? null,
         relationships: a.relationships,
       })),
       deliverables: f.deliverables.map((d) => ({
@@ -134,6 +137,7 @@ export function parseFullData(raw: ProjectFullData): ProjectFullData {
           isInherited: a.isInherited,
           templateActivityId: a.templateActivityId,
           detachedFromTemplate: a.detachedFromTemplate,
+          p6TaskType: a.p6TaskType ?? null,
           relationships: a.relationships,
         })),
       })),

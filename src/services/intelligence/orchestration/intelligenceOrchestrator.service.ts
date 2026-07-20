@@ -14,6 +14,10 @@ import {
   resolveDeliverableDurationView,
   type DeliverableDurationView,
 } from "../shared/durationSource.service.js";
+import {
+  computeDurationStatistics,
+  type DurationStatistics,
+} from "../statistics/durationStatistics.service.js";
 
 export type DeliverableIntelligenceContext = {
   report: BenchmarkReport;
@@ -39,6 +43,7 @@ export type DeliverableIntelligenceAnalysis = {
   trust: IntelligenceTrustExplanation;
   consistency?: IntelligenceConsistencyReport;
   durationView?: DeliverableDurationView;
+  durationStatistics?: DurationStatistics;
 };
 
 /**
@@ -93,6 +98,10 @@ export async function getDeliverableIntelligenceAnalysis(args: {
     companyId: args.companyId,
     deliverableId: args.deliverableId,
   });
+  const durationStatistics = computeDurationStatistics(
+    report.evidence?.matchedDeliverables ?? [],
+    { excludeProjectId: args.projectId }
+  );
 
   return {
     deliverable: report.deliverable,
@@ -109,5 +118,6 @@ export async function getDeliverableIntelligenceAnalysis(args: {
     trust: ctx.trust,
     consistency: ctx.consistency,
     durationView,
+    durationStatistics,
   };
 }

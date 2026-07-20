@@ -19,6 +19,13 @@ import {
   hasEvolutionWithoutComparison,
   hasSubstantiveEvidence,
 } from "./askRanaPartialEvidence.service.js";
+import {
+  buildBaselineOnlyConversationAnswer,
+  humanizeBaselineOnlyGap,
+  isBaselineOnlyConversationState,
+  isChangeOrRevisionQuestion,
+  shouldHumanizeGap,
+} from "./askRanaBaselineOnlyConversation.service.js";
 
 export function parseAskRanaRequestBody(body: unknown): {
   deliverableId: string | null;
@@ -90,6 +97,10 @@ function buildDeterministicFallbackAnswer(
 ): string {
   const parts: string[] = [];
   const q = question.toLowerCase();
+  const suffix =
+    verification.responseStyle === "brief"
+      ? "\n\n(AI assistant is not configured.)"
+      : "\n\n(AI assistant is not configured — this is a brief evidence summary only.)";
 
   if (verification.corrections.length > 0) {
     const e = evidencePackage.projectEvolution;
@@ -118,6 +129,9 @@ function buildDeterministicFallbackAnswer(
 
   if (evidencePackage.projectEvolution?.available) {
     const e = evidencePackage.projectEvolution;
+    if (isBaselineOnlyConversationState(evidencePackage) && isChangeOrRevisionQuestion(question)) {
+      return buildBaselineOnlyConversationAnswer(evidencePackage) + suffix;
+    }
     if (/\b(why|change|revision|history|evolution|stable|reduce|increase)\b/.test(q)) {
       if (verification.isFollowUp && verification.doNotRepeat.length > 0) {
         if (/\bwhy\b/.test(q) && e.plannerObservations.length) {
@@ -185,13 +199,15 @@ function buildDeterministicFallbackAnswer(
   }
 
   if (parts.length === 0) {
-    return "I don't have enough evidence loaded to answer that yet. Import completed projects and programme updates so I can help.";
+    if (isBaselineOnlyConversationState(evidencePackage) && isChangeOrRevisionQuestion(question)) {
+      return buildBaselineOnlyConversationAnswer(evidencePackage) + suffix;
+    }
+    return (
+      "There aren't any programme updates to compare yet — import completed projects and programme updates so I can help." +
+      suffix
+    );
   }
 
-  const suffix =
-    verification.responseStyle === "brief"
-      ? "\n\n(AI assistant is not configured.)"
-      : "\n\n(AI assistant is not configured — this is a brief evidence summary only.)";
   return `${formatFallbackAnswer(parts, verification.responseStyle)}${suffix}`;
 }
 
@@ -207,12 +223,30 @@ export async function askRana(request: AskRanaRequest): Promise<AskRanaResult> {
   const evidencePackage = await buildAskRanaEvidencePackage(request, plannerQuery);
   const sources = evidencePackage.sources;
 
+  if (
+    isBaselineOnlyConversationState(evidencePackage) &&
+    isChangeOrRevisionQuestion(request.question, plannerQuery)
+  ) {
+    return {
+      status: "success",
+      answer: buildBaselineOnlyConversationAnswer(evidencePackage),
+      sources,
+      plannerQuery,
+      providerCalled: false,
+    };
+  }
+
   if (!hasSubstantiveEvidence(evidencePackage) && evidencePackage.evidenceGaps.length > 0) {
+    const gaps = evidencePackage.evidenceGaps
+      .slice(0, 2)
+      .map((gap) =>
+        isBaselineOnlyConversationState(evidencePackage) && shouldHumanizeGap(gap)
+          ? humanizeBaselineOnlyGap(gap)
+          : gap
+      );
     return {
       status: "not_ready",
-      answer:
-        "I don't have enough evidence loaded to answer that yet. " +
-        evidencePackage.evidenceGaps.slice(0, 2).join(" "),
+      answer: gaps.join(" "),
       sources,
       plannerQuery,
       providerCalled: false,
@@ -248,6 +282,8 @@ export async function askRana(request: AskRanaRequest): Promise<AskRanaResult> {
     verification,
     responseDepth,
     investigation,
+    question: request.question,
+    conversation: request.conversation,
   });
 
   const systemPrompt = config.systemPromptOverride

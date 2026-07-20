@@ -47,7 +47,7 @@ export function getAiExplanationConfig(): AiExplanationConfig {
     temperature: parseNumber(process.env.AI_EXPLANATION_TEMPERATURE, 0.2),
     maxTokens: parseOptionalMaxTokens(process.env.AI_EXPLANATION_MAX_TOKENS),
     systemPromptOverride: override.length > 0 ? override : null,
-    includeGeneratedPromptInResponse: parseBool(process.env.AI_EXPLANATION_DEBUG_PROMPTS, true),
+    includeGeneratedPromptInResponse: parseBool(process.env.AI_EXPLANATION_DEBUG_PROMPTS, false),
   };
 }
 

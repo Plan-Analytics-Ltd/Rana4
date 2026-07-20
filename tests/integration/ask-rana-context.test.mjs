@@ -5,11 +5,17 @@ import { buildAskRanaEvidencePackage } from "../../dist/services/ask-rana/askRan
 import { interpretPlannerQuery } from "../../dist/services/ask-rana/askRanaPlannerQueryInterpreter.service.js";
 import { serializeAskRanaEvidenceForPrompt } from "../../dist/services/ask-rana/askRanaEvidenceSanitizer.js";
 import { verifyPlannerQuestion } from "../../dist/services/ask-rana/askRanaQuestionVerification.service.js";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "../../dist/utils/prisma.js";
 
-const prisma = new PrismaClient();
 const projectId = "cmr1ztdj50001sybs8jbn4qf4";
 const companyId = "cmo8dvlc10000syx0861h1zr5";
+
+async function findSeedDeliverable() {
+  return prisma.deliverable.findFirst({
+    where: { projectId, companyId, name: "Detailed Design", fragnet: { name: "Level 9" } },
+    select: { id: true },
+  });
+}
 
 test("evidence selector returns evolution-only domains for revision history question", () => {
   const domains = selectAskRanaEvidenceDomains("Show me the revision history");
@@ -34,12 +40,9 @@ test("evidence selector returns broad domains for explain everything", () => {
   assert.ok(domains.includes("recommendations"));
 });
 
-test("REDACTED-SITE evidence package includes evolution intelligence for change question", async () => {
-  const deliverable = await prisma.deliverable.findFirst({
-    where: { projectId, companyId, name: "Detailed Design", fragnet: { name: "Level 9" } },
-    select: { id: true },
-  });
-  assert.ok(deliverable);
+test("seeded healthcare evidence package includes evolution intelligence for change question", async (t) => {
+  const deliverable = await findSeedDeliverable();
+  if (!deliverable) return t.skip("requires seeded healthcare project in database");
 
   const question = "What changed?";
   const pkg = await buildAskRanaEvidencePackage(
@@ -59,12 +62,9 @@ test("REDACTED-SITE evidence package includes evolution intelligence for change 
   assert.ok(!briefing.includes("deliverableId"));
 });
 
-test("different questions produce different evidence briefings", async () => {
-  const deliverable = await prisma.deliverable.findFirst({
-    where: { projectId, companyId, name: "Detailed Design", fragnet: { name: "Level 9" } },
-    select: { id: true },
-  });
-  assert.ok(deliverable);
+test("different questions produce different evidence briefings", async (t) => {
+  const deliverable = await findSeedDeliverable();
+  if (!deliverable) return t.skip("requires seeded healthcare project in database");
 
   const changeQuestion = "What changed?";
   const historyQuestion = "Show revision history";
@@ -94,12 +94,9 @@ test("different questions produce different evidence briefings", async () => {
   assert.ok(historyBrief.includes("Revision timeline") || historyBrief.includes("revisions"));
 });
 
-test("REDACTED-SITE false increase assumption is flagged before LLM prompt", async () => {
-  const deliverable = await prisma.deliverable.findFirst({
-    where: { projectId, companyId, name: "Detailed Design", fragnet: { name: "Level 9" } },
-    select: { id: true },
-  });
-  assert.ok(deliverable);
+test("seeded healthcare false increase assumption is flagged before LLM prompt", async (t) => {
+  const deliverable = await findSeedDeliverable();
+  if (!deliverable) return t.skip("requires seeded healthcare project in database");
 
   const falseIncreaseQuestion = "Why was it increased from 10 to 20 days?";
   const pkg = await buildAskRanaEvidencePackage(
@@ -126,4 +123,6 @@ test("REDACTED-SITE false increase assumption is flagged before LLM prompt", asy
   );
 });
 
-await prisma.$disconnect();
+test.after(async () => {
+  await prisma.$disconnect();
+});

@@ -1,11 +1,10 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
-  ArrowRight,
   CheckCircle2,
   FileUp,
   FolderPlus,
@@ -17,19 +16,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
-  AnalysisSummaryCard,
   DetectedFieldRow,
-  DetectedSummaryGrid,
-  DetailedAnalysisPanel,
-  DeveloperModeToggle,
-  OnboardingStatusHero,
   ProgrammeStatisticsGrid,
-  RequiresAttentionSection,
 } from "@/components/projects/programme-detection-panel";
 import { getApiErrorMessage, projectsApi, type ProjectDetectionResult, type XerProjectPreview } from "@/lib/api";
 import { useProject } from "@/contexts/project-context";
 
-type Mode = "choose" | "blank" | "xer-upload" | "xer-preview" | "xer-details" | "xer-success";
+type Mode = "choose" | "blank" | "xer" | "xer-success";
 
 function applyDetection(detection: ProjectDetectionResult | null) {
   return {
@@ -52,6 +45,8 @@ export default function NewProjectPage() {
   const [xerFile, setXerFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<XerProjectPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const previewRequestId = useRef(0);
 
   const [projectName, setProjectName] = useState("");
   const [clientType, setClientType] = useState("");
@@ -60,16 +55,27 @@ export default function NewProjectPage() {
   const [complexity, setComplexity] = useState("");
   const [description, setDescription] = useState("");
   const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<{ projectId: string; projectName: string } | null>(null);
+  const [retryBlocked, setRetryBlocked] = useState(false);
+  const importInFlight = useRef(false);
+  const [importResult, setImportResult] = useState<{ projectName: string } | null>(null);
 
-  const [editingField, setEditingField] = useState<string | null>(null);
-  const [developerMode, setDeveloperMode] = useState(false);
-
-  const runPreview = useCallback(async (file: File) => {
-    setPreviewLoading(true);
+  const resetXerReview = useCallback(() => {
     setPreview(null);
+    setPreviewError(null);
+    setProjectName("");
+    setClientType("");
+    setProjectType("");
+    setStage("");
+    setComplexity("");
+    setDescription("");
+    setImportResult(null);
+  }, []);
+
+  const runPreview = useCallback(async (file: File, requestId: number) => {
+    setPreviewLoading(true);
     try {
       const { data } = await projectsApi.previewFromXer(file);
+      if (previewRequestId.current !== requestId) return;
       setPreview(data);
       if (data.valid) {
         const detected = applyDetection(data.detection);
@@ -78,26 +84,33 @@ export default function NewProjectPage() {
         setProjectType(detected.projectType);
         setStage(detected.stage);
         setComplexity(detected.complexity);
-        setEditingField(null);
-        setMode("xer-preview");
       } else {
-        toast.error(data.errors[0]?.message ?? "This XER file could not be read.");
+        const message = data.errors[0]?.message ?? "This XER file could not be read.";
+        toast.error(message);
       }
     } catch (err) {
-      toast.error(getApiErrorMessage(err) || "Failed to preview XER file");
+      if (previewRequestId.current !== requestId) return;
+      const message = getApiErrorMessage(err) || "Failed to preview XER file";
+      setPreviewError(message);
+      toast.error(message);
     } finally {
-      setPreviewLoading(false);
+      if (previewRequestId.current === requestId) {
+        setPreviewLoading(false);
+      }
     }
   }, []);
 
   const handleXerFile = (file: File | null) => {
-    if (!file) return;
+    if (!file || importing) return;
     if (!file.name.toLowerCase().endsWith(".xer")) {
       toast.error("Please choose a Primavera .xer file.");
       return;
     }
+    const requestId = previewRequestId.current + 1;
+    previewRequestId.current = requestId;
+    resetXerReview();
     setXerFile(file);
-    void runPreview(file);
+    void runPreview(file, requestId);
   };
 
   const createBlank = async () => {
@@ -121,12 +134,13 @@ export default function NewProjectPage() {
   };
 
   const importXer = async () => {
-    if (!xerFile) return;
+    if (importInFlight.current || importing || !xerFile || !preview?.valid || preview.errors.length > 0) return;
     const name = projectName.trim();
     if (!name) {
       toast.error("Enter a project name.");
       return;
     }
+    importInFlight.current = true;
     setImporting(true);
     try {
       const { data } = await projectsApi.createFromXer(xerFile, {
@@ -137,19 +151,40 @@ export default function NewProjectPage() {
         complexity: complexity.trim() || undefined,
         description: description.trim() || undefined,
       });
-      await refreshProjects();
+      try {
+        await refreshProjects();
+      } catch {
+        toast.error("Project imported, but the project list could not be refreshed.");
+      }
       setSelectedProjectId(data.projectId);
-      setImportResult({ projectId: data.projectId, projectName: data.projectName });
-      toast.success("Your Primavera programme has been imported successfully.");
+      setImportResult({ projectName: data.projectName });
+      toast.success("Project imported.");
       setMode("xer-success");
     } catch (err) {
       toast.error(getApiErrorMessage(err) || "Import failed");
+      setRetryBlocked(true);
+      try {
+        await refreshProjects();
+        setRetryBlocked(false);
+      } catch {
+        toast.error("Could not refresh projects. Refresh the page before retrying.");
+      }
     } finally {
+      importInFlight.current = false;
       setImporting(false);
     }
   };
 
   const detection = preview?.detection ?? null;
+  const importDisabled =
+    importing ||
+    retryBlocked ||
+    previewLoading ||
+    !xerFile ||
+    !preview?.valid ||
+    preview.errors.length > 0 ||
+    !projectName.trim();
+  const isXerFlow = mode === "xer" || mode === "xer-success";
 
   return (
     <div className="mx-auto max-w-4xl space-y-8 p-4 sm:p-6">
@@ -160,9 +195,13 @@ export default function NewProjectPage() {
         >
           <ArrowLeft className="h-4 w-4" /> Back to dashboard
         </Link>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">New project</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">
+          {isXerFlow ? "Import Project" : "New project"}
+        </h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-          Start from scratch or bring in an existing Primavera P6 programme.
+          {isXerFlow
+            ? "Import a Primavera P6 XER file to add a project to your organisation’s planning knowledge."
+            : "Start from scratch or import a Primavera P6 XER file."}
         </p>
       </div>
 
@@ -185,7 +224,7 @@ export default function NewProjectPage() {
 
           <Card
             className="cursor-pointer border-violet-200/80 transition hover:border-violet-400 hover:shadow-sm dark:border-violet-900/50 dark:hover:border-violet-600"
-            onClick={() => setMode("xer-upload")}
+            onClick={() => setMode("xer")}
           >
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg">
@@ -194,8 +233,7 @@ export default function NewProjectPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="text-sm text-slate-600 dark:text-slate-400">
-              Upload a .xer export to create a live, editable project. This does not add historical learning — use
-              Import Project History later for monthly revisions.
+              Upload a Primavera P6 .xer export to create a project.
             </CardContent>
           </Card>
         </div>
@@ -229,178 +267,120 @@ export default function NewProjectPage() {
         </Card>
       )}
 
-      {mode === "xer-upload" && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Step 1 — Upload XER</CardTitle>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Export your current programme from Primavera P6 as a .xer file.
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 px-6 py-12 text-center dark:border-slate-600">
-              <Upload className="mb-2 h-8 w-8 text-slate-400" />
-              <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                {xerFile ? xerFile.name : "Choose a .xer file"}
-              </span>
-              <input
-                type="file"
-                accept=".xer"
-                className="hidden"
-                onChange={(e) => handleXerFile(e.target.files?.[0] ?? null)}
-              />
-            </label>
-            {previewLoading ? (
-              <div className="flex items-center gap-2 text-sm text-slate-500">
-                <Loader2 className="h-4 w-4 animate-spin" /> Analysing programme…
+      {mode === "xer" && (
+        <div className="space-y-8">
+          <Card>
+            <CardHeader>
+              <CardTitle>Upload XER file</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-slate-300 px-6 py-10 text-center dark:border-slate-600">
+                <Upload className="mb-2 h-8 w-8 text-slate-400" />
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                  {xerFile ? xerFile.name : "Choose a .xer file"}
+                </span>
+                {xerFile ? (
+                  <span className="mt-1 text-xs text-violet-600 dark:text-violet-400">Replace file</span>
+                ) : null}
+                <input
+                  type="file"
+                  accept=".xer"
+                  className="hidden"
+                  disabled={importing}
+                  onChange={(e) => {
+                    handleXerFile(e.target.files?.[0] ?? null);
+                    e.currentTarget.value = "";
+                  }}
+                />
+              </label>
+              {previewLoading ? (
+                <div className="flex items-center gap-2 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Parsing file…
+                </div>
+              ) : null}
+              {previewError ? (
+                <IssueList title="File could not be reviewed" items={[{ message: previewError }]} variant="error" />
+              ) : null}
+              {preview && !preview.valid && preview.errors.length > 0 ? (
+                <IssueList title="Errors" items={preview.errors} variant="error" />
+              ) : null}
+              <Button type="button" variant="outline" onClick={() => setMode("choose")} disabled={importing}>
+                Back
+              </Button>
+            </CardContent>
+          </Card>
+
+          {preview?.valid && detection ? (
+            <>
+              <div className="space-y-4">
+                <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Review project</h2>
+                <ProgrammeStatisticsGrid preview={preview} />
               </div>
-            ) : null}
-            <Button type="button" variant="outline" onClick={() => setMode("choose")}>
-              Back
-            </Button>
-          </CardContent>
-        </Card>
-      )}
 
-      {mode === "xer-preview" && preview?.valid && detection && (
-        <div className="space-y-10">
-          <OnboardingStatusHero
-            detection={detection}
-            projectTitle={detection.projectName.value || preview.suggestedProjectName}
-            primaveraProjectName={preview.projectName || null}
-          />
+              {preview.errors.length > 0 ? <IssueList title="Errors" items={preview.errors} variant="error" /> : null}
+              {preview.warnings.length > 0 ? (
+                <IssueList title="Warnings" items={preview.warnings} variant="warning" />
+              ) : null}
 
-          <DetectedSummaryGrid detection={detection} />
+              <div className="space-y-6">
+                <div className="space-y-1">
+                  <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Project details</h2>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    Confirm or edit the project details before importing.
+                  </p>
+                </div>
 
-          <RequiresAttentionSection detection={detection} />
+                <div className="rounded-xl bg-slate-50/80 px-5 py-2 dark:bg-slate-900/40">
+                  <DetectedFieldRow
+                    label="Project name"
+                    value={projectName}
+                    onChange={setProjectName}
+                    required
+                  />
+                  <DetectedFieldRow
+                    label="Project type"
+                    value={projectType}
+                    onChange={setProjectType}
+                    placeholder="e.g. Healthcare"
+                  />
+                  <DetectedFieldRow
+                    label="Client"
+                    value={clientType}
+                    onChange={setClientType}
+                    placeholder="e.g. NHS Trust"
+                  />
+                  <DetectedFieldRow
+                    label="Stage"
+                    value={stage}
+                    onChange={setStage}
+                    placeholder="e.g. Construction"
+                  />
+                  <div className="border-t border-slate-100 py-4 dark:border-slate-800">
+                    <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Description</label>
+                    <textarea
+                      className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900"
+                      rows={3}
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      placeholder="Optional notes about this project"
+                    />
+                  </div>
+                </div>
 
-          <ProgrammeStatisticsGrid preview={preview} />
-
-          <AnalysisSummaryCard preview={preview} detection={detection} />
-
-          <DetailedAnalysisPanel
-            detection={detection}
-            preview={preview}
-            developerMode={developerMode}
-            onDeveloperModeChange={setDeveloperMode}
-          />
-
-          {preview.errors.length > 0 ? (
-            <IssueList title="Errors" items={preview.errors} variant="error" />
+                <div className="flex items-center justify-between gap-3 border-t border-slate-100 pt-6 dark:border-slate-800">
+                  <p className="text-sm text-slate-500">
+                    {preview.errors.length > 0
+                      ? "Resolve the file errors before importing."
+                      : "The project will be added to your organisation."}
+                  </p>
+                  <Button type="button" onClick={() => void importXer()} disabled={importDisabled}>
+                    {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    Import Project
+                  </Button>
+                </div>
+              </div>
+            </>
           ) : null}
-          {preview.warnings.length > 0 ? (
-            <IssueList title="Warnings" items={preview.warnings} variant="warning" />
-          ) : null}
-
-          <div className="flex gap-3 border-t border-slate-100 pt-6 dark:border-slate-800">
-            <Button type="button" variant="outline" onClick={() => setMode("xer-upload")}>
-              Back
-            </Button>
-            <Button type="button" onClick={() => setMode("xer-details")} disabled={preview.errors.length > 0}>
-              Continue to Project Details <ArrowRight className="ml-1 h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {mode === "xer-details" && (
-        <div className="space-y-6">
-          <div className="space-y-1">
-            <h2 className="text-xl font-semibold text-slate-900 dark:text-white">Project details</h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Confirm or edit what Rana4 detected before creating your project.
-            </p>
-          </div>
-
-          {detection && preview ? (
-            <RequiresAttentionSection detection={detection} />
-          ) : null}
-
-          <div className="rounded-xl bg-slate-50/80 px-5 py-2 dark:bg-slate-900/40">
-            <div className="mb-2 flex justify-end">
-              <DeveloperModeToggle enabled={developerMode} onChange={setDeveloperMode} />
-            </div>
-            <DetectedFieldRow
-              label="Project name"
-              value={projectName}
-              field={detection?.projectName ?? null}
-              editing={editingField === "projectName"}
-              onEdit={() => setEditingField("projectName")}
-              onChange={setProjectName}
-              required
-              developerMode={developerMode}
-              detection={detection}
-              preview={preview}
-            />
-            <DetectedFieldRow
-              label="Project type"
-              value={projectType}
-              field={detection?.projectType ?? null}
-              editing={editingField === "projectType"}
-              onEdit={() => setEditingField("projectType")}
-              onChange={setProjectType}
-              placeholder="e.g. Healthcare"
-              developerMode={developerMode}
-              detection={detection}
-              preview={preview}
-            />
-            <DetectedFieldRow
-              label="Client"
-              value={clientType}
-              field={detection?.clientType ?? null}
-              editing={editingField === "clientType"}
-              onEdit={() => setEditingField("clientType")}
-              onChange={setClientType}
-              placeholder="e.g. NHS Trust"
-              developerMode={developerMode}
-              detection={detection}
-              preview={preview}
-            />
-            <DetectedFieldRow
-              label="Stage"
-              value={stage}
-              field={detection?.stage ?? null}
-              editing={editingField === "stage"}
-              onEdit={() => setEditingField("stage")}
-              onChange={setStage}
-              placeholder="e.g. Construction"
-              developerMode={developerMode}
-              detection={detection}
-              preview={preview}
-            />
-            <DetectedFieldRow
-              label="Complexity"
-              value={complexity}
-              field={detection?.complexity ?? null}
-              editing={editingField === "complexity"}
-              onEdit={() => setEditingField("complexity")}
-              onChange={setComplexity}
-              placeholder="e.g. Medium"
-              developerMode={developerMode}
-              detection={detection}
-              preview={preview}
-            />
-            <div className="border-t border-slate-100 py-4 dark:border-slate-800">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Description</label>
-              <textarea
-                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900"
-                rows={3}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Optional notes about this project"
-              />
-            </div>
-          </div>
-
-          <div className="flex gap-3 border-t border-slate-100 pt-6 dark:border-slate-800">
-            <Button type="button" variant="outline" onClick={() => setMode("xer-preview")}>
-              Back
-            </Button>
-            <Button type="button" onClick={() => void importXer()} disabled={importing}>
-              {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              Create Project &amp; Import Programme
-            </Button>
-          </div>
         </div>
       )}
 
@@ -414,18 +394,11 @@ export default function NewProjectPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-200">
-              Your Primavera programme has been imported successfully into{" "}
-              <strong>{importResult.projectName}</strong>. Rana is now learning from it. You can open the schedule, or
-              import completed projects so Rana can compare this work with previous projects.
+              <strong>{importResult.projectName}</strong> has been added to your organisation.
             </p>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={() => router.push("/app/schedule")}>
-                Open schedule
-              </Button>
-              <Button type="button" variant="outline" onClick={() => router.push("/app/import")}>
-                Import project history
-              </Button>
-            </div>
+            <Button type="button" onClick={() => router.push("/app/schedule")}>
+              Open schedule
+            </Button>
           </CardContent>
         </Card>
       )}

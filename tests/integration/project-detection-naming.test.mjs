@@ -38,8 +38,8 @@ describe("project detection naming", () => {
 
   it("cleans export filenames into human-readable titles", () => {
     const title = meaningfulFilenameTitle(
-      "REDACTED-CODE-Emergency Care Building - REDACTED-SITE - Civils & Structures Programme - Baseline.xer"
+      "SYN1-Emergency Care Wing - Northvale - Civils Programme - Baseline.xer"
     );
-    assert.equal(title, "REDACTED-SITE Emergency Care Building");
+    assert.equal(title, "Northvale Emergency Care Wing");
   });
 });

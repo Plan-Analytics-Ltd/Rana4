@@ -58,13 +58,13 @@ export function computeDeliverableTimeline(
   let evolutionSummary: string | null = null;
   if (typicalBaseline != null && typicalPeak != null && typicalCompleted != null && revisions.length >= 2) {
     if (evolution.trend === "GROWING" || (typicalPeak > typicalBaseline * 1.15 && typicalCompleted < typicalPeak)) {
-      evolutionSummary = `Historically this work package started around ${Math.round(typicalBaseline)} days, grew to approximately ${Math.round(typicalPeak)} days during the programme, and typically completed at ${Math.round(typicalCompleted)} days.`;
+      evolutionSummary = `Remaining work started around ${Math.round(typicalBaseline)} days, peaked near ${Math.round(typicalPeak)} days during the programme, and typically settled at ${Math.round(typicalCompleted)} days.`;
     } else if (evolution.trend === "STABLE") {
-      evolutionSummary = `Historically this work package remained relatively stable across revisions (around ${Math.round(typicalBaseline ?? typicalCompleted)} days).`;
+      evolutionSummary = `Remaining work stayed relatively stable across revisions (around ${Math.round(typicalBaseline ?? typicalCompleted)} days).`;
     } else if (evolution.trend === "SHRINKING") {
-      evolutionSummary = `Historically this work package reduced in duration across revisions, from around ${Math.round(typicalBaseline ?? evolution.initialDuration ?? 0)} days toward ${Math.round(typicalCompleted)} days at completion.`;
+      evolutionSummary = `Remaining work reduced across revisions, from around ${Math.round(typicalBaseline ?? evolution.initialDuration ?? 0)} days toward ${Math.round(typicalCompleted)} days.`;
     } else if (evolution.trend === "OSCILLATING") {
-      evolutionSummary = `Historically this work package showed variable duration across programme revisions before settling around ${Math.round(typicalCompleted)} days at completion.`;
+      evolutionSummary = `Remaining work varied across revisions before settling around ${Math.round(typicalCompleted)} days.`;
     }
   }
 

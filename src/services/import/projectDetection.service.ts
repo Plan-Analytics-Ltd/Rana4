@@ -1,4 +1,5 @@
 import { parseXerProgramme, parseXerTables } from "../intelligence/shared/xerParse.service.js";
+import { isP6MilestoneType } from "../p6TaskType.service.js";
 import type { ImportedActivityRow } from "../intelligence/shared/types.js";
 import type {
   ComplexityDetail,
@@ -53,6 +54,14 @@ type SearchCorpus = {
   activityCodes: string[];
   calendars: string[];
   resources: string[];
+  filename: string[];
+  rootWbs: string[];
+  relationshipSummary: {
+    relationshipCount: number;
+    linkedActivityCount: number;
+    bridgeActivityCount: number;
+    linkedBridgeActivityCount: number;
+  };
 };
 
 const SOURCE_LABELS: Record<DetectionSourceKind, string> = {
@@ -68,7 +77,7 @@ const SOURCE_LABELS: Record<DetectionSourceKind, string> = {
 };
 
 /** Hierarchy weights — higher sources dominate scoring. */
-const SOURCE_WEIGHTS: Record<Exclude<DetectionSourceKind, "filename">, number> = {
+const SOURCE_WEIGHTS: Record<DetectionSourceKind, number> = {
   project_metadata: 5,
   project_properties: 4,
   wbs: 3,
@@ -77,6 +86,7 @@ const SOURCE_WEIGHTS: Record<Exclude<DetectionSourceKind, "filename">, number> =
   activity_codes: 1,
   calendars: 1,
   resources: 1,
+  filename: 4,
 };
 
 import {
@@ -100,10 +110,14 @@ function countPatternHits(text: string, pattern: RegExp): number {
   return text.match(new RegExp(pattern.source, pattern.flags + "g"))?.length ?? 0;
 }
 
+function saturatedEvidenceCount(count: number): number {
+  return count <= 0 ? 0 : 1 + Math.log2(count);
+}
+
 function scoreSectorVocabulary(
   corpus: SearchCorpus,
   vocab: SectorVocabulary,
-  sources: Exclude<DetectionSourceKind, "filename">[]
+  sources: DetectionSourceKind[]
 ): KeywordMatchEvidence {
   let totalScore = 0;
   let totalHits = 0;
@@ -112,15 +126,16 @@ function scoreSectorVocabulary(
   const allPatterns = [...vocab.phrases, ...vocab.keywords];
 
   for (const source of sources) {
-    const text = corpusForSource(corpus, source).join(" ").toLowerCase();
-    if (!text) continue;
     const sourceWeight = SOURCE_WEIGHTS[source];
     for (const p of allPatterns) {
-      const hits = countPatternHits(text, p.pattern);
+      const hits = corpusForSource(corpus, source).filter((item) => p.pattern.test(item)).length;
       if (!hits) continue;
       const phraseMultiplier = p.kind === "phrase" ? 1.5 : 1;
+      const rootHits =
+        source === "wbs" ? corpus.rootWbs.filter((item) => p.pattern.test(item)).length : 0;
       totalHits += hits;
-      totalScore += hits * p.weight * sourceWeight * phraseMultiplier;
+      totalScore += saturatedEvidenceCount(hits) * p.weight * sourceWeight * phraseMultiplier;
+      totalScore += rootHits * p.weight * 2;
       matchedKeywords.push({ pattern: p.label, count: hits, source });
       usedSources.add(source);
     }
@@ -133,6 +148,10 @@ function scoreSectorVocabulary(
       totalScore += combo.weight;
       matchedKeywords.push({ pattern: combo.label, count: 1, source: "activity_names" });
     }
+  }
+
+  if (usedSources.size > 1) {
+    totalScore *= 1 + Math.min(0.3, (usedSources.size - 1) * 0.1);
   }
 
   return {
@@ -180,7 +199,7 @@ function applySectorConflictAdjustment(ranked: KeywordMatchEvidence[]): {
 
 function scoreAllSectors(
   corpus: SearchCorpus,
-  sources: Exclude<DetectionSourceKind, "filename">[]
+  sources: DetectionSourceKind[]
 ): { ranked: KeywordMatchEvidence[]; conflictResolution: string[]; ignored: KeywordMatchEvidence[] } {
   const raw = SECTOR_VOCABULARIES.map((v) => scoreSectorVocabulary(corpus, v, sources)).filter((r) => r.hits > 0);
   const { adjusted, conflictResolution, ignored } = applySectorConflictAdjustment(raw);
@@ -190,7 +209,7 @@ function scoreAllSectors(
 function scoreClientVocabulary(
   corpus: SearchCorpus,
   client: ClientPattern,
-  sources: Exclude<DetectionSourceKind, "filename">[]
+  sources: DetectionSourceKind[]
 ): KeywordMatchEvidence {
   let totalScore = 0;
   let totalHits = 0;
@@ -198,18 +217,20 @@ function scoreClientVocabulary(
   const usedSources = new Set<DetectionSourceKind>();
 
   for (const source of sources) {
-    const text = corpusForSource(corpus, source).join(" ").toLowerCase();
-    if (!text) continue;
     const sourceWeight = SOURCE_WEIGHTS[source];
     for (const p of client.patterns) {
-      const hits = countPatternHits(text, p.pattern);
+      const hits = corpusForSource(corpus, source).filter((item) => p.pattern.test(item)).length;
       if (!hits) continue;
       const phraseMultiplier = p.kind === "phrase" ? 1.5 : 1;
       totalHits += hits;
-      totalScore += hits * p.weight * sourceWeight * phraseMultiplier;
+      totalScore += saturatedEvidenceCount(hits) * p.weight * sourceWeight * phraseMultiplier;
       matchedKeywords.push({ pattern: p.pattern.source, count: hits, source });
       usedSources.add(source);
     }
+  }
+
+  if (usedSources.size > 1) {
+    totalScore *= 1 + Math.min(0.2, (usedSources.size - 1) * 0.1);
   }
 
   return {
@@ -222,25 +243,31 @@ function scoreClientVocabulary(
 }
 
 function scoreStageContent(corpus: SearchCorpus): Record<string, number> {
-  const text = [
+  const items = deduplicateEvidence([
     ...corpus.projectMetadata,
+    ...corpus.filename,
     ...corpus.wbs,
     ...corpus.activityNames,
     ...corpus.activityDescriptions,
-  ]
-    .join(" ")
-    .toLowerCase();
+    ...corpus.activityCodes,
+    ...corpus.calendars,
+    ...corpus.resources,
+  ]);
 
   const commissioningExclusions = [/\bclinical\s+commissioning\b/i, /\bcommissioning\s+planning\b/i];
 
   const scores: Record<string, number> = {};
   for (const [stage, patterns] of Object.entries(STAGE_CONTENT_SIGNALS)) {
     let hits = 0;
-    for (const p of patterns) hits += countPatternHits(text, p);
-    if (stage === "commissioning") {
-      for (const ex of commissioningExclusions) hits -= countPatternHits(text, ex);
+    for (const p of patterns) {
+      hits += saturatedEvidenceCount(items.filter((item) => p.test(item)).length);
     }
-    scores[stage] = Math.max(0, hits);
+    if (stage === "commissioning") {
+      for (const ex of commissioningExclusions) {
+        hits -= saturatedEvidenceCount(items.filter((item) => ex.test(item)).length);
+      }
+    }
+    scores[stage] = Math.max(0, Math.round(hits * 10) / 10);
   }
   return scores;
 }
@@ -306,7 +333,7 @@ function allSourceResults(corpus: SearchCorpus, includeFilename = false): Source
     itemCount: items.length,
   }));
   if (includeFilename) {
-    results.push({ kind: "filename", label: SOURCE_LABELS.filename, searched: true, itemCount: 1 });
+    results.push({ kind: "filename", label: SOURCE_LABELS.filename, searched: true, itemCount: corpus.filename.length });
   }
   return results;
 }
@@ -401,14 +428,16 @@ function buildSearchCorpus(
   }
 
   const exportTitle = fileName ? meaningfulFilenameTitle(fileName) : null;
-  if (exportTitle) projectMetadata.push(exportTitle);
+  const filename = exportTitle ? [exportTitle] : [];
 
   const wbs: string[] = [];
+  const rootWbs: string[] = [];
   const wbsTable = tables.get("PROJWBS");
   if (wbsTable) {
     for (const r of wbsTable.rows) {
       const name = String(r.wbs_name ?? r.wbs_short_name ?? "").trim();
       if (name) wbs.push(name);
+      if (name && String(r.proj_node_flag ?? "").toUpperCase() === "Y") rootWbs.push(name);
     }
   }
 
@@ -431,6 +460,25 @@ function buildSearchCorpus(
     activityCodes.push(a.activityCode);
   }
 
+  for (const tableName of ["ACTVCODE", "ACTVTYPE", "UDFTYPE", "UDFVALUE"]) {
+    const table = tables.get(tableName);
+    if (!table) continue;
+    for (const r of table.rows) {
+      for (const key of [
+        "actv_code_name",
+        "actv_code_short_name",
+        "actv_code_type",
+        "actv_code_type_name",
+        "udf_type_name",
+        "udf_type_label",
+        "udf_text",
+      ]) {
+        const value = String(r[key] ?? "").trim();
+        if (value) activityCodes.push(value);
+      }
+    }
+  }
+
   const calendars: string[] = [];
   const calTable = tables.get("CALENDAR");
   if (calTable) {
@@ -449,16 +497,60 @@ function buildSearchCorpus(
     }
   }
 
+  const taskNamesById = new Map<string, string>();
+  for (const r of taskTable?.rows ?? []) {
+    const id = String(r.task_id ?? "").trim();
+    const name = String(r.task_name ?? "").trim();
+    if (id && name) taskNamesById.set(id, name);
+  }
+  const linkedIds = new Set<string>();
+  for (const r of tables.get("TASKPRED")?.rows ?? []) {
+    const taskId = String(r.task_id ?? "").trim();
+    const predId = String(r.pred_task_id ?? "").trim();
+    if (taskId) linkedIds.add(taskId);
+    if (predId) linkedIds.add(predId);
+  }
+  const bridgeActivityIds = new Set(
+    [...taskNamesById].filter(([, name]) => /\b(?:bridge|viaduct|abutment|bridge deck)\b/i.test(name)).map(([id]) => id)
+  );
+  const linkedBridgeActivityCount = [...bridgeActivityIds].filter((id) => linkedIds.has(id)).length;
+  if (linkedIds.size > 0) {
+    projectProperties.push(
+      `Relationship structure: ${tables.get("TASKPRED")?.rows.length ?? 0} links across ${linkedIds.size} activities`
+    );
+  }
+
   return {
-    projectMetadata,
-    projectProperties,
-    wbs,
-    activityNames,
-    activityDescriptions,
-    activityCodes,
-    calendars,
-    resources,
+    projectMetadata: deduplicateEvidence(projectMetadata),
+    projectProperties: deduplicateEvidence(projectProperties),
+    wbs: deduplicateEvidence(wbs),
+    activityNames: deduplicateEvidence(activityNames),
+    activityDescriptions: deduplicateEvidence(activityDescriptions),
+    activityCodes: deduplicateEvidence(activityCodes),
+    calendars: deduplicateEvidence(calendars),
+    resources: deduplicateEvidence(resources),
+    filename: deduplicateEvidence(filename),
+    rootWbs: deduplicateEvidence(rootWbs),
+    relationshipSummary: {
+      relationshipCount: tables.get("TASKPRED")?.rows.length ?? 0,
+      linkedActivityCount: linkedIds.size,
+      bridgeActivityCount: bridgeActivityIds.size,
+      linkedBridgeActivityCount,
+    },
   };
+}
+
+function deduplicateEvidence(items: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const item of items) {
+    const trimmed = item.trim();
+    const key = trimmed.toLowerCase().replace(/\s+/g, " ");
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(trimmed);
+  }
+  return result;
 }
 
 function corpusForSource(corpus: SearchCorpus, source: DetectionSourceKind): string[] {
@@ -479,8 +571,8 @@ function corpusForSource(corpus: SearchCorpus, source: DetectionSourceKind): str
       return corpus.calendars;
     case "resources":
       return corpus.resources;
-    default:
-      return [];
+    case "filename":
+      return corpus.filename;
   }
 }
 
@@ -651,9 +743,10 @@ function detectProjectName(
 }
 
 function detectClient(corpus: SearchCorpus, projectTitle: string): DetectedField {
-  const sources = allSourceResults(corpus);
-  const clientSources: Exclude<DetectionSourceKind, "filename">[] = [
+  const sources = allSourceResults(corpus, true);
+  const clientSources: DetectionSourceKind[] = [
     "project_metadata",
+    "filename",
     "project_properties",
     "wbs",
     "activity_names",
@@ -664,14 +757,49 @@ function detectClient(corpus: SearchCorpus, projectTitle: string): DetectedField
   const titleBoost = projectTitle.trim().toLowerCase();
   const boostedCorpus: SearchCorpus = {
     ...corpus,
-    projectMetadata: [...corpus.projectMetadata, ...(titleBoost ? [titleBoost] : [])],
+    projectMetadata: deduplicateEvidence([...corpus.projectMetadata, ...(titleBoost ? [titleBoost] : [])]),
   };
 
   const ranked = CLIENT_VOCABULARY.map((c) => scoreClientVocabulary(boostedCorpus, c, clientSources))
     .filter((r) => r.hits > 0)
     .sort((a, b) => b.score - a.score);
 
-  const top = ranked[0];
+  let top = ranked[0];
+  const nhsCandidate = ranked.find((candidate) => candidate.label === "NHS Trust");
+  if (nhsCandidate) {
+    const explicitNhsEvidence = nhsCandidate.matchedKeywords.some(
+      (hit) => hit.pattern !== "\\btrust\\b"
+    );
+    const hospitalRoot = corpus.rootWbs.some((item) => /\b(?:hospital|healthcare|clinical)\b/i.test(item));
+    const healthcareProgrammeIdentity = [...corpus.projectMetadata, ...corpus.rootWbs].some((item) =>
+      /\b(?:hospital|healthcare|clinical)\b/i.test(item)
+    );
+    const distinctTrustReferences = deduplicateEvidence([
+      ...corpus.projectMetadata,
+      ...corpus.wbs,
+      ...corpus.activityNames,
+      ...corpus.activityDescriptions,
+      ...corpus.activityCodes,
+    ]).filter((item) => /\btrust\b/i.test(item)).length;
+    if (!explicitNhsEvidence && (!hospitalRoot || distinctTrustReferences < 2)) {
+      ranked.splice(ranked.indexOf(nhsCandidate), 1);
+      top = ranked[0];
+    } else if (!explicitNhsEvidence) {
+      nhsCandidate.score += 8;
+      nhsCandidate.hits += 1;
+      nhsCandidate.matchedKeywords.push({
+        pattern: "hospital root + repeated Trust references",
+        count: 1,
+        source: "wbs",
+      });
+      ranked.sort((a, b) => b.score - a.score);
+      top = ranked[0];
+    } else if (healthcareProgrammeIdentity && nhsCandidate.score < 16) {
+      nhsCandidate.score += 6;
+      ranked.sort((a, b) => b.score - a.score);
+      top = ranked[0];
+    }
+  }
 
   if (!top) {
     return emptyField(
@@ -719,9 +847,10 @@ function detectClient(corpus: SearchCorpus, projectTitle: string): DetectedField
 }
 
 function detectProjectType(corpus: SearchCorpus): DetectedField {
-  const sources = allSourceResults(corpus);
-  const typeSources: Exclude<DetectionSourceKind, "filename">[] = [
+  const sources = allSourceResults(corpus, true);
+  const typeSources: DetectionSourceKind[] = [
     "project_metadata",
+    "filename",
     "project_properties",
     "wbs",
     "activity_names",
@@ -730,6 +859,40 @@ function detectProjectType(corpus: SearchCorpus): DetectedField {
   ];
 
   const { ranked, conflictResolution, ignored } = scoreAllSectors(corpus, typeSources);
+  const rootText = corpus.rootWbs.join(" ");
+  const programmeIdentity = [...corpus.projectMetadata, ...corpus.filename, ...corpus.rootWbs].join(" ");
+  const healthcareRoot = /\b(?:hospital|healthcare|clinical|nhs)\b/i.test(rootText);
+  const bridgeProgrammeIdentity = /\b(?:bridge|viaduct)\b/i.test(programmeIdentity);
+  const healthcare = ranked.find((candidate) => candidate.label === "Healthcare");
+  const bridge = ranked.find((candidate) => candidate.label === "Bridge");
+
+  if (healthcareRoot && healthcare) {
+    healthcare.score += 30;
+    healthcare.hits += 1;
+    healthcare.matchedKeywords.push({ pattern: "healthcare programme root", count: 1, source: "wbs" });
+    conflictResolution.push("Healthcare programme root received programme-identity consensus weight.");
+  }
+  if (healthcareRoot && bridge && !bridgeProgrammeIdentity) {
+    const originalScore = bridge.score;
+    bridge.score = Math.round(bridge.score * 0.2);
+    conflictResolution.push(
+      `Subordinate bridge references reduced from ${originalScore} to ${bridge.score}; programme identity is hospital-led.`
+    );
+  }
+  if (bridge && bridgeProgrammeIdentity) {
+    const linkedBridgeRatio =
+      corpus.relationshipSummary.bridgeActivityCount > 0
+        ? corpus.relationshipSummary.linkedBridgeActivityCount /
+          corpus.relationshipSummary.bridgeActivityCount
+        : 0;
+    bridge.score += 20 + (linkedBridgeRatio >= 0.5 ? 6 : 0);
+    conflictResolution.push(
+      linkedBridgeRatio >= 0.5
+        ? "Bridge programme identity and connected bridge activity structure reached consensus."
+        : "Bridge programme identity confirmed by project metadata, filename, or root WBS."
+    );
+  }
+  ranked.sort((a, b) => b.score - a.score);
   const top = ranked[0];
   const second = ranked[1];
 
@@ -758,6 +921,7 @@ function detectProjectType(corpus: SearchCorpus): DetectedField {
       second ? `Runner-up: ${second.label} (${second.score})` : "No runner-up",
       ...conflictResolution,
     ],
+    rawSignals: { relationshipStructure: corpus.relationshipSummary },
   };
 
   if (confidence === "none") {
@@ -807,7 +971,7 @@ function detectStage(
   for (const r of rows) {
     const status = String(r.status_code ?? "").toUpperCase();
     const pct = parseFloat(String(r.phys_complete_pct ?? ""));
-    const isMilestone = String(r.task_type ?? "").toUpperCase().includes("MILE");
+    const isMilestone = isP6MilestoneType(r.task_type);
     if (isMilestone) milestoneTotal += 1;
 
     if (Number.isFinite(pct)) {
@@ -838,55 +1002,61 @@ function detectStage(
   let reasoning: string;
   let conflictResolution: string | undefined;
 
-  if (isBaselineSchedule) {
-    const constructionHits = contentScores.construction ?? 0;
-    const planningHits = contentScores.planning ?? 0;
-    const procurementHits = contentScores.procurement ?? 0;
-    const commissioningHits = contentScores.commissioning ?? 0;
+  const detailedDesignHits = contentScores.detailedDesign ?? 0;
+  const constructionHits = contentScores.construction ?? 0;
+  const planningHits = contentScores.planning ?? 0;
+  const procurementHits = contentScores.procurement ?? 0;
+  const commissioningHits = contentScores.commissioning ?? 0;
+  const detailedDesignStrength = detailedDesignHits * 5;
+  const detailedDesignIsDominant =
+    detailedDesignHits >= 3 &&
+    detailedDesignHits >= commissioningHits &&
+    detailedDesignStrength >= constructionHits;
 
-    if (constructionHits >= 6 && constructionHits >= planningHits && constructionHits >= procurementHits) {
-      value = "Construction";
-      confidence = constructionHits >= 12 ? "medium" : "low";
-      reason = `Baseline programme (${Math.round(notStartedRatio * 100)}% not started) with ${constructionHits} construction trade signals in WBS and activities.`;
-      reasoning =
-        "No progress recorded yet, but programme content is dominated by construction and civils work packages.";
-    } else if (procurementHits >= 3 && procurementHits > constructionHits) {
-      value = "Procurement";
-      confidence = "low";
-      reason = `Baseline programme with procurement/tender signals (${procurementHits} matches).`;
-      reasoning = "Early-stage procurement work packages identified despite zero progress.";
-    } else if (planningHits >= 3 && planningHits > constructionHits) {
-      value = "Planning";
-      confidence = notStartedRatio >= 0.95 ? "medium" : "low";
-      reason = `Baseline programme with planning/design signals (${planningHits} matches).`;
-      reasoning = "Programme content suggests planning or design stage rather than site works.";
-    } else if (commissioningHits >= 3 && commissioningHits > constructionHits) {
-      value = "Commissioning";
-      confidence = "low";
-      reason = "Commissioning or handover language found despite zero activity progress.";
-      reasoning = "Mixed signals — commissioning terms present on an unstarted baseline.";
-      conflictResolution = "Progress and content signals conflict — confidence reduced.";
-    } else {
-      value = "Planning";
-      confidence = "low";
-      reason = `${Math.round(notStartedRatio * 100)}% of activities not yet started on a baseline schedule.`;
-      reasoning = "Uniform not-started status on baseline programme; no dominant lifecycle content signals.";
+  if (detailedDesignIsDominant) {
+    value = "Detailed Design";
+    confidence = detailedDesignHits >= 8 ? "high" : "medium";
+    reason = `${detailedDesignHits} detailed/technical design signals found across the programme.`;
+    reasoning =
+      "Explicit engineering-design evidence determines lifecycle stage; progress is retained only as supporting status.";
+    if (completeRatio >= 0.7) {
+      conflictResolution =
+        "High recorded progress did not override dominant Detailed Design evidence or imply Commissioning.";
     }
+  } else if (
+    commissioningHits >= 3 &&
+    commissioningHits >= constructionHits &&
+    commissioningHits > planningHits
+  ) {
+    value = "Commissioning";
+    confidence = commissioningHits >= 6 ? "high" : "medium";
+    reason = `${commissioningHits} commissioning/handover signals dominate programme content.`;
+    reasoning = "Commissioning was assigned from explicit lifecycle evidence, with progress used only as support.";
+  } else if (constructionHits >= 6 && constructionHits >= planningHits && constructionHits >= procurementHits) {
+    value = "Construction";
+    confidence = constructionHits >= 12 ? "high" : "medium";
+    reason = `${constructionHits} construction trade signals dominate WBS and activity content.`;
+    reasoning = "Construction classification is based on dominant engineering work-package evidence.";
+  } else if (procurementHits >= 3 && procurementHits > planningHits) {
+    value = "Procurement";
+    confidence = procurementHits >= 6 ? "medium" : "low";
+    reason = `${procurementHits} procurement/tender signals found in programme content.`;
+    reasoning = "Procurement work packages provide the strongest available lifecycle evidence.";
+  } else if (planningHits >= 3) {
+    value = "Planning";
+    confidence = planningHits >= 6 ? "medium" : "low";
+    reason = `${planningHits} planning/concept signals found in programme content.`;
+    reasoning = "Planning classification is supported by explicit early-stage content.";
   } else if (completeRatio >= 0.85 || avgPct >= 95) {
     value = "Completed";
     confidence = completeRatio >= 0.9 ? "high" : "medium";
     reason = `${Math.round(completeRatio * 100)}% of activities complete; average progress ${Math.round(avgPct)}%.`;
-    reasoning = "Majority of activities marked complete or near 100% physical progress.";
-  } else if (avgPct >= 70 || completeRatio >= 0.5) {
-    value = "Commissioning";
-    confidence = "medium";
-    reason = `Average physical progress ${Math.round(avgPct)}% with ${Math.round(completeRatio * 100)}% activities complete.`;
-    reasoning = "Substantial completion suggests commissioning or handover phase.";
+    reasoning = "Progress supports a completed status, but was not used to infer an engineering phase.";
   } else if (activeRatio >= 0.25 || avgPct >= 15) {
     value = "Construction";
-    confidence = activeRatio >= 0.35 ? "medium" : "low";
+    confidence = "low";
     reason = `${Math.round(activeRatio * 100)}% of activities in progress; average progress ${Math.round(avgPct)}%.`;
-    reasoning = "Active work dominates the programme status profile.";
+    reasoning = "No dominant lifecycle content was found; active progress provides only a low-confidence status fallback.";
   } else if (notStartedRatio >= 0.7) {
     value = "Planning";
     confidence = notStartedRatio >= 0.85 ? "high" : "medium";
@@ -904,10 +1074,11 @@ function detectStage(
     `Average physical % complete: ${Math.round(avgPct)}`,
     reportingDate ? `Reporting date: ${reportingDate}` : "No reporting date in PROJECT table",
     milestoneTotal > 0 ? `Milestones complete: ${milestoneComplete}/${milestoneTotal}` : "No milestones identified",
-    isBaselineSchedule ? `Content signals: construction=${contentScores.construction ?? 0}, planning=${contentScores.planning ?? 0}, procurement=${contentScores.procurement ?? 0}` : "",
+    `Content signals: detailedDesign=${detailedDesignHits}, construction=${constructionHits}, planning=${planningHits}, procurement=${procurementHits}, commissioning=${commissioningHits}`,
+    `Phase strength: detailedDesign=${detailedDesignStrength}, construction=${constructionHits} (explicit lifecycle signals weighted above generic trade terms)`,
   ].filter(Boolean);
 
-  return field(value, confidence, reason, "Detected from programme progress.", buildTrace(sources, {
+  return field(value, confidence, reason, "Detected from programme content and progress.", buildTrace(sources, {
     confidenceReasoning: reasoning,
     evidenceSummary,
     conflictResolution,

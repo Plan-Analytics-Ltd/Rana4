@@ -8,6 +8,11 @@ import {
   listProjectSnapshots,
 } from "../services/intelligence/shared/programmeSnapshotCapture.service.js";
 import {
+  getRevisionDeliverableDurations,
+  getLiveDeliverableDurations,
+  listProgrammeRevisionOptions,
+} from "../services/intelligence/shared/deliverableRevisionView.service.js";
+import {
   compareBaselineToLive,
   compareSnapshots,
 } from "../services/intelligence/shared/plannedVsActual.service.js";
@@ -24,6 +29,7 @@ import {
 import { buildRana4ProgrammeExport } from "../services/intelligence/shared/rana4ScheduleExport.service.js";
 import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { prisma } from "../utils/prisma.js";
+import { runWithAuthContextAsync } from "../utils/requestContext.js";
 import type { ProgrammeSnapshotRole } from "@prisma/client";
 
 type RequestWithFile = AuthRequest & { file?: Express.Multer.File };
@@ -56,31 +62,110 @@ export async function importProgramme(req: AuthRequest, res: Response): Promise<
     const snapshotRole = parseSnapshotRole(req.body?.snapshotRole ?? req.query.snapshotRole);
     const label = String(req.body?.label ?? req.query.label ?? "").trim() || undefined;
 
-    const result = await importProgrammeSchedule(file.buffer, file.originalname ?? "import.xer", {
-      projectId,
-      companyId: req.user.companyId,
-      userId: req.user.id,
-      sourceFileName: file.originalname,
-      snapshotRole,
-      label,
-    });
+    // Multer's multipart parsing breaks AsyncLocalStorage continuity, so the auth
+    // context set by requireAuth does not reach this handler. Re-establish the
+    // authenticated context so the Prisma tenant guard sees it throughout the import.
+    const { id: userId, companyId } = req.user;
+    const result = await runWithAuthContextAsync({ userId, companyId }, async () => {
+      const imported = await importProgrammeSchedule(file.buffer, file.originalname ?? "import.xer", {
+        projectId,
+        companyId,
+        userId,
+        sourceFileName: file.originalname,
+        snapshotRole,
+        label,
+      });
 
-    await refreshProjectIntelligenceMetadata(projectId, req.user.companyId);
+      await refreshProjectIntelligenceMetadata(projectId, companyId);
 
-    await auditLog({
-      userId: req.user.id,
-      companyId: req.user.companyId,
-      projectId,
-      action: "IMPORT_PROGRAMME_SNAPSHOT",
-      entity: "ProgrammeSnapshot",
-      entityId: result.snapshotId,
-      details: { matchResult: result.matchResult, summary: result.summary },
+      await auditLog({
+        userId,
+        companyId,
+        projectId,
+        action: "IMPORT_PROGRAMME_SNAPSHOT",
+        entity: "ProgrammeSnapshot",
+        entityId: imported.snapshotId,
+        details: { matchResult: imported.matchResult, summary: imported.summary },
+      });
+
+      return imported;
     });
 
     res.status(201).json(result);
   } catch (err) {
     console.error(err);
     res.status(400).json({ error: err instanceof Error ? err.message : "Programme import failed" });
+  }
+}
+
+/** GET /projects/:projectId/programme-revisions */
+export async function listProgrammeRevisions(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const projectId = String(req.params.projectId ?? "").trim();
+    const membership = await requireProjectAccess(projectId, req.user, { adminOverride: true });
+    requirePermission(membership.role, "project", "read");
+
+    const revisions = await listProgrammeRevisionOptions(projectId, req.user.companyId);
+    res.json({ revisions });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to list programme revisions" });
+  }
+}
+
+/** GET /projects/:projectId/programme-revisions/live/deliverable-durations */
+export async function getLiveDeliverableDurationsHandler(
+  req: AuthRequest,
+  res: Response
+): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const projectId = String(req.params.projectId ?? "").trim();
+    const membership = await requireProjectAccess(projectId, req.user, { adminOverride: true });
+    requirePermission(membership.role, "project", "read");
+
+    const durations = await getLiveDeliverableDurations(projectId, req.user.companyId);
+    res.json({ durations });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to load live programme durations" });
+  }
+}
+
+/** GET /projects/:projectId/programme-revisions/:snapshotId/deliverable-durations */
+export async function getRevisionDeliverableDurationsHandler(
+  req: AuthRequest,
+  res: Response
+): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const projectId = String(req.params.projectId ?? "").trim();
+    const snapshotId = String(req.params.snapshotId ?? "").trim();
+    const membership = await requireProjectAccess(projectId, req.user, { adminOverride: true });
+    requirePermission(membership.role, "project", "read");
+
+    const durations = await getRevisionDeliverableDurations(
+      projectId,
+      req.user.companyId,
+      snapshotId
+    );
+    res.json({ durations });
+  } catch (err) {
+    console.error(err);
+    const status = (err as { status?: number }).status ?? 400;
+    res.status(status).json({
+      error: err instanceof Error ? err.message : "Failed to load revision durations",
+    });
   }
 }
 
@@ -269,6 +354,7 @@ export async function exportProgrammeJson(req: AuthRequest, res: Response): Prom
         freeFloat: true,
         isCritical: true,
         status: true,
+        p6TaskType: true,
       },
     });
 

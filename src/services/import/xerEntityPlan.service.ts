@@ -63,9 +63,10 @@ function isoDate(d: Date | undefined): string | null {
   return d.toISOString().slice(0, 10);
 }
 
+// RANA planning duration seeded from the imported original (target) duration.
+// Remaining Duration is still parsed/stored elsewhere but does not populate Best/Likely.
 function durationDays(row: ImportedActivityRow): number {
   const d =
-    row.remainingDurationDays ??
     row.originalDurationDays ??
     row.actualDurationDays ??
     1;
@@ -96,7 +97,7 @@ function fragnetNameForWbs(wbsId: string, nodes: Map<string, WbsNode>, rootId: s
 function deliverableNameForWbs(wbsId: string, nodes: Map<string, WbsNode>, rootId: string): string {
   const node = nodes.get(wbsId);
   if (!node) return `WBS ${wbsId}`;
-  if (node.parentId === rootId) return `${node.name} — Work package`;
+  if (node.parentId === rootId) return `${node.name} -- Work package`;
   return node.name;
 }
 

@@ -98,7 +98,7 @@ describe("project detection validation datasets", () => {
   it("lists registered validation datasets", () => {
     const datasets = listValidationDatasets(validationRoot);
     assert.ok(datasets.some((d) => d.id === "synthetic-hospital"));
-    assert.ok(datasets.some((d) => d.id === "RedactedSite"));
+    assert.ok(datasets.some((d) => d.id === "synthetic-healthcare"));
   });
 
   it("passes all synthetic validation datasets", () => {

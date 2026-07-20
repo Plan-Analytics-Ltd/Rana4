@@ -1,7 +1,7 @@
 import type { Activity, RateCardEntry, Relationship } from "@/lib/api";
 import { validateFragnetRelationshipHealth } from "@/lib/schedule-relationship-health";
-import { type ProjectFullData, rateCardLookup } from "@/lib/schedule-types";
-import { durationDays } from "@/lib/schedule-metrics";
+import { type ProjectFullData, rateCardLookup, type ScheduleActivity } from "@/lib/schedule-types";
+import { isP6MilestoneType } from "@/lib/p6TaskType";
 import {
   deliverableHasEffectiveWorkflow,
   deliverableNeedsMaterialization,
@@ -225,6 +225,17 @@ export function buildValidationDisplayGroups(
   return groups;
 }
 
+/** Whether an activity passes duration validation for export/schedule readiness. */
+export function isActivityDurationValid(
+  activity: Pick<ScheduleActivity, "bestDuration" | "likelyDuration" | "p6TaskType">,
+  scenario: "best" | "likely"
+): boolean {
+  const raw = scenario === "best" ? activity.bestDuration : activity.likelyDuration;
+  if (!Number.isFinite(raw) || raw < 0) return false;
+  if (isP6MilestoneType(activity.p6TaskType)) return true;
+  return raw > 0;
+}
+
 /** Validate project tree for planner/export readiness (client-side). */
 export function validateProjectSchedule(
   data: ProjectFullData,
@@ -260,8 +271,7 @@ export function validateProjectSchedule(
         const code = a.activityCode.trim();
         codeToActivityId.set(code, a.id);
 
-        const days = durationDays(a, scenario);
-        if (!Number.isFinite(days) || days <= 0) {
+        if (!isActivityDurationValid(a, scenario)) {
           issues.push(
             issue("critical", "INVALID_DURATION", `Activity ${code} has no valid ${scenario} duration`, {
               entityType: "activity",

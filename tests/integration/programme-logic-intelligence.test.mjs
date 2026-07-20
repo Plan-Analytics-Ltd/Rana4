@@ -13,21 +13,21 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-const RedactedSitePath = path.join(
+const baselinePath = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../../validation/RedactedSite/REDACTED-CODE-Emergency Care Building - REDACTED-SITE - Civils & Structures Programme - Baseline.xer"
+  "../../validation/synthetic-healthcare/SYN1-Emergency Care Wing - Northvale - Civils Programme - Baseline.xer"
 );
 
 test("canonical programme name prefers root WBS over generic proj_short_name", () => {
-  const content = readFileSync(RedactedSitePath, "utf8");
+  const content = readFileSync(baselinePath, "utf8");
   const tables = parseXerTables(content);
   const root = getRootWbsTitleFromTables(tables);
-  assert.equal(root, "REDACTED-CITY Hospital - Live");
+  assert.equal(root, "Northvale General Hospital - Live");
   const name = resolveCanonicalProgrammeName({
     rootWbsName: root,
     projShortName: "Programme_V2.xml-3",
   });
-  assert.equal(name, "REDACTED-CITY Hospital - Live");
+  assert.equal(name, "Northvale General Hospital - Live");
 });
 
 test("detects relationship and lag changes between revisions", () => {

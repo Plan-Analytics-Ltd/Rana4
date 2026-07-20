@@ -155,11 +155,6 @@ export function manualReviewItems(detection: ProjectDetectionResult): ManualRevi
   return items;
 }
 
-/** @deprecated Use manualReviewItems for structured review sections */
-export function manualReviewFields(detection: ProjectDetectionResult): string[] {
-  return manualReviewItems(detection).map((i) => i.field);
-}
-
 export function displayValueForField(field: DetectedField | null, label: string): string {
   if (field?.value) return field.value;
   if (label.toLowerCase() === "client") return "Not identified";

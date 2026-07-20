@@ -15,6 +15,11 @@ import {
 import { percentile } from "../../dist/services/intelligence/shared/durationEvidence.service.js";
 import { checkIntelligenceConsistency } from "../../dist/services/intelligence/shared/intelligenceConsistency.service.js";
 import { generateFindings } from "../../dist/services/intelligence/findings/findings.service.js";
+import { prisma } from "../../dist/utils/prisma.js";
+
+test.after(async () => {
+  await prisma.$disconnect();
+});
 
 test("resolveCurrentDeliverableDuration prefers likelyDuration over activity span", async () => {
   const result = await resolveCurrentDeliverableDuration({

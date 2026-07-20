@@ -1,5 +1,7 @@
 import type { AskRanaConversationTurn } from "./askRana.types.js";
 import type { PlannerQuery, PlannerQueryIntent } from "./askRanaPlannerQuery.types.js";
+import { extractRevisionTarget, isBroadChangeQuestion } from "./askRanaConversationPolish.service.js";
+import { isExecutivePlannerQuestion } from "./askRanaPlannerReasoning.service.js";
 
 /** Expected response depth — independent from planner intent. */
 export type PlannerResponseDepth =
@@ -115,6 +117,18 @@ export function extractExplainedTopics(conversation?: AskRanaConversationTurn[])
   if (/\b(?:strongest|rules out|ruled out|coincid|interpretation)\b/.test(corpus)) {
     topics.push("investigation conclusion and interpretation");
   }
+  if (/\b0 comparable\b|\bno (?:comparable )?completed\b|\blimited.*benchmark\b|\bisn't enough completed\b/i.test(corpus)) {
+    topics.push("limited completed-project benchmarking");
+  }
+  if (/\badditional structural works\b/i.test(corpus)) {
+    topics.push("Additional Structural Works remaining-work pressure");
+  }
+  if (/\b(?:four|4)\s+work packages?\b[\s\S]{0,60}\bincreas/i.test(corpus)) {
+    topics.push("concentrated remaining-work increases across a few work packages");
+  }
+  if (/\bmy assessment\b|\boverall assessment\b|\bprogramme (?:is |looks |showing )/i.test(corpus)) {
+    topics.push("overall programme health assessment");
+  }
 
   return [...new Set(topics)];
 }
@@ -191,6 +205,7 @@ function depthFromFirstTurn(question: string, plannerQuery: PlannerQuery): Plann
   const wordCount = q.split(/\s+/).length;
 
   if (REPORT_PATTERN.test(q) || plannerQuery.intent === "summary") return "REPORT";
+  if (isExecutivePlannerQuestion(question)) return "REPORT";
   if (INVESTIGATION_PATTERN.test(q) || plannerQuery.intent === "investigate") return "INVESTIGATION";
 
   if (
@@ -229,13 +244,13 @@ function buildPlannerExpectation(args: {
       "The planner wants a brief follow-up — they likely already have context from earlier in the conversation.",
     STANDARD: "The planner wants a focused answer with supporting detail as needed.",
     INVESTIGATION: "The planner wants a thorough investigation across the available evidence.",
-    REPORT: "The planner wants a comprehensive overview of this deliverable.",
+    REPORT: "The planner wants an executive programme assessment — judgement first, then reasons, evidence, recommendation, and confidence.",
   };
 
   let expectation = depthExpectations[args.depth];
 
   if (args.hasDetailedPriorAnswer) {
-    expectation += " They already received a detailed answer — focus on what is newly asked.";
+    expectation += " They already received a detailed answer — focus on what is newly asked; do not restart.";
   }
 
   switch (args.followUpIntent) {
@@ -304,17 +319,35 @@ export function classifyPlannerResponseDepth(args: {
 
   const newInformationRequested = describeNewInformation(followUpIntent, depth, args.question);
 
+  let plannerExpectation = buildPlannerExpectation({
+    depth,
+    followUpIntent,
+    hasDetailedPriorAnswer: hasPriorDetail,
+  });
+
+  if (isBroadChangeQuestion(args.question, args.plannerQuery)) {
+    plannerExpectation +=
+      " They asked what changed without naming an attribute — synthesise recorded changes (remaining work, planning, float, criticality, logic) into a coherent story; when only one attribute moved, note the others did not.";
+  }
+
+  if (isExecutivePlannerQuestion(args.question)) {
+    plannerExpectation +=
+      " Executive question — open with a clear overall assessment, then key reasons, brief evidence, what you would do next, and confidence/limitations last (≤5 sections).";
+  }
+
+  const targetRevision = extractRevisionTarget(args.question);
+  if (targetRevision) {
+    plannerExpectation +=
+      ` They asked about ${targetRevision} specifically — lead with that revision only; add neighbouring revision context only if it helps explain the answer.`;
+  }
+
   return {
     depth,
     followUpIntent,
     newInformationRequested,
     topicsAlreadyExplained,
     hasDetailedPriorAnswer: hasPriorDetail,
-    plannerExpectation: buildPlannerExpectation({
-      depth,
-      followUpIntent,
-      hasDetailedPriorAnswer: hasPriorDetail,
-    }),
+    plannerExpectation,
   };
 }
 

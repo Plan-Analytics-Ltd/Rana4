@@ -360,6 +360,7 @@ export async function runFragnetExportPreflight(args: {
       likelyDuration: a.likelyDuration,
       createdAt: a.createdAt,
       assignedResources: await assignmentsFromDb(companyId, a.assignedResources),
+      p6TaskType: a.p6TaskType,
     }))
   );
 

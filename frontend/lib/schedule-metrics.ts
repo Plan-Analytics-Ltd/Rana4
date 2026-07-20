@@ -1,9 +1,5 @@
 import type { AssignedResource, RateCardEntry } from "@/lib/api";
-import {
-  type ProjectFullData,
-  type ScheduleActivity,
-  rateCardLookup,
-} from "@/lib/schedule-types";
+import { type ScheduleActivity } from "@/lib/schedule-types";
 
 export const HOURS_PER_DAY = 8;
 
@@ -58,62 +54,4 @@ export function activityMetrics(
     totalHours: Math.round(totalHours * 100) / 100,
     totalCost: Math.round(totalCost * 100) / 100,
   };
-}
-
-export type CostRollup = {
-  totalCost: number;
-  totalHours: number;
-  activityCount: number;
-  byResourceType: Record<string, number>;
-};
-
-export function rollupCosts(data: ProjectFullData, rateCard: RateCardEntry[], scenario: "best" | "likely"): {
-  project: CostRollup;
-  byFragnet: Map<string, CostRollup & { name: string }>;
-  byDeliverable: Map<string, CostRollup & { name: string }>;
-} {
-  const lookup = rateCardLookup(rateCard);
-  const empty = (): CostRollup => ({
-    totalCost: 0,
-    totalHours: 0,
-    activityCount: 0,
-    byResourceType: {},
-  });
-  const project = empty();
-  const byFragnet = new Map<string, CostRollup & { name: string }>();
-  const byDeliverable = new Map<string, CostRollup & { name: string }>();
-
-  const add = (bucket: CostRollup, activity: ScheduleActivity) => {
-    const m = activityMetrics(activity, scenario, lookup);
-    bucket.totalCost += m.totalCost;
-    bucket.totalHours += m.totalHours;
-    bucket.activityCount += 1;
-    for (const ar of activity.assignedResources) {
-      const { cost } = assignmentCost(ar, durationDays(activity, scenario), lookup);
-      const t = ar.resourceType || "Other";
-      bucket.byResourceType[t] = (bucket.byResourceType[t] ?? 0) + cost;
-    }
-  };
-
-  for (const f of data.fragnets) {
-    const fb = { ...empty(), name: f.name };
-    for (const a of f.sharedActivities ?? []) {
-      add(project, a);
-      add(fb, a);
-    }
-    for (const d of f.deliverables) {
-      const db = { ...empty(), name: d.name };
-      for (const a of d.activities) {
-        add(project, a);
-        add(fb, a);
-        add(db, a);
-      }
-      byDeliverable.set(d.id, db);
-    }
-    byFragnet.set(f.id, fb);
-  }
-
-  project.totalCost = Math.round(project.totalCost * 100) / 100;
-  project.totalHours = Math.round(project.totalHours * 100) / 100;
-  return { project, byFragnet, byDeliverable };
 }

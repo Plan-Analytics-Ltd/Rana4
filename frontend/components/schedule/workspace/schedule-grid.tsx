@@ -14,8 +14,6 @@ import {
   visibleRowRange,
 } from "@/lib/schedule-timeline";
 import { cn } from "@/lib/utils";
-import { ScheduleIntelligenceCue } from "@/components/schedule/schedule-intelligence-cue";
-import type { DeliverableStatusSnapshot } from "@/lib/deliverable-intelligence-status";
 
 export type ScheduleEditField = "code" | "name" | "bestDur" | "likelyDur";
 
@@ -87,8 +85,6 @@ function GridRow(props: {
   isLogicPred: boolean;
   isLogicSucc: boolean;
   onSelectSuccessor: (id: string | null, fragnetId: string) => void;
-  deliverableIntel?: DeliverableStatusSnapshot;
-  onDeliverableIntelClick?: () => void;
 }) {
   const { row, selected, hovered, diagnostics, onSelect, onHover, onSelectSuccessor, canEdit, saving, editing, isLogicPred, isLogicSucc } =
     props;
@@ -208,10 +204,6 @@ function GridRow(props: {
         </span>
         <span className="flex min-w-0 items-center truncate px-1 font-medium" style={{ width: COLS[2].w }} title={row.label}>
           <span className="truncate">{row.label}</span>
-          <ScheduleIntelligenceCue
-            snapshot={props.deliverableIntel}
-            onClick={props.onDeliverableIntelClick}
-          />
         </span>
         <span className="shrink-0 px-1 text-right tabular-nums text-slate-600" style={{ width: COLS[3].w }}>
           {row.bestDuration ?? "—"}
@@ -433,8 +425,6 @@ export function ScheduleGrid(props: {
   onToggleDeliverable: (id: string) => void;
   onToggleSharedGroup: (fragnetId: string) => void;
   onToggleSharedActivity: (activityId: string) => void;
-  deliverableIntelById?: Map<string, DeliverableStatusSnapshot>;
-  onDeliverableIntelClick?: (deliverableId: string, deliverableName: string) => void;
 }) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -539,15 +529,6 @@ export function ScheduleGrid(props: {
                   sharedGroupOpen={props.collapse.sharedGroups[row.fragnetId] ?? true}
                   sharedActivityOpen={
                     row.activityId ? (props.collapse.sharedActivities[row.activityId] ?? true) : true
-                  }
-                  deliverableIntel={
-                    row.deliverableId ? props.deliverableIntelById?.get(row.deliverableId) : undefined
-                  }
-                  onDeliverableIntelClick={
-                    row.deliverableId
-                      ? () =>
-                          props.onDeliverableIntelClick?.(row.deliverableId!, row.label)
-                      : undefined
                   }
                 />
               );

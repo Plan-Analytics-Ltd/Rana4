@@ -1,8 +1,16 @@
 import type { AskRanaEvidencePackage } from "./askRana.types.js";
+import {
+  baselineOnlyPrimaryMessage,
+  buildBaselineOnlyConversationAnswer,
+  isBaselineOnlyProgramme,
+  isBaselineOnlyConversationState,
+  isChangeOrRevisionQuestion,
+} from "./askRanaBaselineOnlyConversation.service.js";
 
 /** True when meaningful evidence exists beyond empty gaps. */
 export function hasSubstantiveEvidence(pkg: AskRanaEvidencePackage): boolean {
   return !!(
+    pkg.projectIntelligence?.available ||
     pkg.projectEvolution?.available ||
     pkg.programmeLogic?.available ||
     pkg.previousProjects?.available ||
@@ -19,7 +27,7 @@ export function hasEvolutionWithoutComparison(pkg: AskRanaEvidencePackage): bool
 }
 
 export function comparisonLimitationPhrase(): string {
-  return "I can't yet judge whether that is reasonable compared with similar work on previous completed projects — none have been imported for comparison.";
+  return "Based on the available programme data I can speak to this project's own revision history; there isn't enough completed-project history yet to benchmark it confidently against peers.";
 }
 
 /** Factual points from this project's history — for partial-evidence answers. */
@@ -28,6 +36,10 @@ export function buildEvolutionFactsForAnswer(pkg: AskRanaEvidencePackage): strin
   const deliverable = pkg.deliverable;
   const evolution = pkg.projectEvolution;
   if (!evolution?.available) return parts;
+
+  if (isBaselineOnlyProgramme(pkg)) {
+    return [baselineOnlyPrimaryMessage(pkg)];
+  }
 
   if (deliverable.currentDurationDays != null) {
     parts.push(`It's currently planned at ${deliverable.currentDurationDays} days on this project.`);
@@ -39,7 +51,7 @@ export function buildEvolutionFactsForAnswer(pkg: AskRanaEvidencePackage): strin
     if (net != null && net < 0) movement = "has reduced";
     else if (net != null && net > 0) movement = "has grown";
     parts.push(
-      `It ${movement} from ${evolution.baselineDays} days at baseline to ${evolution.latestDays} days in the latest programme update.`
+      `Remaining work ${movement} from ${evolution.baselineDays} days at baseline to ${evolution.latestDays} days in the latest programme update.`
     );
   }
 
@@ -52,15 +64,15 @@ export function buildEvolutionFactsForAnswer(pkg: AskRanaEvidencePackage): strin
   const stable = evolution.stablePeriods?.[0];
   if (stable) {
     parts.push(
-      `It stabilised at ${stable.durationDays} days between ${stable.startLabel} and ${stable.endLabel} (${stable.revisionCount} revision${stable.revisionCount === 1 ? "" : "s"}).`
+      `Remaining work stabilised at ${stable.durationDays} days between ${stable.startLabel} and ${stable.endLabel} (${stable.revisionCount} revision${stable.revisionCount === 1 ? "" : "s"}).`
     );
   } else if (
     evolution.volatility?.toLowerCase().includes("low") ||
     evolution.changePattern?.toLowerCase().includes("stable")
   ) {
-    parts.push("Duration has been relatively stable across revisions.");
+    parts.push("Remaining work has been relatively stable across revisions.");
   } else if (evolution.trend) {
-    parts.push(`Across revisions, duration ${evolution.trend.toLowerCase()}.`);
+    parts.push(`Across revisions, remaining work ${evolution.trend.toLowerCase()}.`);
   }
 
   if (pkg.programmeLogic?.summary) {

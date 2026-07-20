@@ -38,7 +38,7 @@ export type PlannerRevisionLabelArgs = {
   totalLiveUpdates: number;
 };
 
-/** Short revision name for programme stories: Baseline, Update 1, Latest Update, As-built. */
+/** Short revision name for programme stories: Baseline, Update 1, Update 2, As-built. */
 export function buildPlannerRevisionStoryLabel(args: PlannerRevisionLabelArgs): string {
   const role = args.snapshotRole;
   const state = args.programmeState;
@@ -48,13 +48,23 @@ export function buildPlannerRevisionStoryLabel(args: PlannerRevisionLabelArgs): 
 
   const isLive = role === "LIVE_IMPORT" || state === "LIVE_UPDATE";
   if (isLive) {
-    if (args.totalLiveUpdates > 1 && args.isLatestLiveUpdate) return "Latest Update";
     if (args.liveUpdateIndex != null) return `Update ${args.liveUpdateIndex}`;
     return "Update";
   }
 
   if (args.liveUpdateIndex != null) return `Update ${args.liveUpdateIndex}`;
   return "Update";
+}
+
+/** Planner phrase "Latest Update" → canonical numbered label for the last live import. */
+export function resolveLatestRevisionStoryLabel(
+  revisions: Array<{ snapshotRole: string | null; programmeState: string | null }>
+): string | null {
+  const liveIndices = computeLiveUpdateIndices(revisions);
+  for (const meta of liveIndices.values()) {
+    if (meta.isLatest) return `Update ${meta.index}`;
+  }
+  return null;
 }
 
 export function computeLiveUpdateIndices(

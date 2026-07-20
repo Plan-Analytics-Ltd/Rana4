@@ -7,7 +7,7 @@ import { getDeliverableBenchmark } from "../dist/services/intelligence/benchmark
 import { DEFAULT_MIN_COMPARABLE_SIMILARITY } from "../dist/services/intelligence/matching/similarityWeights.config.js";
 
 const prisma = new PrismaClient();
-const projectId = process.argv[2] ?? "cmr1ztdj50001sybs8jbn4qf4"; // REDACTED-SITE Emergency Care Building
+const projectId = process.argv[2] ?? "cmr1ztdj50001sybs8jbn4qf4"; // seeded healthcare project
 const nameFilter = (process.argv[3] ?? "").toLowerCase();
 
 const TEST_NAMES = [

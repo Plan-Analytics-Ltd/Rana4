@@ -59,6 +59,8 @@ export type ActivityForExport = {
   likelyDuration: number;
   createdAt: Date;
   assignedResources: AssignedResourceStored[];
+  /** Primavera TASK.task_type when known from import. */
+  p6TaskType?: string | null;
 };
 
 type RelationshipForExport = {
@@ -142,29 +144,21 @@ function allocateNextExportCode(
 }
 
 /**
- * Prefer the activity's real code from the database. Only allocate a new A#### when missing or duplicate
- * (e.g. same code reused on another fragnet); then suffix with activity id so codes stay in the A1xxx range.
+ * Prefer the activity's real code from the database. On missing or duplicate codes,
+ * allocate the next free sequential A#### (same allocator as the activity edit form).
  */
 function assignExportTaskCode(
   preferred: string | undefined,
-  uniqueSuffix: string,
   usedExportIds: Set<string>,
   nextExportNum: { value: number }
 ): string {
   const base = String(preferred ?? "").trim();
-  if (!base) return allocateNextExportCode("activity", usedExportIds, nextExportNum);
-  let candidate = base;
-  if (usedExportIds.has(candidate)) {
-    candidate = `${base}~${uniqueSuffix.slice(0, 8)}`;
+  if (!base || usedExportIds.has(base)) {
+    return allocateNextExportCode("activity", usedExportIds, nextExportNum);
   }
-  let n = 2;
-  while (usedExportIds.has(candidate)) {
-    candidate = `${base}-${n}`;
-    n += 1;
-  }
-  usedExportIds.add(candidate);
-  bumpExportCounterPastCode(candidate, nextExportNum);
-  return candidate;
+  usedExportIds.add(base);
+  bumpExportCounterPastCode(base, nextExportNum);
+  return base;
 }
 
 /** Drop duplicate predecessor/successor edges (same auto + DB linkage can repeat). */
@@ -311,6 +305,8 @@ export type P6PendingSemanticTaskRow = {
   baseCells: (string | number | null)[];
   /** Drives TASKRSRC units/costs in XER (same rows as rate card). */
   assignedResources: AssignedResourceStored[];
+  /** Primavera TASK.task_type for XER export (defaults to TT_Task when null). */
+  p6TaskType?: string | null;
 };
 
 type TaskRowP6Meta = {
@@ -440,7 +436,19 @@ function isFiniteNumber(value: unknown): value is number {
 }
 
 function cleanActivityName(name: unknown): string {
-  return String(name ?? "").trim();
+  return toExportSafeText(String(name ?? "")).trim();
+}
+
+/** XER / P6 expect ASCII-safe text; replace common Unicode punctuation that renders as glyphs. */
+function toExportSafeText(value: string): string {
+  return value
+    .replace(/\u2014/g, "--") // em dash — (often intended as "--" in names like "X — Work package")
+    .replace(/\u2013/g, "-") // en dash –
+    .replace(/\u2212/g, "-") // minus −
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/\u2026/g, "...")
+    .replace(/\u00A0/g, " ");
 }
 
 function normalizeResourceName(name: unknown): string {
@@ -730,7 +738,8 @@ export async function generateFragnetXlsx(
     assigned: AssignedResourceStored[],
     wbsId: string,
     wbsName: string,
-    rowP6?: TaskRowP6Meta
+    rowP6?: TaskRowP6Meta,
+    p6TaskType?: string | null
   ) => {
     const activityName = cleanActivityName(rawName);
     if (!activityName) {
@@ -783,7 +792,13 @@ export async function generateFragnetXlsx(
       durationHours,
       0,
     ];
-    pendingSemanticRows.push({ ownAssignmentKey, inheritDeliverableId, baseCells, assignedResources: assigned });
+    pendingSemanticRows.push({
+      ownAssignmentKey,
+      inheritDeliverableId,
+      baseCells,
+      assignedResources: assigned,
+      p6TaskType,
+    });
   };
 
   const p6Row = (deliverableBlockId: string, rowKind: "DELIVERABLE" | "ACTIVITY", exportActivityId: string): TaskRowP6Meta | undefined =>
@@ -814,7 +829,8 @@ export async function generateFragnetXlsx(
         a.assignedResources,
         rootWbsIdForTask,
         rootWbs.wbs_name,
-        p6Row("__ROOT__", "ACTIVITY", a.id)
+        p6Row("__ROOT__", "ACTIVITY", a.id),
+        a.p6TaskType
       );
     });
     relationships.forEach((r) => {
@@ -875,7 +891,7 @@ export async function generateFragnetXlsx(
       activitiesInDeliverable.forEach((a) => {
         activityMapInBlock.set(
           a.id,
-          assignExportTaskCode(a.activityCode, a.id, usedExportIds, nextExportNum)
+          assignExportTaskCode(a.activityCode, usedExportIds, nextExportNum)
         );
       });
       activitiesInDeliverable.forEach((a) => {
@@ -886,7 +902,8 @@ export async function generateFragnetXlsx(
           a.assignedResources,
           wbsCode,
           blockWbs.wbs_name,
-          p6Row(d.id, "ACTIVITY", a.id)
+          p6Row(d.id, "ACTIVITY", a.id),
+          a.p6TaskType
         );
       });
 
@@ -1061,7 +1078,8 @@ export async function generateStandardXlsx(
     assigned: AssignedResourceStored[],
     wbsId: string,
     wbsName: string,
-    rowP6?: TaskRowP6Meta
+    rowP6?: TaskRowP6Meta,
+    p6TaskType?: string | null
   ) => {
     const activityName = cleanActivityName(rawName);
     if (!activityName) {
@@ -1114,7 +1132,13 @@ export async function generateStandardXlsx(
       durationHours,
       0,
     ];
-    pendingSemanticRows.push({ ownAssignmentKey, inheritDeliverableId, baseCells, assignedResources: assigned });
+    pendingSemanticRows.push({
+      ownAssignmentKey,
+      inheritDeliverableId,
+      baseCells,
+      assignedResources: assigned,
+      p6TaskType,
+    });
   };
 
   const stdP6Row = (
@@ -1187,7 +1211,7 @@ export async function generateStandardXlsx(
 
       const activityMapInBlock = new Map<string, string>();
       sortedActivities.forEach((a) => {
-        const exportId = assignExportTaskCode(a.activityCode, a.id, usedExportIds, nextExportNum);
+        const exportId = assignExportTaskCode(a.activityCode, usedExportIds, nextExportNum);
         activityMapInBlock.set(a.id, exportId);
 
         // Relationships are stored against ORIGINAL activity ids (those in `fragnet.relationships`).
@@ -1207,7 +1231,8 @@ export async function generateStandardXlsx(
           a.assignedResources,
           wbsCode,
           blockWbs.wbs_name,
-          stdP6Row(fragnet.id, deliverable.id, "ACTIVITY", a.id)
+          stdP6Row(fragnet.id, deliverable.id, "ACTIVITY", a.id),
+          a.p6TaskType
         );
       });
 

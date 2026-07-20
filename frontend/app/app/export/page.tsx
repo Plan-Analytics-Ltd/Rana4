@@ -22,7 +22,6 @@ import {
 import type { ValidationIssue } from "@/lib/schedule-validation";
 import { cn } from "@/lib/utils";
 import { useProject } from "@/contexts/project-context";
-import { expandProjectDataForExportView } from "@/lib/schedule-effective";
 import { parseFullData, type ProjectFullData } from "@/lib/schedule-types";
 import { validateProjectSchedule, readinessScore } from "@/lib/schedule-validation";
 import { ValidationPanel } from "@/components/schedule/validation-panel";
@@ -114,7 +113,7 @@ export default function ExportPage() {
         api.get<ProjectFullData>(`/projects/${encodeURIComponent(selectedProjectId)}/full-data`),
         rateCardApi.get().catch(() => ({ data: { entries: [] as RateCardEntry[] } })),
       ]);
-      setFullData(expandProjectDataForExportView(parseFullData(res.data)));
+      setFullData(parseFullData(res.data));
       setRateCard(rc.data.entries ?? []);
     } catch {
       setFullData(null);

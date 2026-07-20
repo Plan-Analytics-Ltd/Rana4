@@ -3,7 +3,6 @@
 import { Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AskRanaPanel } from "@/components/ask-rana/ask-rana-panel";
-import { useIntelligenceDrawerOffset } from "@/hooks/use-intelligence-drawer-offset";
 import { useAskRanaContextPulse } from "@/hooks/use-ask-rana-context-pulse";
 import type { useAskRanaChat } from "@/hooks/use-ask-rana-chat";
 import type { AskRanaPageContext } from "@/lib/ask-rana-page-context";
@@ -15,33 +14,21 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   pageContext: AskRanaPageContext;
   chat: ChatState;
-  intelligenceDrawerOpen: boolean;
 };
 
-const SHIFT_TRANSITION = "transform 300ms ease-in-out";
-
-/** Global floating Ask Rana — shifts left when the intelligence drawer is open. */
 export function GlobalAskRanaFloating({
   open,
   onOpenChange,
   pageContext,
   chat,
-  intelligenceDrawerOpen,
 }: Props) {
-  const horizontalOffset = useIntelligenceDrawerOffset(intelligenceDrawerOpen);
   const contextKey = `${pageContext.mode}:${pageContext.deliverableId ?? "programme"}`;
   const contextPulse = useAskRanaContextPulse(contextKey);
-
-  const shiftStyle = {
-    transform: horizontalOffset > 0 ? `translateX(-${horizontalOffset}px)` : undefined,
-    transition: SHIFT_TRANSITION,
-  };
 
   return (
     <div
       data-ask-rana-root
       className="pointer-events-none fixed bottom-6 right-6 z-[60] flex w-[min(100vw-3rem,24rem)] flex-col-reverse items-end gap-4"
-      style={shiftStyle}
     >
       <button
         type="button"

@@ -149,6 +149,7 @@ export async function loadHistoricalDeliverableDurations(args: {
 }
 
 export function formatClassificationLabel(classification: string): string {
+  if (!classification || classification.toUpperCase() === "OTHER") return "Unclassified work";
   return classification.replace(/_/g, " ");
 }
 

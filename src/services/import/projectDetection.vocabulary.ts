@@ -24,6 +24,8 @@ export const SECTOR_VOCABULARIES: SectorVocabulary[] = [
   {
     sector: "Healthcare",
     phrases: [
+      { pattern: /\bnhs\s+(?:foundation\s+)?trust\b/i, weight: 10, kind: "phrase", label: "NHS trust" },
+      { pattern: /\bgeneral\s+hospital\b/i, weight: 9, kind: "phrase", label: "general hospital" },
       { pattern: /\boperating\s+theatre\b/i, weight: 8, kind: "phrase", label: "operating theatre" },
       { pattern: /\bplant\s+room\b/i, weight: 7, kind: "phrase", label: "plant room" },
       { pattern: /\bmedical\s+gas\b/i, weight: 8, kind: "phrase", label: "medical gas" },
@@ -39,6 +41,7 @@ export const SECTOR_VOCABULARIES: SectorVocabulary[] = [
     keywords: [
       { pattern: /\bhospital\b/i, weight: 5, kind: "keyword", label: "hospital" },
       { pattern: /\bhealthcare\b/i, weight: 5, kind: "keyword", label: "healthcare" },
+      { pattern: /\bnhs\b/i, weight: 5, kind: "keyword", label: "nhs" },
       { pattern: /\bclinical\b/i, weight: 4, kind: "keyword", label: "clinical" },
       { pattern: /\bpatient\b/i, weight: 4, kind: "keyword", label: "patient" },
       { pattern: /\bmri\b/i, weight: 5, kind: "keyword", label: "mri" },
@@ -224,6 +227,7 @@ export const CLIENT_VOCABULARY: ClientPattern[] = [
       { pattern: /\bnhs\b/i, weight: 5, kind: "keyword" },
       { pattern: /\bintegrated\s+care\s+board\b/i, weight: 8, kind: "phrase" },
       { pattern: /\bhealth\s+board\b/i, weight: 7, kind: "phrase" },
+      { pattern: /\btrust\b/i, weight: 2, kind: "keyword" },
     ],
   },
   {
@@ -297,6 +301,16 @@ export const CLIENT_VOCABULARY: ClientPattern[] = [
 ];
 
 export const STAGE_CONTENT_SIGNALS = {
+  detailedDesign: [
+    /\bdetailed\s+design\b/i,
+    /\btechnical\s+design\b/i,
+    /\bdesign\s+development\b/i,
+    /\bmodel\/drawing\s+development\b/i,
+    /\breinforcement\s+detailing\b/i,
+    /\bstage\s+[34]\b/i,
+    /\b(?:structural|foundation|drainage|superstructure)\s+design\b/i,
+    /\bdesign\s+(?:review|issue|coordination|information)\b/i,
+  ],
   construction: [
     /\bsteelwork\b/i,
     /\breinforcement\b/i,

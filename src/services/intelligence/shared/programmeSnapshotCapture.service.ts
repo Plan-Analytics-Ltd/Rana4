@@ -1,4 +1,4 @@
-import type { ProgrammeSnapshotRole, ProgrammeSnapshotSourceType } from "@prisma/client";
+import type { ProgrammeSnapshotRole, ProgrammeSnapshotSourceType, Prisma } from "@prisma/client";
 import { prisma } from "../../../utils/prisma.js";
 import type {
   ImportedActivityRow,
@@ -16,6 +16,21 @@ import {
 } from "./deliverableSnapshotContext.service.js";
 import { resolveWorkPackageDuration } from "./historicalDuration.service.js";
 import { diffDaysFromDates } from "./intelligenceMath.js";
+import {
+  buildEngineeringReasoningContextFromObserved,
+  EMPTY_STORED_REASONING_FIELDS,
+  ENGINEERING_REASONING_IMPORT_BUDGET_MS,
+  isEngineeringReasoningActive,
+  runBoundedEngineeringReasoning,
+  storedReasoningFieldsFromResult,
+  type StoredDeliverableReasoningFields,
+} from "../taxonomy/engineeringReasoningOrchestration.service.js";
+import {
+  clearEngineeringReasoningTelemetry,
+  getRecentEngineeringReasoningEvents,
+  summarizeEngineeringReasoningEvents,
+} from "../taxonomy/engineeringReasoningTelemetry.js";
+import { clearEngineeringReasoningCache } from "../taxonomy/engineeringReasoning.service.js";
 
 function snapshotSummaryFromRow(s: {
   id: string;
@@ -49,8 +64,13 @@ function snapshotSummaryFromRow(s: {
   };
 }
 
-export async function getNextSnapshotVersion(projectId: string, companyId: string): Promise<number> {
-  const last = await prisma.programmeSnapshot.findFirst({
+export async function getNextSnapshotVersion(
+  projectId: string,
+  companyId: string,
+  tx?: Prisma.TransactionClient
+): Promise<number> {
+  const db = tx ?? prisma;
+  const last = await db.programmeSnapshot.findFirst({
     where: { projectId, companyId },
     orderBy: { snapshotVersion: "desc" },
     select: { snapshotVersion: true },
@@ -77,8 +97,26 @@ export async function captureProgrammeSnapshot(args: {
   deliverables: Array<ImportedDeliverableRow & { deliverableId?: string }>;
   relationships: ImportedRelationshipRow[];
   matchResult: ProgrammeImportMatchResult;
-}): Promise<{ snapshotId: string; summary: SnapshotSummary }> {
-  const version = await getNextSnapshotVersion(args.projectId, args.companyId);
+  tx?: Prisma.TransactionClient;
+  /** When true, skip LLM reasoning even if the env flag is on (tests / kill-switch harness). */
+  forceRuleBasedReasoning?: boolean;
+}): Promise<{
+  snapshotId: string;
+  summary: SnapshotSummary;
+  reasoningSummary?: {
+    requested: number;
+    llmCalls: number;
+    ruleBasedFallbacks: number;
+    wallMs: number;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    budgetExceeded: boolean;
+    storedReasonedRows: number;
+  };
+}> {
+  const db = args.tx ?? prisma;
+  const version = await getNextSnapshotVersion(args.projectId, args.companyId, args.tx);
   const importSummary = {
     ...args.importSummary,
     match: args.matchResult,
@@ -87,10 +125,10 @@ export async function captureProgrammeSnapshot(args: {
   const enrichedDeliverables = enrichDeliverableRowsFromActivities(args.deliverables, args.activities);
 
   const [profile, liveDeliverables, fragnets] = await Promise.all([
-    prisma.projectIntelligenceProfile.findUnique({
+    db.projectIntelligenceProfile.findUnique({
       where: { projectId: args.projectId },
     }),
-    prisma.deliverable.findMany({
+    db.deliverable.findMany({
       where: { projectId: args.projectId, companyId: args.companyId },
       select: {
         id: true,
@@ -98,7 +136,7 @@ export async function captureProgrammeSnapshot(args: {
         fragnet: { select: { name: true } },
       },
     }),
-    prisma.fragnet.findMany({
+    db.fragnet.findMany({
       where: { projectId: args.projectId, companyId: args.companyId },
       select: { id: true, name: true },
     }),
@@ -113,7 +151,28 @@ export async function captureProgrammeSnapshot(args: {
     sourceType: args.sourceType,
   });
 
-  const deliverableCreates = await Promise.all(
+  type DeliverableCreateRow = {
+    deliverableId: string | null;
+    name: string;
+    classification: Awaited<ReturnType<typeof resolveDeliverableClassification>>;
+    plannedStart: Date | null;
+    plannedFinish: Date | null;
+    actualStart: Date | null;
+    actualFinish: Date | null;
+    totalFloat: number | null;
+    status: string | null;
+    classificationTags: object;
+    fragnetId: string | null;
+    parentWbs: string | null;
+    wbsPath: string | null;
+    stage: string | null;
+    discipline: string | null;
+    workPackageDurationDays: number | null;
+    durationBasis: string | null;
+    relatedActivityNames: string[];
+  } & StoredDeliverableReasoningFields;
+
+  const deliverableCreates: DeliverableCreateRow[] = await Promise.all(
     enrichedDeliverables.map(async (d) => {
       const classification = await resolveDeliverableClassification({
         companyId: args.companyId,
@@ -182,11 +241,102 @@ export async function captureProgrammeSnapshot(args: {
         discipline: context.discipline,
         workPackageDurationDays: workPackage.durationDays,
         durationBasis: workPackage.basis,
+        relatedActivityNames: linkedActivities
+          .map((a) => a.name?.trim())
+          .filter((name): name is string => Boolean(name)),
+        ...EMPTY_STORED_REASONING_FIELDS,
       };
     })
   );
 
-  const snapshot = await prisma.programmeSnapshot.create({
+  let reasoningSummary:
+    | {
+        requested: number;
+        llmCalls: number;
+        ruleBasedFallbacks: number;
+        wallMs: number;
+        promptTokens: number;
+        completionTokens: number;
+        totalTokens: number;
+        budgetExceeded: boolean;
+        storedReasonedRows: number;
+      }
+    | undefined;
+
+  const reasoningOptions = { forceRuleBased: args.forceRuleBasedReasoning === true };
+  if (isEngineeringReasoningActive(reasoningOptions) && deliverableCreates.length > 0) {
+    const siblingsByFragnet = new Map<string, string[]>();
+    for (const row of deliverableCreates) {
+      const key = row.parentWbs ?? row.wbsPath ?? "";
+      if (!key) continue;
+      const list = siblingsByFragnet.get(key) ?? [];
+      list.push(row.name);
+      siblingsByFragnet.set(key, list);
+    }
+
+    clearEngineeringReasoningCache();
+    clearEngineeringReasoningTelemetry();
+    const reasoningStartedAt = Date.now();
+    const { results, summary } = await runBoundedEngineeringReasoning(
+      deliverableCreates.map((row, index) => {
+        const fragnetKey = row.parentWbs ?? row.wbsPath ?? "";
+        const neighbourNames = (siblingsByFragnet.get(fragnetKey) ?? [])
+          .filter((name) => name !== row.name)
+          .slice(0, 8);
+        return {
+          key: String(index),
+          context: buildEngineeringReasoningContextFromObserved({
+            name: row.name,
+            fragnetName: row.parentWbs ?? row.wbsPath ?? null,
+            parentWbs: row.parentWbs,
+            wbsPath: row.wbsPath,
+            discipline: row.discipline,
+            classificationTags:
+              row.classificationTags != null && typeof row.classificationTags === "object"
+                ? (row.classificationTags as Record<string, unknown>)
+                : null,
+            lifecycleStage: row.stage,
+            projectContext: {
+              sector: programmeMetadata.sector,
+              projectType: programmeMetadata.projectType,
+            },
+            relatedActivityNames: row.relatedActivityNames,
+            neighbourNames,
+          }),
+        };
+      }),
+      {
+        ...reasoningOptions,
+        budgetMs: ENGINEERING_REASONING_IMPORT_BUDGET_MS,
+      }
+    );
+    const computedAt = new Date();
+    let storedReasonedRows = 0;
+    for (let index = 0; index < deliverableCreates.length; index += 1) {
+      const fields = storedReasoningFieldsFromResult(results.get(String(index)), computedAt);
+      Object.assign(deliverableCreates[index]!, fields);
+      if (fields.reasoningSource != null) storedReasonedRows += 1;
+    }
+    const telemetry = summarizeEngineeringReasoningEvents(getRecentEngineeringReasoningEvents(500));
+    reasoningSummary = {
+      requested: summary.requested,
+      llmCalls: summary.llmCalls,
+      ruleBasedFallbacks: summary.ruleBasedFallbacks,
+      wallMs: Date.now() - reasoningStartedAt,
+      promptTokens: telemetry.promptTokens || summary.promptTokens,
+      completionTokens: telemetry.completionTokens || summary.completionTokens,
+      totalTokens: telemetry.totalTokens || summary.totalTokens,
+      budgetExceeded: summary.budgetExceeded,
+      storedReasonedRows,
+    };
+  }
+
+  // Strip capture-only helper fields before Prisma create.
+  const deliverableSnapshotCreates = deliverableCreates.map(
+    ({ relatedActivityNames: _related, ...row }) => row
+  );
+
+  const snapshot = await db.programmeSnapshot.create({
     data: {
       projectId: args.projectId,
       companyId: args.companyId,
@@ -231,11 +381,12 @@ export async function captureProgrammeSnapshot(args: {
           freeFloat: a.freeFloatDays != null ? Math.round(a.freeFloatDays) : null,
           isCritical: a.isCritical ?? false,
           status: a.status ?? null,
+          p6TaskType: a.p6TaskType?.trim().slice(0, 32) || null,
           classificationTags: (a.classificationTags ?? {}) as object,
         })),
       },
       deliverableSnapshots: {
-        create: deliverableCreates,
+        create: deliverableSnapshotCreates,
       },
       relationshipSnapshots: {
         create: args.relationships.map((r) => ({
@@ -255,6 +406,7 @@ export async function captureProgrammeSnapshot(args: {
   return {
     snapshotId: snapshot.id,
     summary: snapshotSummaryFromRow(snapshot),
+    reasoningSummary,
   };
 }
 
@@ -272,12 +424,59 @@ export async function listProjectSnapshots(
   return rows.map((s) => snapshotSummaryFromRow(s));
 }
 
+/**
+ * Capture the baseline programme revision directly from parsed import data (XER / JSON).
+ * Preserves Primavera durations exactly — does not copy live bootstrap floors.
+ */
+export async function captureBaselineSnapshotFromImport(args: {
+  projectId: string;
+  companyId: string;
+  userId?: string;
+  label: string;
+  sourceFileName?: string;
+  programmeDisplayName?: string;
+  scheduleDate?: Date;
+  activities: Array<
+    ImportedActivityRow & {
+      activityId?: string;
+      deliverableId?: string;
+      fragnetId?: string;
+    }
+  >;
+  deliverables: Array<ImportedDeliverableRow & { deliverableId?: string }>;
+  relationships: ImportedRelationshipRow[];
+  matchResult: ProgrammeImportMatchResult;
+  metrics?: Record<string, unknown>;
+}): Promise<{ snapshotId: string; summary: SnapshotSummary }> {
+  return captureProgrammeSnapshot({
+    projectId: args.projectId,
+    companyId: args.companyId,
+    userId: args.userId,
+    sourceType: "XER_IMPORT",
+    snapshotRole: "BASELINE",
+    scheduleDate: args.scheduleDate,
+    label: args.label,
+    sourceFileName: args.sourceFileName,
+    importSummary: {
+      ...(args.programmeDisplayName ? { programmeDisplayName: args.programmeDisplayName } : {}),
+      createdFromProjectImport: true,
+      capturedFromImportData: true,
+    },
+    activities: args.activities,
+    deliverables: args.deliverables,
+    relationships: args.relationships,
+    matchResult: args.matchResult,
+    metrics: args.metrics,
+  });
+}
+
 /** Capture live programme state as baseline without file import. */
 export async function captureLiveBaselineSnapshot(
   projectId: string,
   companyId: string,
   userId?: string,
-  label = "Generated baseline"
+  label = "Generated baseline",
+  options?: { sourceFileName?: string; programmeDisplayName?: string }
 ): Promise<{ snapshotId: string; summary: SnapshotSummary }> {
   const activities = await prisma.activity.findMany({
     where: { projectId, companyId },
@@ -298,6 +497,7 @@ export async function captureLiveBaselineSnapshot(
       freeFloat: true,
       isCritical: true,
       status: true,
+      p6TaskType: true,
     },
   });
 
@@ -340,6 +540,7 @@ export async function captureLiveBaselineSnapshot(
     freeFloatDays: a.freeFloat ?? undefined,
     isCritical: a.isCritical,
     status: a.status,
+    p6TaskType: a.p6TaskType ?? undefined,
   }));
 
   return captureProgrammeSnapshot({
@@ -349,6 +550,13 @@ export async function captureLiveBaselineSnapshot(
     sourceType: "BASELINE_GENERATED",
     snapshotRole: "BASELINE",
     label,
+    sourceFileName: options?.sourceFileName,
+    importSummary: {
+      ...(options?.programmeDisplayName
+        ? { programmeDisplayName: options.programmeDisplayName }
+        : {}),
+      createdFromProjectImport: true,
+    },
     activities: importedActivities,
     deliverables: deliverables.map((d) => ({ name: d.name, deliverableId: d.id })),
     relationships: liveRels,

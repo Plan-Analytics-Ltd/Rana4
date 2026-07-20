@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
 import {
   ChevronsDownUp,
   ChevronsUpDown,
@@ -48,12 +47,6 @@ import {
   relationshipHealthIssues,
   type WorkspaceRow,
 } from "@/lib/schedule-workspace-data";
-import { ProgrammeIntelligencePanel } from "@/components/schedule/intelligence/programme-intelligence-panel";
-import { ProjectHistoryLibrary } from "@/components/intelligence/project-history-library";
-import { ProjectHealthBar } from "@/components/intelligence/project-health-bar";
-import { useIntelligenceMode } from "@/contexts/intelligence-mode-context";
-import { useIntelligenceDrawer } from "@/contexts/intelligence-drawer-context";
-import { useDeliverableIntelligenceCache } from "@/lib/use-deliverable-intelligence-cache";
 
 const COLLAPSE_KEY = "rana4-schedule-collapse";
 
@@ -107,10 +100,7 @@ export default function SchedulePage() {
 
 function ScheduleWorkspacePage() {
   const { selectedProjectId, selectedProject, selectedProjectRole } = useProject();
-  const { isIntelligenceMode } = useIntelligenceMode();
-  const searchParams = useSearchParams();
   const mayEdit = hasPermission(selectedProjectRole, "activity", "update");
-  const [scheduleView, setScheduleView] = useState<"library" | "workspace">("library");
 
   const [loading, setLoading] = useState(false);
   const [fullData, setFullData] = useState<ProjectFullData | null>(null);
@@ -319,16 +309,6 @@ function ScheduleWorkspacePage() {
     [fullData]
   );
 
-  const scheduleDeliverableIds = useMemo(() => {
-    if (!fullData) return [];
-    return fullData.fragnets.flatMap((f) => f.deliverables.map((d) => d.id));
-  }, [fullData]);
-
-  const { snapshots: deliverableIntelById } = useDeliverableIntelligenceCache(
-    selectedProjectId,
-    scheduleDeliverableIds
-  );
-  const { openInsight } = useIntelligenceDrawer();
   const critCount = criticalSet.size;
 
   const logicClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -361,45 +341,8 @@ function ScheduleWorkspacePage() {
     setLogicSuccNodeId(nodeId);
   }, []);
 
-  useEffect(() => {
-    const view = searchParams.get("view");
-    if (view === "workspace" || view === "library") {
-      setScheduleView(view);
-      return;
-    }
-    if (isIntelligenceMode) setScheduleView("library");
-  }, [searchParams, isIntelligenceMode, selectedProjectId]);
-
   return (
-    <div className="space-y-4">
-      <ProjectHealthBar projectId={selectedProjectId} />
-
-      {isIntelligenceMode && selectedProjectId ? (
-        <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3 dark:border-slate-700">
-          <Button
-            type="button"
-            size="sm"
-            variant={scheduleView === "library" ? "default" : "outline"}
-            onClick={() => setScheduleView("library")}
-          >
-            Project evolution
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant={scheduleView === "workspace" ? "default" : "outline"}
-            onClick={() => setScheduleView("workspace")}
-          >
-            Current programme
-          </Button>
-        </div>
-      ) : null}
-
-      {isIntelligenceMode && scheduleView === "library" && selectedProjectId ? (
-        <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-          <ProjectHistoryLibrary projectId={selectedProjectId} projectName={selectedProject?.name} />
-        </div>
-      ) : (
+    <div>
     <div className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-slate-300 bg-slate-50 dark:border-slate-700 dark:bg-slate-950">
       <header className="flex flex-wrap items-center gap-2 border-b border-slate-300 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
         <div className="min-w-0 flex-1">
@@ -523,11 +466,6 @@ function ScheduleWorkspacePage() {
                     },
                   })
                 }
-                deliverableIntelById={deliverableIntelById}
-                onDeliverableIntelClick={(deliverableId, deliverableName) => {
-                  if (!selectedProjectId) return;
-                  openInsight({ projectId: selectedProjectId, deliverableId, deliverableName });
-                }}
               />
             }
             right={
@@ -582,11 +520,7 @@ function ScheduleWorkspacePage() {
         </div>
       )}
 
-      {selectedProjectId && (!isIntelligenceMode || scheduleView === "workspace") && (
-        <ProgrammeIntelligencePanel projectId={selectedProjectId} canEdit={mayEdit} />
-      )}
     </div>
-      )}
     </div>
   );
 }

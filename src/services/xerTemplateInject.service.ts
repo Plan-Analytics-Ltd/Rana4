@@ -16,6 +16,7 @@ import {
 const P6_TASK_ID_BAND_START = 1_450_000_000;
 const P6_TASK_ID_BAND_LIMIT = 80_000_000;
 import type { P6PendingSemanticTaskRow, P6TaskPredExportRow } from "./export.service.js";
+import { resolveP6TaskTypeForExport } from "./p6TaskType.service.js";
 import { buildP6TaskRsrcAndTaskPredSections } from "./p6XerScheduleTables.service.js";
 import { assertValidGeneratedXer } from "./p6XerExportValidation.service.js";
 
@@ -42,7 +43,19 @@ function joinRow(tokens: string[]): string {
 
 function cleanCell(v: string | number | null | undefined): string {
   if (v === null || v === undefined) return "";
-  return String(v).replace(/\t/g, " ").replace(/\r?\n/g, " ").trim();
+  return toXerSafeText(String(v).replace(/\t/g, " ").replace(/\r?\n/g, " ").trim());
+}
+
+/** XER is not UTF-8-safe in P6; map common Unicode punctuation to ASCII. */
+function toXerSafeText(value: string): string {
+  return value
+    .replace(/\u2014/g, "--") // em dash —
+    .replace(/\u2013/g, "-") // en dash –
+    .replace(/\u2212/g, "-") // minus −
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/\u2026/g, "...")
+    .replace(/\u00A0/g, " ");
 }
 
 function appendBeforeEof(lines: string[], appended: string[]): string[] {
@@ -283,6 +296,7 @@ function taskXerRowFromSemantic(input: {
   taskCode: string;
   taskName: string;
   durationHours: number;
+  p6TaskType?: string | null;
 }): string {
   const v: Record<string, string | number> = {};
   v.task_id = input.taskId;
@@ -295,7 +309,7 @@ function taskXerRowFromSemantic(input: {
   v.lock_plan_flag = "N";
   v.auto_compute_act_flag = "Y";
   v.complete_pct_type = "CP_Drtn";
-  v.task_type = "TT_Task";
+  v.task_type = resolveP6TaskTypeForExport(input.p6TaskType);
   v.duration_type = "DT_FixedDUR2";
   v.status_code = "TK_NotStart";
   v.task_code = input.taskCode;
@@ -471,6 +485,7 @@ function appendP6ActivityTaskTables(params: {
           taskCode,
           taskName,
           durationHours: Math.max(1, Math.round(dur)),
+          p6TaskType: row.p6TaskType,
         })
       );
 

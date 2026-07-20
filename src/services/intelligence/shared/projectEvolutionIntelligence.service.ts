@@ -256,42 +256,42 @@ function buildHowChangedSummary(args: {
   const { changePattern, firstMeaningfulChange, latestMeaningfulChange, largestSingleRevisionChange, longestStablePeriod, baseline, latest, netChange } = args;
 
   if (changePattern === "STABLE" && baseline != null) {
-    parts.push(`Duration remained at ${baseline} days across the imported revisions.`);
+    parts.push(`Remaining work remained at ${baseline} days across the imported revisions.`);
   } else if (changePattern === "GRADUAL" && baseline != null && latest != null && netChange != null) {
     parts.push(
-      `Duration ${formatDirection(netChange)} gradually from ${baseline} to ${latest} days across several revisions.`
+      `Remaining work ${formatDirection(netChange)} gradually from ${baseline} to ${latest} days across several revisions.`
     );
   } else if (changePattern === "SUDDEN" && largestSingleRevisionChange) {
     parts.push(
-      `Most change happened in one step at ${largestSingleRevisionChange.revisionLabel}, where duration ${formatDirection(largestSingleRevisionChange.changeDays)} from ${largestSingleRevisionChange.fromDays} to ${largestSingleRevisionChange.toDays} days.`
+      `Most change happened in one step at ${largestSingleRevisionChange.revisionLabel}, where remaining work ${formatDirection(largestSingleRevisionChange.changeDays)} from ${largestSingleRevisionChange.fromDays} to ${largestSingleRevisionChange.toDays} days.`
     );
   } else if (changePattern === "OSCILLATING" && baseline != null && latest != null) {
-    parts.push(`Duration moved up and down between revisions, ending at ${latest} days from a ${baseline}-day baseline.`);
+    parts.push(`Remaining work moved up and down between revisions, ending at ${latest} days from a ${baseline}-day baseline.`);
   }
 
   if (longestStablePeriod && longestStablePeriod.revisionCount >= 2 && changePattern !== "STABLE") {
     parts.push(
-      `Duration stayed at ${longestStablePeriod.durationDays} days from ${longestStablePeriod.startLabel} through ${longestStablePeriod.endLabel}.`
+      `Remaining work stayed at ${longestStablePeriod.durationDays} days from ${longestStablePeriod.startLabel} through ${longestStablePeriod.endLabel}.`
     );
   }
 
   if (firstMeaningfulChange && latestMeaningfulChange) {
     if (firstMeaningfulChange.revisionLabel !== latestMeaningfulChange.revisionLabel) {
       parts.push(
-        `First change at ${firstMeaningfulChange.revisionLabel}; latest change at ${latestMeaningfulChange.revisionLabel}.`
+        `First remaining-work change at ${firstMeaningfulChange.revisionLabel}; latest change at ${latestMeaningfulChange.revisionLabel}.`
       );
     }
   } else if (firstMeaningfulChange) {
-    parts.push(`First duration change appeared at ${firstMeaningfulChange.revisionLabel}.`);
+    parts.push(`First remaining-work change appeared at ${firstMeaningfulChange.revisionLabel}.`);
   }
 
   if (parts.length === 0 && baseline != null && latest != null && netChange != null && netChange !== 0) {
-    parts.push(`Duration moved from ${baseline} to ${latest} days across the revision history.`);
+    parts.push(`Remaining work moved from ${baseline} to ${latest} days across the revision history.`);
   }
 
   if (parts.length === 0) return null;
 
-  return `${parts.join(" ")} The imported programme history does not record why those planning decisions were made.`;
+  return `${parts.join(" ")} The imported programme history does not record why remaining work changed.`;
 }
 
 function buildPlannerObservations(args: {
@@ -324,18 +324,18 @@ function buildPlannerObservations(args: {
   }
 
   if (changePattern === "STABLE" && baseline != null) {
-    observations.push(`Duration stayed at ${baseline} days across all imported revisions.`);
+    observations.push(`Remaining work stayed at ${baseline} days across all imported revisions.`);
     return observations;
   }
 
   if (changePattern === "GRADUAL" && netChange != null && netChange < 0) {
-    observations.push("Duration reduced steadily throughout the project.");
+    observations.push("Remaining work reduced steadily throughout the project.");
   } else if (changePattern === "GRADUAL" && netChange != null && netChange > 0) {
-    observations.push("Duration grew steadily throughout the project.");
+    observations.push("Remaining work grew steadily throughout the project.");
   }
 
   if (changePattern === "SUDDEN" && largestSingleRevisionChange) {
-    observations.push("Most duration change occurred in a single revision.");
+    observations.push("Most remaining-work change occurred in a single revision.");
   }
 
   if (longestStablePeriod && longestStablePeriod.startRevisionIndex === resolved[0]?.index) {
@@ -367,16 +367,16 @@ function buildPlannerObservations(args: {
 
   if (changePace === "MOSTLY_DECREASED" && meaningfulChanges.length >= 2) {
     const allNegative = meaningfulChanges.every((r) => (r.changeDays ?? 0) < 0);
-    if (allNegative) observations.push("Revisions mostly reduced duration step by step.");
+    if (allNegative) observations.push("Revisions mostly reduced remaining work step by step.");
   }
 
   if (changePace === "MOSTLY_INCREASED" && meaningfulChanges.length >= 2) {
     const allPositive = meaningfulChanges.every((r) => (r.changeDays ?? 0) > 0);
-    if (allPositive) observations.push("Revisions mostly increased duration step by step.");
+    if (allPositive) observations.push("Revisions mostly increased remaining work step by step.");
   }
 
   if (firstMeaningfulChange == null && baseline != null) {
-    observations.push("No meaningful duration changes were made after baseline.");
+    observations.push("No meaningful remaining-work changes were made after baseline.");
   }
 
   return [...new Set(observations)];
@@ -476,7 +476,7 @@ function buildMajorEvents(args: {
       type: "FIRST_DURATION_CHANGE",
       revisionIndex: firstMeaningfulChange.revisionIndex,
       revisionLabel: firstMeaningfulChange.revisionLabel,
-      description: `First duration change: ${firstMeaningfulChange.fromDays} → ${firstMeaningfulChange.toDays} days.`,
+      description: `First remaining-work change: ${firstMeaningfulChange.fromDays} → ${firstMeaningfulChange.toDays} days.`,
     });
   }
   if (latestMeaningfulChange && latestMeaningfulChange.revisionLabel !== firstMeaningfulChange?.revisionLabel) {
@@ -484,7 +484,7 @@ function buildMajorEvents(args: {
       type: "FINAL_DURATION_CHANGE",
       revisionIndex: latestMeaningfulChange.revisionIndex,
       revisionLabel: latestMeaningfulChange.revisionLabel,
-      description: `Latest duration change: ${latestMeaningfulChange.fromDays} → ${latestMeaningfulChange.toDays} days.`,
+      description: `Latest remaining-work change: ${latestMeaningfulChange.fromDays} → ${latestMeaningfulChange.toDays} days.`,
     });
   }
   if (largestIncrease) {
@@ -492,7 +492,7 @@ function buildMajorEvents(args: {
       type: "LARGEST_INCREASE",
       revisionIndex: largestIncrease.revisionIndex,
       revisionLabel: largestIncrease.revisionLabel,
-      description: `Largest increase: +${largestIncrease.changeDays} days.`,
+      description: `Largest remaining-work increase: +${largestIncrease.changeDays} days.`,
     });
   }
   if (largestReduction) {
@@ -500,7 +500,7 @@ function buildMajorEvents(args: {
       type: "LARGEST_REDUCTION",
       revisionIndex: largestReduction.revisionIndex,
       revisionLabel: largestReduction.revisionLabel,
-      description: `Largest reduction: ${largestReduction.changeDays} days.`,
+      description: `Largest remaining-work reduction: ${largestReduction.changeDays} days.`,
     });
   }
   if (longestStablePeriod) {
@@ -508,7 +508,7 @@ function buildMajorEvents(args: {
       type: "LONGEST_STABLE_PERIOD",
       revisionIndex: longestStablePeriod.startRevisionIndex,
       revisionLabel: longestStablePeriod.startLabel,
-      description: `${longestStablePeriod.revisionCount} revisions at ${longestStablePeriod.durationDays} days (${longestStablePeriod.startLabel} – ${longestStablePeriod.endLabel}).`,
+      description: `${longestStablePeriod.revisionCount} revisions at ${longestStablePeriod.durationDays} days remaining (${longestStablePeriod.startLabel} – ${longestStablePeriod.endLabel}).`,
     });
   }
   const peakRev = peak != null ? resolved.find((r) => r.durationDays === peak) : undefined;
@@ -517,7 +517,7 @@ function buildMajorEvents(args: {
       type: "PEAK_DURATION",
       revisionIndex: peakRev.index,
       revisionLabel: peakRev.label,
-      description: `Peak duration: ${peak} days.`,
+      description: `Peak remaining work: ${peak} days.`,
     });
   }
   const minRev = minimum != null ? resolved.find((r) => r.durationDays === minimum) : undefined;
@@ -526,7 +526,7 @@ function buildMajorEvents(args: {
       type: "LOWEST_DURATION",
       revisionIndex: minRev.index,
       revisionLabel: minRev.label,
-      description: `Lowest duration: ${minimum} days.`,
+      description: `Lowest remaining work: ${minimum} days.`,
     });
   }
 
@@ -546,10 +546,10 @@ function buildSummary(args: {
     return "Only one programme revision is imported so far.";
   }
   if (baseline == null || latest == null) {
-    return `${revisionCount} programme revisions imported, but duration is not fully recorded.`;
+    return `${revisionCount} programme revisions imported, but remaining work is not fully recorded.`;
   }
   if (netChange === 0 || changePattern === "STABLE") {
-    return `Duration stayed at ${latest} days across ${revisionCount} programme revisions on this project.`;
+    return `Remaining work stayed at ${latest} days across ${revisionCount} programme revisions on this project.`;
   }
   const direction = netChange! > 0 ? "grew" : "reduced";
   const patternPhrase =
@@ -561,7 +561,7 @@ function buildSummary(args: {
           ? "with ups and downs"
           : "";
   const patternText = patternPhrase ? `, ${patternPhrase},` : "";
-  return `Duration ${direction} from ${baseline} to ${latest} days${patternText} across ${revisionCount} programme revisions on this project.`;
+  return `Remaining work ${direction} from ${baseline} to ${latest} days${patternText} across ${revisionCount} programme revisions on this project.`;
 }
 
 /** Deterministic planner intelligence derived from imported revision evidence only. */

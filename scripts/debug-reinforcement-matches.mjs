@@ -4,7 +4,7 @@ import { getSimilarDeliverables } from "../dist/services/intelligence/shared/sim
 import { DEFAULT_MIN_COMPARABLE_SIMILARITY } from "../dist/services/intelligence/matching/similarityWeights.config.js";
 
 const prisma = new PrismaClient();
-const projectId = "cmr1ztdj50001sybs8jbn4qf4"; // REDACTED-SITE Emergency Care Building
+const projectId = "cmr1ztdj50001sybs8jbn4qf4"; // seeded healthcare project
 const companyId = "cmo8dvlc10000syx0861h1zr5";
 const deliverableId = process.argv[2] ?? "c9ac0980-867b-4c48-b0ed-8a9bac5b4c18";
 
