@@ -98,7 +98,10 @@ test("different engineering objects reject otherwise similar work", () => {
       candidate: "Detailed Design - Foundation Drawing Pack",
       targetFragnet: "Structural Design",
       candidateFragnet: "Detailed Design",
-      rejectedBy: ["ENGINEERING_OBJECT", "ENGINEERING_WORK"],
+      // deliverableType is now a soft-identity gate: "General Arrangement" vs
+      // "Drawing" is a real, resolved conflict here, so it rejects alongside
+      // object/work rather than being silently ignored as a mere descriptor.
+      rejectedBy: ["ENGINEERING_OBJECT", "ENGINEERING_WORK", "DELIVERABLE_TYPE"],
     },
   ];
 

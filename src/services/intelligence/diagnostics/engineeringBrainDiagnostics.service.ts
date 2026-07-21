@@ -403,11 +403,15 @@ export const DEFAULT_CONSISTENCY_PROBES: ConsistencyProbe[] = [
   {
     concept: "Reinforcement Detailing",
     fragnetName: "Structures",
+    // "Reinforcement Detail Drawings" deliberately excluded: "Detail Drawings" is a
+    // drawing/design-production deliverable, not the detailing activity itself. It
+    // used to collapse onto this probe only because the old engineeringWork regex
+    // matched "detail" as well as "detailing" — the same bug that misclassified bare
+    // "Detailed Design" deliverables. Correctly resolves to a different signature now.
     variants: [
       "Reinforcement Detailing",
       "Produce Reinforcement Detailing",
       "Rebar Detailing",
-      "Reinforcement Detail Drawings",
     ],
   },
   {

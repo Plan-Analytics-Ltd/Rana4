@@ -76,7 +76,14 @@ export type EngineeringIdentityComparisonComponent =
 
 export type EngineeringIdentityComparisonCheck = {
   component: EngineeringIdentityComparisonComponent;
-  role: "IDENTITY" | "DESCRIPTOR";
+  // IDENTITY: gates on both MISMATCH and UNKNOWN (core discipline/object/work).
+  // SOFT_IDENTITY: gates only on a confirmed MISMATCH; an UNKNOWN (either side
+  //   unresolved) does not block equivalence on its own. Used for
+  //   deliverableType, where a definite conflict (drawing vs. report) is a
+  //   real signal that two deliverables are different things, but an
+  //   unresolved type on one side shouldn't veto an otherwise-sound match.
+  // DESCRIPTOR: informational only, never gates.
+  role: "IDENTITY" | "SOFT_IDENTITY" | "DESCRIPTOR";
   target: string | null;
   candidate: string | null;
   result: "MATCH" | "MISMATCH" | "UNKNOWN";
@@ -276,7 +283,13 @@ function resolveEngineeringWork(
   const documentType = extractDocumentType(normalised);
   const explicitRules: Array<{ id: string; label: string; pattern: RegExp }> = [
     { id: "analysis", label: "Analysis", pattern: /\banalys(?:is|es)\b/i },
-    { id: "detailing", label: "Detailing", pattern: /\bdetail(?:ing|ed)?\b/i },
+    // "detailing" (noun/gerund) names an actual production work activity
+    // (e.g. "Reinforcement Detailing"). "Detailed" is an adjective that only
+    // ever appears here as the RIBA stage descriptor "Detailed Design" — it
+    // does not describe a work TYPE and must not be conflated with detailing
+    // work. Matching both under one pattern misclassified every bare
+    // "Detailed Design" deliverable as detailing work.
+    { id: "detailing", label: "Detailing", pattern: /\bdetailing\b/i },
     { id: "general_arrangement", label: "General Arrangement", pattern: /\bgeneral arrangements?\b/i },
     { id: "calculation", label: "Calculation", pattern: /\bcalc(?:ulation)?s?\b/i },
     { id: "coordination", label: "Coordination", pattern: /\bcoordinat(?:e|ion|ing)\b/i },
@@ -516,7 +529,7 @@ export function compareEngineeringIdentities(
     ),
     compareComponent(
       "DELIVERABLE_TYPE",
-      "DESCRIPTOR",
+      "SOFT_IDENTITY",
       target.deliverableType,
       candidate.deliverableType
     ),
@@ -540,7 +553,14 @@ export function compareEngineeringIdentities(
     ),
   ];
   const identityChecks = checks.filter((check) => check.role === "IDENTITY");
-  const rejectedBy = identityChecks
+  const gatingChecks = checks.filter(
+    (check) => check.role === "IDENTITY" || check.role === "SOFT_IDENTITY"
+  );
+  // Any gating check (hard or soft identity) that definitively conflicts rejects
+  // equivalence. Only the hard IDENTITY checks (discipline/object/work) also
+  // reject on UNKNOWN — a soft identity check left unresolved on either side is
+  // not treated as a conflict.
+  const rejectedBy = gatingChecks
     .filter((check) => check.result === "MISMATCH")
     .map((check) => check.component);
   const hasUnknownIdentity = identityChecks.some((check) => check.result === "UNKNOWN");

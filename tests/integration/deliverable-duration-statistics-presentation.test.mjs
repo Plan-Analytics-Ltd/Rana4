@@ -840,10 +840,14 @@ test("uniform deliverable names still pool into historical statistics", () => {
 
 test("legitimate reinforcement wording variants still match via engineering identity", () => {
   const targetName = "Reinforcement Detailing";
-  const variantNames = ["Rebar Detailing", "Reinforcement Detail Drawings"];
-  // Pre-fix baselines (naive Jaccard, no stemming / no vocab): 0.333 and 0.25.
+  // "Reinforcement Detail Drawings" used to be included here, but it names a
+  // drawing/design-production deliverable, not detailing work — it only matched
+  // before because the engineeringWork regex conflated "detail" with "detailing"
+  // (the same bug behind bare "Detailed Design" being misclassified). Both
+  // variants below still resolve to the same engineering identity as the target.
+  const variantNames = ["Rebar Detailing", "Produce Reinforcement Detailing"];
+  // Pre-fix baseline (naive Jaccard, no stemming / no vocab) for the surviving case.
   const BEFORE_REBAR = 1 / 3;
-  const BEFORE_DRAWINGS = 0.25;
 
   const liveProjects = variantNames.map((name, index) => ({
     projectId: `wording-variant-${index}`,
@@ -871,23 +875,52 @@ test("legitimate reinforcement wording variants still match via engineering iden
   assert.equal(item.statistics.averageDays, 10);
 
   const rebarScore = nameSimilarity(targetName, "Rebar Detailing");
-  const drawingsScore = nameSimilarity(targetName, "Reinforcement Detail Drawings");
+  const producedScore = nameSimilarity(targetName, "Produce Reinforcement Detailing");
 
   console.log(
-    `[wording-variant] BEFORE rebar=${BEFORE_REBAR.toFixed(3)} drawings=${BEFORE_DRAWINGS.toFixed(3)}; ` +
-      `AFTER rebar=${rebarScore.toFixed(3)} drawings=${drawingsScore.toFixed(3)}`
+    `[wording-variant] BEFORE rebar=${BEFORE_REBAR.toFixed(3)}; ` +
+      `AFTER rebar=${rebarScore.toFixed(3)} produced=${producedScore.toFixed(3)}`
   );
 
   assert.ok(rebarScore > BEFORE_REBAR, `rebar score should improve on ${BEFORE_REBAR}`);
-  assert.ok(drawingsScore > BEFORE_DRAWINGS, `drawings score should improve on ${BEFORE_DRAWINGS}`);
   assert.ok(
     rebarScore >= LOW_NAME_CONSISTENCY_THRESHOLD,
     `rebar should clear threshold (${LOW_NAME_CONSISTENCY_THRESHOLD}), got ${rebarScore}`
   );
   assert.ok(
-    drawingsScore >= LOW_NAME_CONSISTENCY_THRESHOLD,
-    `drawings should clear threshold (${LOW_NAME_CONSISTENCY_THRESHOLD}), got ${drawingsScore}`
+    producedScore >= LOW_NAME_CONSISTENCY_THRESHOLD,
+    `produced-reinforcement-detailing should clear threshold (${LOW_NAME_CONSISTENCY_THRESHOLD}), got ${producedScore}`
   );
+});
+
+test("regression: 'Reinforcement Detail Drawings' no longer pools with 'Reinforcement Detailing'", () => {
+  // Locks in the engineeringWork regex fix: "Detail Drawings" is a drawing/design
+  // deliverable (work=design), genuinely different from the detailing activity
+  // itself (work=detailing). They must not be treated as equivalent.
+  const targetName = "Reinforcement Detailing";
+  const [item] = computeStrictOriginalDurationItems(
+    [{ ...persistedTarget, name: targetName }],
+    [],
+    [
+      {
+        projectId: "drawings-variant",
+        projectName: "Drawings Variant Project",
+        deliverables: [
+          {
+            deliverableId: "drawings-variant-deliverable",
+            name: "Reinforcement Detail Drawings",
+            classification: "DESIGN",
+            fragnetName: "Structures",
+            bestDuration: 80,
+            activities: [],
+          },
+        ],
+      },
+    ]
+  );
+
+  assert.equal(item.statistics.available, false);
+  assert.equal(item.unavailableReason, "NO_MATCHING_DELIVERABLES");
 });
 
 test("Meetings plural/singular stemming lifts live 0% similarity pair", () => {
