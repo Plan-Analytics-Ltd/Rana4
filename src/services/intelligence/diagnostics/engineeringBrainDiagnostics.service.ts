@@ -63,6 +63,11 @@ import {
   type InboxReasonDetail,
   type WhyExplanation,
 } from "./engineeringBrainReview.js";
+import {
+  computeEngineeringRuleProposalCandidates,
+  persistEngineeringRuleProposals,
+  type EngineeringRuleProposalCandidate,
+} from "./engineeringRuleProposal.service.js";
 
 /* -------------------------------------------------------------------------- */
 /* Inputs                                                                     */
@@ -360,6 +365,10 @@ export type EngineeringBrainDiagnosticsReport = {
   unknownObjects: UnknownConcept[];
   unknownWork: UnknownConcept[];
   candidateLearning: CandidateLearning[];
+  /** Scored, thresholded rule-proposal candidates derived from
+   * `candidateLearning` (spec section 5). Persisted to `EngineeringRuleProposal`
+   * by the DB-touching wrapper immediately after this report is computed. */
+  ruleProposalCandidates: EngineeringRuleProposalCandidate[];
   reasoningDrift: ReasoningDrift[];
   maturity: EngineeringMaturity;
   topOpportunities: LearningOpportunity[];
@@ -637,7 +646,16 @@ export async function computeEngineeringBrainDiagnostics(
     objectIdsBySubject.set(record.subject.key, set);
   }
 
-  function unknownConcepts(kind: UnknownConcept["kind"]): UnknownConcept[] {
+  // Extra field carried alongside each UnknownConcept, scoped to this
+  // function only: the subject key it was grouped by, and the raw member
+  // records that contributed to it. UnknownConcept stays structurally
+  // unchanged for external consumers (frontend dashboard) — this is purely
+  // an internal bookkeeping aid so step 5b (rule proposal generation) can
+  // trace a candidate back to the specific deliverables/fingerprints behind
+  // it without having to reverse-engineer a label back into a subject key.
+  type UnknownConceptWithGroup = UnknownConcept & { subjectKey: string; group: Record[] };
+
+  function unknownConcepts(kind: UnknownConcept["kind"]): UnknownConceptWithGroup[] {
     const unknownRecords = records.filter((record) =>
       kind === "ENGINEERING_OBJECT"
         ? record.identity.engineeringObject.id == null
@@ -675,26 +693,72 @@ export async function computeEngineeringBrainDiagnostics(
                 )
             ),
           ],
+          subjectKey: key,
+          group,
         };
       })
       .sort((a, b) => b.occurrences - a.occurrences || b.projects - a.projects);
   }
 
-  const unknownObjects = unknownConcepts("ENGINEERING_OBJECT");
-  const unknownWork = unknownConcepts("ENGINEERING_WORK");
+  // `unknownConcepts()` attaches `subjectKey`/`group` bookkeeping (see the
+  // `UnknownConceptWithGroup` comment above) so step 5b can trace a candidate
+  // back to its member records. That bookkeeping must never reach the public
+  // report: each `group` entry carries a `Record`, and `Record.durationMs` is
+  // measured from `process.hrtime.bigint()` — real wall-clock time that is
+  // never identical between two calls, even with byte-identical inputs. If
+  // `UnknownConceptWithGroup` objects were assigned to the report's
+  // `unknownObjects`/`unknownWork` fields as-is (TypeScript's structural
+  // typing doesn't strip excess properties at runtime), the report would
+  // carry that non-deterministic timing several layers deep and silently
+  // break `computeEngineeringBrainDiagnostics` determinism (e.g. the
+  // forceRuleBased kill-switch tests, which assert two calls produce
+  // byte-identical reports). Strip the bookkeeping back down to the public
+  // `UnknownConcept` shape before it leaves this function.
+  function stripGroupBookkeeping(concept: UnknownConceptWithGroup): UnknownConcept {
+    const { subjectKey: _subjectKey, group: _group, ...publicFields } = concept;
+    return publicFields;
+  }
+
+  const unknownObjectsWithGroups = unknownConcepts("ENGINEERING_OBJECT");
+  const unknownWorkWithGroups = unknownConcepts("ENGINEERING_WORK");
+  const unknownObjects: UnknownConcept[] = unknownObjectsWithGroups.map(stripGroupBookkeeping);
+  const unknownWork: UnknownConcept[] = unknownWorkWithGroups.map(stripGroupBookkeeping);
 
   /* 5. Candidate learning (observation only — never auto-promoted). */
-  const candidateLearning: CandidateLearning[] = unknownObjects
+  const candidateLearningConcepts = unknownObjectsWithGroups
     .filter((concept) => concept.occurrences >= 3 || concept.projects >= 2)
-    .slice(0, 25)
-    .map((concept) => ({
-      candidate: concept.concept,
-      kind: "ENGINEERING_OBJECT",
-      observed: concept.occurrences,
-      projects: concept.projects,
-      consistency: concept.confidence,
-      contradictions: concept.contradictions,
-    }));
+    .slice(0, 25);
+  const candidateLearning: CandidateLearning[] = candidateLearningConcepts.map((concept) => ({
+    candidate: concept.concept,
+    kind: "ENGINEERING_OBJECT",
+    observed: concept.occurrences,
+    projects: concept.projects,
+    consistency: concept.confidence,
+    contradictions: concept.contradictions,
+  }));
+
+  /* 5b. Rule proposal candidates (spec section 5) — cross-reference confirmed
+   * ground truth, score, draft a pattern for each OBJECT-kind candidate above.
+   * Pure computation; the DB-touching wrapper (`getEngineeringBrainDiagnostics`)
+   * persists these to `EngineeringRuleProposal` immediately after calling this
+   * function, since companyId is not available at this pure-compute layer
+   * (this function has no DB access and is exercised directly in tests
+   * without a companyId). Scope: ENGINEERING_OBJECT only — see module-level
+   * comment in engineeringRuleProposal.service.ts. */
+  const ruleProposalCandidates: EngineeringRuleProposalCandidate[] = computeEngineeringRuleProposalCandidates({
+    clusters: candidateLearningConcepts.map((concept) => ({
+      subjectKey: concept.subjectKey,
+      conceptLabel: concept.concept,
+      occurrences: concept.occurrences,
+      projectCount: concept.projects,
+      members: concept.group.map((record) => ({
+        fingerprint: engineeringIdentityFingerprint(record.subject.key, record.identity),
+        deliverableName: record.observed.name,
+        projectId: record.observed.projectId,
+      })),
+    })),
+    decisions,
+  });
 
   /* 6. Top opportunities — "If I had to learn one thing today...". */
   const topOpportunities: LearningOpportunity[] = [...unknownObjects]
@@ -1257,6 +1321,7 @@ export async function computeEngineeringBrainDiagnostics(
     unknownObjects,
     unknownWork,
     candidateLearning,
+    ruleProposalCandidates,
     reasoningDrift,
     maturity,
     topOpportunities,
@@ -1406,11 +1471,23 @@ export async function getEngineeringBrainDiagnostics(args: {
 }): Promise<EngineeringBrainDiagnosticsReport> {
   const observed = await loadObservedDeliverablesForCompany({ companyId: args.companyId });
   const decisions = await loadEngineeringKnowledge(args.companyId);
-  return await computeEngineeringBrainDiagnostics(
+  const report = await computeEngineeringBrainDiagnostics(
     observed,
     DEFAULT_CONSISTENCY_PROBES,
     decisions,
     isEngineeringKnowledgeStoreAvailable(),
     args.options ?? {}
   );
+  // Phase 2 (spec section 5): persist scored rule-proposal candidates
+  // immediately after computing the report — this is the DB-touching half of
+  // step 5b, kept out of the pure `computeEngineeringBrainDiagnostics` so that
+  // function stays companyId-free and directly testable (see existing tests
+  // in tests/integration/engineering-brain-diagnostics.test.mjs, which call it
+  // without a companyId at all). Never throws — the persistence helper
+  // degrades gracefully if the migration hasn't been deployed yet.
+  await persistEngineeringRuleProposals({
+    companyId: args.companyId,
+    candidates: report.ruleProposalCandidates,
+  });
+  return report;
 }
