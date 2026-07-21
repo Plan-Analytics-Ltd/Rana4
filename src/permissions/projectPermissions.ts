@@ -117,7 +117,14 @@ type RulesMap = Partial<Record<ProjectEntity, Partial<Record<ProjectAction, Rule
 // Contextual business rules layered on top of role-based permissions.
 // Keep these simple and explicit; controllers should pass only the minimum context required.
 export const rules: RulesMap = {
-  // Activities: keep it simple like Deliverables (role-based only).
+  activity: {
+    delete: (ctx) => {
+      const c = ctx as { hasDependencies?: boolean } | null | undefined;
+      return c?.hasDependencies
+        ? { ok: false, message: "Cannot delete an activity that other activities still depend on" }
+        : { ok: true };
+    },
+  },
   projectMember: {
     delete: (ctx) => {
       const c = ctx as { isLastAdmin?: boolean } | null | undefined;

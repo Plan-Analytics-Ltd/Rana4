@@ -197,7 +197,7 @@ test("partial comparison answer leads with evolution facts then limitation", asy
 
   assert.ok(answer.length >= 2);
   assert.ok(/5 days|baseline|10/i.test(answer[0]));
-  assert.ok(answer[answer.length - 1].includes("can't yet judge"));
+  assert.ok(answer[answer.length - 1].includes("isn't enough completed-project history"));
 });
 
 test("duration reasonableness question selects evolution domains for partial evidence", async () => {

@@ -168,8 +168,8 @@ test("broad what changed question adds change summaries and communication guidan
   assert.ok(knowledge.changeSummaries.length > 0);
   assert.ok(knowledge.communicationGuidance.length > 0);
   assert.ok(serialized.includes("What changed by revision"));
-  assert.ok(serialized.includes("Communication guidance"));
-  assert.ok(knowledge.conversationContext.plannerExpectation.includes("duration, float, criticality, logic"));
+  assert.ok(serialized.includes("How to reason and communicate"));
+  assert.ok(knowledge.conversationContext.plannerExpectation.includes("remaining work, planning, float, criticality, logic"));
 });
 
 test("unknowns use programme-file wording not imported programme repetition", () => {
@@ -183,7 +183,7 @@ test("unknowns use programme-file wording not imported programme repetition", ()
 });
 
 test("prompt system rules cover change storytelling and confident tone", () => {
-  assert.ok(ASK_RANA_SYSTEM_PROMPT.includes("Broad \"what changed?\""));
+  assert.ok(ASK_RANA_SYSTEM_PROMPT.includes("Broad “what changed?”"));
   assert.ok(ASK_RANA_SYSTEM_PROMPT.includes("The revision history shows"));
   assert.ok(ASK_RANA_SYSTEM_PROMPT.includes("REVISION-SPECIFIC QUESTIONS"));
 

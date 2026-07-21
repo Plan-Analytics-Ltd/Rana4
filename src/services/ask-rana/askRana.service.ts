@@ -79,7 +79,7 @@ function formatFallbackAnswer(parts: string[], style: AskRanaResponseStyle): str
     if (evidence.length > 0) {
       sections.push(`### Evidence\n\n${evidence.map((p) => `- ${p}`).join("\n")}`);
     }
-    if (/can't yet judge|not configured|comparison/i.test(limitation)) {
+    if (/isn't enough completed-project history|not configured|comparison/i.test(limitation)) {
       sections.push(limitation.startsWith("###") ? limitation : `### Note\n\n${limitation}`);
     } else {
       sections.push(limitation);

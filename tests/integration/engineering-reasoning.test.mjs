@@ -99,45 +99,56 @@ test("merge ignores an invented object id and keeps the baseline", () => {
 });
 
 test("reasoning is disabled by default and falls back to the validated rule-based identity", async () => {
-  const config = getEngineeringReasoningConfig();
-  assert.equal(config.enabled, false);
+  // This environment has AI_ENGINEERING_REASONING_ENABLED=true set in .env (reasoning is
+  // live for real imports), so isolate the kill-switch state explicitly rather than relying
+  // on the ambient env — same pattern as engineering-reasoning-activation.test.mjs.
+  const previous = process.env.AI_ENGINEERING_REASONING_ENABLED;
+  process.env.AI_ENGINEERING_REASONING_ENABLED = "false";
 
-  const context = {
-    deliverableName: "Reinforcement Detailing",
-    fragnetName: "Structures",
-    parentWbs: null,
-    wbsPath: null,
-    activityNames: ["Produce reinforcement detailing"],
-    neighbours: [],
-    projectType: "Healthcare",
-    sector: null,
-    client: null,
-    stage: "Stage 3",
-    disciplineTag: null,
-    activityCodeDiscipline: null,
-    classificationTags: null,
-    taxonomy: {
-      disciplineId: "structural",
-      disciplineLabel: "Structural",
-      workPackageId: "reinforcement_detailing",
-      workPackageLabel: "Reinforcement Detailing",
-      matched: true,
-      isUnknownWorkPackage: false,
-    },
-    aliases: [],
-    vocabulary: [],
-  };
+  try {
+    const config = getEngineeringReasoningConfig();
+    assert.equal(config.enabled, false);
 
-  const result = await reasonEngineeringIdentity(context);
-  assert.equal(result.source, "RULE_BASED");
-  const ruleBased = identity("Reinforcement Detailing", "Structures", {
-    lifecycleStage: "Stage 3",
-    projectContext: { projectType: "Healthcare" },
-    relatedActivityNames: ["Produce reinforcement detailing"],
-  });
-  assert.equal(result.engineeringObject.id, ruleBased.engineeringObject.id);
-  assert.equal(result.discipline.id, ruleBased.discipline.id);
-  assert.ok(result.validation.valid);
+    const context = {
+      deliverableName: "Reinforcement Detailing",
+      fragnetName: "Structures",
+      parentWbs: null,
+      wbsPath: null,
+      activityNames: ["Produce reinforcement detailing"],
+      neighbours: [],
+      projectType: "Healthcare",
+      sector: null,
+      client: null,
+      stage: "Stage 3",
+      disciplineTag: null,
+      activityCodeDiscipline: null,
+      classificationTags: null,
+      taxonomy: {
+        disciplineId: "structural",
+        disciplineLabel: "Structural",
+        workPackageId: "reinforcement_detailing",
+        workPackageLabel: "Reinforcement Detailing",
+        matched: true,
+        isUnknownWorkPackage: false,
+      },
+      aliases: [],
+      vocabulary: [],
+    };
+
+    const result = await reasonEngineeringIdentity(context);
+    assert.equal(result.source, "RULE_BASED");
+    const ruleBased = identity("Reinforcement Detailing", "Structures", {
+      lifecycleStage: "Stage 3",
+      projectContext: { projectType: "Healthcare" },
+      relatedActivityNames: ["Produce reinforcement detailing"],
+    });
+    assert.equal(result.engineeringObject.id, ruleBased.engineeringObject.id);
+    assert.equal(result.discipline.id, ruleBased.discipline.id);
+    assert.ok(result.validation.valid);
+  } finally {
+    if (previous === undefined) delete process.env.AI_ENGINEERING_REASONING_ENABLED;
+    else process.env.AI_ENGINEERING_REASONING_ENABLED = previous;
+  }
 });
 
 test("explainable comparison records matched components and evidence", () => {

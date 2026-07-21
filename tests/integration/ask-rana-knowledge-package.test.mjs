@@ -116,7 +116,7 @@ test("investigation findings flow into knowledge package", () => {
   const knowledge = buildKnowledge("Investigate why the float reduced.", pkg);
 
   assert.ok(knowledge.investigationFindings);
-  assert.ok(knowledge.ruledOutExplanations.some((r) => /duration/i.test(r)));
+  assert.ok(knowledge.ruledOutExplanations.some((r) => /remaining.work/i.test(r)));
   assert.ok(knowledge.supportedConclusions.length > 0);
 });
 

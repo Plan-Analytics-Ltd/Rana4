@@ -170,8 +170,8 @@ export function buildInvestigationFindings(
   const evidenceLinks: string[] = [];
 
   for (const s of signals) {
-    if (/rule out duration/i.test(s)) {
-      ruledOutExplanations.push("Duration change as the primary explanation");
+    if (/rule out remaining-work/i.test(s)) {
+      ruledOutExplanations.push("Remaining-work change as the primary explanation");
       evidenceLinks.push(s);
     } else if (/progressively|scheduling flexibility reduced/i.test(s)) {
       supportedConclusions.push(

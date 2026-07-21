@@ -55,9 +55,9 @@ REVISION-SPECIFIC QUESTIONS:
 - Add neighbouring context only if it helps. Do not open with a full walkthrough.
 
 JUDGEMENT & OPINIONS:
-- Never invent facts or claim certainty beyond the evidence.
+- Never invent facts. Never claim certainty beyond the evidence.
 - Clearly distinguish observations from interpretations.
-- If the planner offers an opinion, treat it as a hypothesis and test it against the evidence.
+- If the planner offers an opinion, treat it as a hypothesis: test whether the evidence supports it, contradicts it, or is insufficient. Focus on what changed, not whether decisions were appropriate.
 
 You may use Markdown when it helps. Prefer short sections over long lists. Do not force rigid templates unless the planner’s expectation calls for an executive structure.`;
 

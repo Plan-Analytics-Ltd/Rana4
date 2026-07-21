@@ -106,7 +106,7 @@ test("extracts cross-evidence signals including duration unchanged and progressi
   const pkg = mockInvestigationPkg();
   const signals = extractDeterministicInvestigationSignals(pkg);
 
-  assert.ok(signals.some((s) => /duration remained unchanged/i.test(s)));
+  assert.ok(signals.some((s) => /remaining work remained unchanged/i.test(s)));
   assert.ok(signals.some((s) => /progressively|scheduling flexibility reduced/i.test(s)));
   assert.ok(signals.some((s) => /became critical at.*Update 5/i.test(s)));
   assert.ok(signals.some((s) => /left the critical path/i.test(s)));
@@ -147,7 +147,7 @@ test("investigation produces structured findings not instruction blocks", () => 
 
   assert.equal(investigation.mode, "deep");
   assert.ok(investigation.findings);
-  assert.ok(investigation.findings.ruledOutExplanations.some((r) => /duration/i.test(r)));
+  assert.ok(investigation.findings.ruledOutExplanations.some((r) => /remaining.work/i.test(r)));
   assert.ok(investigation.findings.supportedConclusions.length > 0);
   assert.ok(investigation.findings.evidenceLinks.length > 0);
 
@@ -165,7 +165,7 @@ test("investigation produces structured findings not instruction blocks", () => 
 
   assert.ok(!prompt.user.includes("INVESTIGATION MODE"));
   assert.ok(prompt.user.includes("Ruled-out explanations"));
-  assert.ok(prompt.user.includes("Duration remained unchanged"));
+  assert.ok(prompt.user.includes("Remaining work remained unchanged"));
 });
 
 test("summarise everything uses report depth expectation", async () => {
@@ -185,7 +185,7 @@ test("summarise everything uses report depth expectation", async () => {
 
   assert.equal(verification.responseStyle, "detailed");
   assert.equal(responseDepth.depth, "REPORT");
-  assert.ok(responseDepth.plannerExpectation.includes("comprehensive"));
+  assert.ok(responseDepth.plannerExpectation.includes("executive programme assessment"));
   assert.ok(ASK_RANA_SYSTEM_PROMPT.includes("knowledge package"));
 });
 

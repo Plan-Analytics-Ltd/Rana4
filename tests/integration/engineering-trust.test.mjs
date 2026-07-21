@@ -87,7 +87,9 @@ test("diagnostics splits auto-trusted knowledge from the brain inbox", async () 
     deliverable("Cofferdam Installation", { key: "c1", projectId: "p1" }),
     deliverable("Cofferdam Installation", { key: "c2", projectId: "p2", projectName: "P2" }),
   ];
-  const report = await computeEngineeringBrainDiagnostics(observed);
+  const report = await computeEngineeringBrainDiagnostics(observed, undefined, undefined, undefined, {
+    forceRuleBased: true,
+  });
   assert.ok(report.trustedKnowledge.length >= 2, "known work auto-trusts");
   assert.ok(report.brainInbox.length >= 1, "unknown cofferdam needs review");
   const inboxCofferdam = report.brainInbox.find((i) => /cofferdam/i.test(i.concept));
@@ -103,7 +105,9 @@ test("a developer decision moves a fingerprint out of the inbox into trusted kno
     deliverable("Cofferdam Installation", { key: "c1", projectId: "p1" }),
     deliverable("Cofferdam Installation", { key: "c2", projectId: "p2", projectName: "P2" }),
   ];
-  const baseline = await computeEngineeringBrainDiagnostics(observed);
+  const baseline = await computeEngineeringBrainDiagnostics(observed, undefined, undefined, undefined, {
+    forceRuleBased: true,
+  });
   const item = baseline.brainInbox.find((i) => /cofferdam/i.test(i.concept));
   assert.ok(item, "cofferdam starts in the inbox");
 
@@ -132,7 +136,9 @@ test("a developer decision moves a fingerprint out of the inbox into trusted kno
     versionHistory: [{ at: "now", action: "MODIFY", status: "DEVELOPER_MODIFIED", reviewedBy: "dev", identity: {}, notes: null }],
   });
 
-  const after = await computeEngineeringBrainDiagnostics(observed, undefined, decisions, true);
+  const after = await computeEngineeringBrainDiagnostics(observed, undefined, decisions, true, {
+    forceRuleBased: true,
+  });
   assert.ok(!after.brainInbox.some((i) => i.fingerprint === item.fingerprint), "no longer in inbox");
   const trusted = after.trustedKnowledge.find((t) => t.fingerprint === item.fingerprint);
   assert.ok(trusted, "now trusted knowledge");
@@ -163,7 +169,9 @@ test("inbox cards carry review-grade detail: context, why, reasons, impact", asy
       neighbourNames: ["Sheet Pile Layout", "Dewatering Plan"],
     }),
   ];
-  const report = await computeEngineeringBrainDiagnostics(observed);
+  const report = await computeEngineeringBrainDiagnostics(observed, undefined, undefined, undefined, {
+    forceRuleBased: true,
+  });
   const item = report.brainInbox.find((i) => /cofferdam/i.test(i.concept));
   assert.ok(item);
   // Section A — original deliverable context
@@ -190,7 +198,9 @@ test("known work surfaces historical duration matches for the review", async () 
     deliverable("Foundation Reinforcement Detailing", { key: "a1", fragnetName: "Structures", projectId: "p1", durationDays: 8 }),
     deliverable("Reinforcement Detailing", { key: "a2", fragnetName: "Structures", projectId: "p2", projectName: "Tilbury", durationDays: 6 }),
   ];
-  const report = await computeEngineeringBrainDiagnostics(observed);
+  const report = await computeEngineeringBrainDiagnostics(observed, undefined, undefined, undefined, {
+    forceRuleBased: true,
+  });
   const trusted = report.trustedKnowledge.find((t) => t.identity.engineeringObject);
   assert.ok(trusted, "reinforcement auto-trusts");
   // Each occurrence sees the other as equivalent historical evidence with a duration.
@@ -200,7 +210,9 @@ test("known work surfaces historical duration matches for the review", async () 
 
 test("a rejected fingerprint never becomes trusted knowledge", async () => {
   const observed = [deliverable("Cofferdam Installation", { key: "c1" })];
-  const baseline = await computeEngineeringBrainDiagnostics(observed);
+  const baseline = await computeEngineeringBrainDiagnostics(observed, undefined, undefined, undefined, {
+    forceRuleBased: true,
+  });
   const item = baseline.brainInbox[0];
   const decisions = new Map();
   decisions.set(item.fingerprint, {
@@ -220,7 +232,9 @@ test("a rejected fingerprint never becomes trusted knowledge", async () => {
     successfulComparisons: 0,
     versionHistory: [],
   });
-  const after = await computeEngineeringBrainDiagnostics(observed, undefined, decisions, true);
+  const after = await computeEngineeringBrainDiagnostics(observed, undefined, decisions, true, {
+    forceRuleBased: true,
+  });
   assert.ok(!after.trustedKnowledge.some((t) => t.fingerprint === item.fingerprint));
   assert.ok(!after.brainInbox.some((i) => i.fingerprint === item.fingerprint));
   assert.equal(after.maturity.trust.developerRejectionRate, 100);
