@@ -16,6 +16,7 @@ import {
   resolveEngineeringIdentity,
   type EngineeringIdentity,
   type EngineeringIdentityComponent,
+  type EngineeringEvidenceSource,
 } from "./intelligence/taxonomy/engineeringIdentity.service.js";
 import { enforceEngineeringIdentityValidation } from "./intelligence/taxonomy/engineeringIdentityValidation.service.js";
 import { engineeringIdentityFingerprint } from "./intelligence/taxonomy/engineeringTrust.service.js";
@@ -322,6 +323,24 @@ function componentFromStoredId(id: string | null): EngineeringIdentityComponent 
   return id ? { id, label: id, evidence: [] } : NULL_IDENTITY_COMPONENT;
 }
 
+/**
+ * Same shape as componentFromStoredId, but for persisted/live LLM reasoning output
+ * rather than a developer-reviewed knowledge decision. These carry very different
+ * trust levels — a developer decision means a human explicitly confirmed the
+ * equivalence; a reasoned column is just an unreviewed model guess (whether made
+ * live or written by the backfill script). Tagging it with a TAXONOMY-sourced
+ * evidence entry (matching how live reasoning already marks itself in
+ * mergeReasonedIdentity/componentFrom) means requiresCorroboration treats
+ * reasoning-derived components consistently, however they were produced —
+ * without this, a backfilled reasoning guess for one deliverable was silently
+ * exempted from corroboration just because it happened to carry no other evidence.
+ */
+function componentFromReasonedId(id: string | null): EngineeringIdentityComponent {
+  return id
+    ? { id, label: id, evidence: [{ source: "TAXONOMY", value: "engineering reasoning", matched: id }] }
+    : NULL_IDENTITY_COMPONENT;
+}
+
 function rejectedEngineeringIdentity(): EngineeringIdentity {
   return {
     status: "INSUFFICIENT",
@@ -389,11 +408,11 @@ function applyStoredReasonedIdentity(
   }
 ): EngineeringIdentity {
   if (stored.reasoningSource == null) return raw;
-  const discipline = componentFromStoredId(stored.reasonedDiscipline ?? null);
-  const engineeringObject = componentFromStoredId(stored.reasonedEngineeringObject ?? null);
-  const engineeringWork = componentFromStoredId(stored.reasonedEngineeringWork ?? null);
-  const deliverableType = componentFromStoredId(stored.reasonedDeliverableType ?? null);
-  const lifecycleStage = componentFromStoredId(stored.reasonedLifecycleStage ?? null);
+  const discipline = componentFromReasonedId(stored.reasonedDiscipline ?? null);
+  const engineeringObject = componentFromReasonedId(stored.reasonedEngineeringObject ?? null);
+  const engineeringWork = componentFromReasonedId(stored.reasonedEngineeringWork ?? null);
+  const deliverableType = componentFromReasonedId(stored.reasonedDeliverableType ?? null);
+  const lifecycleStage = componentFromReasonedId(stored.reasonedLifecycleStage ?? null);
   const status =
     discipline.id && engineeringObject.id && engineeringWork.id ? "RESOLVED" : "INSUFFICIENT";
   return {
@@ -462,6 +481,86 @@ function resolveIdentityWithReview(
   if (!useKnowledge) return raw;
   const fingerprint = engineeringIdentityFingerprint(conceptSubject(input.name).key, raw);
   return applyKnowledgeDecision(raw, knowledge.get(fingerprint));
+}
+
+/**
+ * Evidence sources that describe THIS specific deliverable's own content directly —
+ * its own name, the concrete activities actually carried out under it, or an
+ * explicit metadata/classification tag applied to it. These are trusted on their
+ * own for equivalence purposes.
+ *
+ * Every other source describes the CONTAINER a deliverable happens to sit in
+ * (fragnet, parent WBS, WBS path) or a generic taxonomy fallback bucket — a
+ * folder-level label, not a statement about what this deliverable specifically is.
+ * Treat these the same way as an unauthenticated boundary at the edge of the
+ * Engineering Brain: never trust a match on container/fallback evidence alone,
+ * require independent corroboration (name similarity) before letting it through.
+ */
+const STRONG_EVIDENCE_SOURCES = new Set<EngineeringEvidenceSource>([
+  "DELIVERABLE_NAME",
+  "RELATED_ACTIVITY",
+  "DISCIPLINE_METADATA",
+  "CLASSIFICATION",
+]);
+
+/**
+ * True when a component's id came from container-level or fallback evidence
+ * (FRAGNET, PARENT_WBS, WBS_PATH, TAXONOMY) rather than something that actually
+ * describes this deliverable directly. Audit finding (2026-07): matching gated
+ * only on discipline/object/work meant deliverables that only agreed because they
+ * shared a fragnet name, WBS location, or generic taxonomy fallback (e.g. every
+ * "*_design" work package falling back to one coarse object, or two deliverables
+ * merely sitting in similarly-named fragnets) were treated as fully equivalent
+ * regardless of what they actually are. Across real project data, 92% of matches
+ * had near-zero name overlap with at least one contributing match, and 23% had a
+ * 3x+ duration spread (worst case 95x) before this check existed; a fallback-only
+ * version of this check still missed cases driven purely by shared fragnet naming.
+ */
+function requiresCorroboration(component: EngineeringIdentityComponent): boolean {
+  // Developer-approved knowledge decisions and stored/live LLM reasoning overrides both
+  // go through componentFromStoredId, which always produces an empty evidence array —
+  // that's not a weak signal, it's the strongest one available: a human explicitly
+  // confirmed the equivalence, or reasoning explicitly concluded it, specifically to
+  // override a case the automated rules couldn't see (that's the whole point of the
+  // review workflow). Never demand corroboration for those. Only rule-based resolution
+  // can produce a non-null id with real evidence, so this check only ever narrows what
+  // the rule-based path already produced.
+  if (component.evidence.length === 0) return false;
+  const source = component.evidence[0]?.source;
+  return source == null || !STRONG_EVIDENCE_SOURCES.has(source);
+}
+
+function componentMatchNeedsCorroboration(
+  target: EngineeringIdentityComponent,
+  candidate: EngineeringIdentityComponent
+): boolean {
+  return (
+    target.id != null &&
+    candidate.id != null &&
+    target.id === candidate.id &&
+    (requiresCorroboration(target) || requiresCorroboration(candidate))
+  );
+}
+
+/**
+ * When a matched identity component was resolved via container-level or fallback
+ * evidence on either side, require the deliverable names to clear the existing
+ * (previously unused) name-similarity threshold before trusting the match.
+ * Components resolved from strong, deliverable-specific evidence are left exactly
+ * as before — this only tightens the cases that were already just guesses.
+ */
+function isCorroboratedEquivalence(
+  target: EngineeringIdentity,
+  candidate: EngineeringIdentity,
+  targetName: string,
+  candidateName: string
+): boolean {
+  const anyMatchNeedsCorroboration =
+    componentMatchNeedsCorroboration(target.discipline, candidate.discipline) ||
+    componentMatchNeedsCorroboration(target.engineeringObject, candidate.engineeringObject) ||
+    componentMatchNeedsCorroboration(target.engineeringWork, candidate.engineeringWork);
+  if (!anyMatchNeedsCorroboration) return true;
+  return nameSimilarity(targetName, candidateName) >= LOW_NAME_CONSISTENCY_THRESHOLD;
 }
 
 function comparisonBasis(
@@ -692,6 +791,11 @@ export function computeStrictOriginalDurationItems(
           if (!compareEngineeringIdentities(targetIdentity, candidateIdentity).equivalent) {
             return [];
           }
+          if (
+            !isCorroboratedEquivalence(targetIdentity, candidateIdentity, target.name, deliverable.name)
+          ) {
+            return [];
+          }
           return [{
             deliverable,
             basis: comparisonBasis(targetIdentity, candidateIdentity),
@@ -777,6 +881,11 @@ export function computeStrictOriginalDurationItems(
       const matchingDeliverables = candidates.flatMap(
         ({ deliverable, candidateIdentity, fragnetName }) => {
           if (!compareEngineeringIdentities(targetIdentity, candidateIdentity).equivalent) {
+            return [];
+          }
+          if (
+            !isCorroboratedEquivalence(targetIdentity, candidateIdentity, target.name, deliverable.name)
+          ) {
             return [];
           }
           return [{

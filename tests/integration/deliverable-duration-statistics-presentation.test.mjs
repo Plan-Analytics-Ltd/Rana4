@@ -1105,9 +1105,18 @@ test("Secondary-Steelwork-style names stay low on nameSimilarity helper while st
   assert.equal(item.contributingProjects.length, 3);
 });
 
-test("Phase 2: candidate with stored reasoned identity is preferred over rule-based", () => {
-  // Rule-based: "Cofferdam Installation" does not match "Reinforcement Detailing".
-  // With reasoned* fields set to the reinforcement identity, it should match.
+test("Phase 2: a reasoned candidate identity still requires name corroboration, same as any other weak-evidence match", () => {
+  // This fixture is the exact real-world case that surfaced the underlying bug this
+  // test previously encoded as *desired* behavior: a live audit of production data
+  // found "Cofferdam Installation" reasoned into "foundations"/"reinforcement" by the
+  // LLM with real confidence, purely because the model defaults to a common guess
+  // under uncertainty — not because it's actually reinforcement-detailing work.
+  // Reasoning output is not free of the same "guess in a generic bucket" failure mode
+  // fallback taxonomy rules have, so it gets the same treatment: a reasoned override
+  // is trusted for what it resolves, but still needs the deliverable names to clear
+  // the name-similarity bar before two different-sounding deliverables are pooled.
+  // Rule-based alone doesn't match either — reasoning without corroboration should
+  // land in the same "not available" place, not silently override it.
   const snapshots = [
     snapshot({
       id: "p1-reasoned-candidate",
@@ -1145,10 +1154,47 @@ test("Phase 2: candidate with stored reasoned identity is preferred over rule-ba
   );
   assert.equal(withoutReasoning.statistics.available, false);
 
-  const [withReasoning] = computeStrictOriginalDurationItems([persistedTarget], snapshots);
-  assert.equal(withReasoning.statistics.available, true);
-  assert.equal(withReasoning.statistics.averageDays, 7);
-  assert.equal(withReasoning.statistics.projectsUsed, 1);
+  const [withUncorroboratedReasoning] = computeStrictOriginalDurationItems(
+    [persistedTarget],
+    snapshots
+  );
+  assert.equal(
+    withUncorroboratedReasoning.statistics.available,
+    false,
+    "reasoning alone must not override the equivalence check without name corroboration"
+  );
+
+  // A reasoned candidate whose name genuinely resembles the target still matches —
+  // corroboration isn't a blanket ban on reasoning, just a check that the reasoning
+  // output isn't the only thing tying two very differently-worded deliverables together.
+  const corroboratedSnapshots = [
+    snapshot({
+      id: "p1-reasoned-corroborated",
+      projectId: "p1",
+      importedAt: "2025-01-01",
+      programmeState: "AS_BUILT",
+      originals: [7],
+      deliverables: [
+        deliverable({
+          name: "Reinforcement Detailing - Zone B",
+          deliverableId: "historical-deliverable",
+          reasoningSource: "LLM_REASONED",
+          reasonedDiscipline: "structural",
+          reasonedEngineeringObject: "reinforcement",
+          reasonedEngineeringWork: "detailing",
+          reasonedDeliverableType: null,
+          reasonedLifecycleStage: null,
+        }),
+      ],
+    }),
+  ];
+  const [withCorroboratedReasoning] = computeStrictOriginalDurationItems(
+    [persistedTarget],
+    corroboratedSnapshots
+  );
+  assert.equal(withCorroboratedReasoning.statistics.available, true);
+  assert.equal(withCorroboratedReasoning.statistics.averageDays, 7);
+  assert.equal(withCorroboratedReasoning.statistics.projectsUsed, 1);
 });
 
 test("Phase 2: null reasoningSource falls back to rule-based candidate identity", () => {
@@ -1176,7 +1222,7 @@ test("Phase 2: null reasoningSource falls back to rule-based candidate identity"
   assert.equal(item.statistics.available, false);
 });
 
-test("Phase 2: GET-Milestones — reasoned candidates separate previously-pooled deliverables", () => {
+test("Phase 2: GET-Milestones — reasoned identities require corroboration same as any pooled fallback match", () => {
   const milestoneIdentityFields = {
     discipline: "project_management",
     engineeringObject: "project_management",
@@ -1301,10 +1347,16 @@ test("Phase 2: GET-Milestones — reasoned candidates separate previously-pooled
       `min=${separated.statistics.minimumDays} avg=${separated.statistics.averageDays} max=${separated.statistics.maximumDays}`
   );
 
-  assert.equal(separated.statistics.available, true);
-  assert.equal(separated.statistics.projectsUsed, 1, "only Drainage remains equivalent under reasoned identities");
-  assert.equal(separated.statistics.minimumDays, 9);
-  assert.equal(separated.statistics.averageDays, 9);
-  assert.equal(separated.statistics.maximumDays, 9);
-  assert.equal(separated.contributingProjects[0]?.matchedDeliverableName, "Drainage");
+  // Neither reasoned candidate pools against "Enabling Works" any more: BWIC already
+  // dropped out on its own (reasoned discipline/object left null), and Drainage's
+  // reasoned identity now carries the same "this is a reasoning guess, not confirmed
+  // evidence" marker as any other weak-evidence match — so it needs the deliverable
+  // names to actually resemble each other too. "Enabling Works" and "Drainage" don't,
+  // so this is the more correct outcome: reasoning alone separating BWIC from Drainage
+  // isn't enough if it still pools an unrelated third deliverable in with either one.
+  assert.equal(
+    separated.statistics.available,
+    false,
+    "neither reasoned candidate should pool against Enabling Works without name corroboration"
+  );
 });
