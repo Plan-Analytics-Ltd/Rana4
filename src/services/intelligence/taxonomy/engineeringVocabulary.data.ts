@@ -139,6 +139,26 @@ export const ENGINEERING_OBJECT_RULES: EngineeringObjectRule[] = [
     patterns: ["\\blifts?\\b", "\\belevators?\\b"],
     priority: 20,
   },
+  {
+    id: "ground_investigation",
+    label: "Ground Investigation",
+    // Deliberately excludes a bare "\bgi\b" pattern: "GI" is heavily overloaded
+    // in real project data as a milestone/marker name (see the "GI" concept),
+    // not just as shorthand for ground-investigation fieldwork. Matching on
+    // the bare abbreviation alone — with no other discipline-confirming
+    // evidence — produced a genuine validator contradiction (object implying
+    // a discipline the identity didn't otherwise confirm). Full phrases only.
+    patterns: ["\\bground\\s+investigation\\b", "\\bborehole", "\\btrial\\s+pits?\\b"],
+    disciplines: ["ground_investigation"],
+    priority: 30,
+  },
+  {
+    id: "sustainability_assessment",
+    label: "Sustainability Assessment",
+    patterns: ["\\bsustainability\\b", "\\bbreeam\\b", "\\bnet\\s+zero\\b", "\\bcarbon\\b"],
+    disciplines: ["sustainability"],
+    priority: 26,
+  },
 ];
 
 export const DISCIPLINE_OBJECT_FALLBACKS: Record<string, { id: string; label: string }> = {
