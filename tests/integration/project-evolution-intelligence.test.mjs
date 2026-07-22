@@ -1,18 +1,22 @@
-import test from "node:test";
+import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 import { computeProjectEvolutionIntelligence } from "../../dist/services/intelligence/shared/projectEvolutionIntelligence.service.js";
 import { getDeliverableProjectEvolution } from "../../dist/services/intelligence/shared/deliverableProjectEvolution.service.js";
 import { prisma } from "../../dist/utils/prisma.js";
+import { createProjectEvolutionFixture, REVISION_PLAN } from "./fixtures/projectEvolutionFixture.mjs";
 
-const projectId = "cmr1ztdj50001sybs8jbn4qf4";
-const companyId = "cmo8dvlc10000syx0861h1zr5";
+const EXPECTED_REVISIONS = REVISION_PLAN.length;
 
-async function findSeedDeliverable() {
-  return prisma.deliverable.findFirst({
-    where: { projectId, companyId, name: "Detailed Design", fragnet: { name: "Level 9" } },
-    select: { id: true },
-  });
-}
+let fixture;
+
+before(async () => {
+  fixture = await createProjectEvolutionFixture();
+});
+
+after(async () => {
+  if (fixture) await fixture.teardown();
+  await prisma.$disconnect();
+});
 
 test("gradual reduction produces distinct intelligence fields", () => {
   const revisions = [
@@ -70,32 +74,26 @@ test("stable history reports low volatility and stable pattern", () => {
   assert.ok(intel.plannerObservations[0]?.includes("stayed at 15 days"));
 });
 
-test("seeded healthcare Detailed Design exposes projectEvolutionIntelligence on API report", async (t) => {
-  const deliverable = await findSeedDeliverable();
-  if (!deliverable) return t.skip("requires seeded healthcare project in database");
-
+test("fixture Detailed Design exposes projectEvolutionIntelligence on API report", async () => {
   const report = await getDeliverableProjectEvolution({
-    projectId,
-    companyId,
-    deliverableId: deliverable.id,
+    projectId: fixture.projectId,
+    companyId: fixture.companyId,
+    deliverableId: fixture.deliverables.detailedDesign.id,
   });
 
   assert.ok(report.projectEvolutionIntelligence);
   assert.equal(report.projectEvolutionIntelligence.revisionCount, report.revisions.length);
-  assert.equal(report.revisions.length, 13);
+  assert.equal(report.revisions.length, EXPECTED_REVISIONS);
   assert.ok(report.projectEvolutionIntelligence.summary.length > 0);
   assert.ok(Array.isArray(report.projectEvolutionIntelligence.plannerObservations));
   assert.ok(Array.isArray(report.projectEvolutionIntelligence.timelineHighlights));
 });
 
-test("seeded healthcare evolution intelligence differs across question evidence slices", async (t) => {
-  const deliverable = await findSeedDeliverable();
-  if (!deliverable) return t.skip("requires seeded healthcare project in database");
-
+test("fixture evolution intelligence differs across question evidence slices", async () => {
   const report = await getDeliverableProjectEvolution({
-    projectId,
-    companyId,
-    deliverableId: deliverable.id,
+    projectId: fixture.projectId,
+    companyId: fixture.companyId,
+    deliverableId: fixture.deliverables.detailedDesign.id,
   });
   const intel = report.projectEvolutionIntelligence;
 
@@ -139,8 +137,4 @@ test("seeded healthcare evolution intelligence differs across question evidence 
   const serialized = payloads.map((p) => JSON.stringify(p));
   const unique = new Set(serialized);
   assert.ok(unique.size >= 5, `expected mostly distinct evidence payloads, got ${unique.size}`);
-});
-
-test.after(async () => {
-  await prisma.$disconnect();
 });

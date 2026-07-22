@@ -1,8 +1,8 @@
 /**
- * Project Evolution identity resolution — unit + seeded integration checks.
+ * Project Evolution identity resolution — unit + fixture-backed integration checks.
  * Run: npm run build && node --test tests/integration/deliverable-project-evolution-identity.test.mjs
  */
-import { describe, it, test } from "node:test";
+import { describe, it, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { prisma } from "../../dist/utils/prisma.js";
 import {
@@ -10,10 +10,20 @@ import {
   getDeliverableProjectEvolution,
   oneDeliverableSnapshotPerProgrammeRevision,
 } from "../../dist/services/intelligence/shared/deliverableProjectEvolution.service.js";
+import { createProjectEvolutionFixture, REVISION_PLAN } from "./fixtures/projectEvolutionFixture.mjs";
 
-const projectId = "cmr1ztdj50001sybs8jbn4qf4";
-const companyId = "cmo8dvlc10000syx0861h1zr5";
-const EXPECTED_REVISIONS = 13;
+const EXPECTED_REVISIONS = REVISION_PLAN.length;
+
+let fixture;
+
+before(async () => {
+  fixture = await createProjectEvolutionFixture();
+});
+
+after(async () => {
+  if (fixture) await fixture.teardown();
+  await prisma.$disconnect();
+});
 
 describe("buildProjectEvolutionSnapshotWhere", () => {
   it("uses deliverableId OR fragnetId+name when fragnet is known", () => {
@@ -61,18 +71,12 @@ describe("oneDeliverableSnapshotPerProgrammeRevision", () => {
   });
 });
 
-describe("seeded healthcare project evolution identity", () => {
-  it("Detailed Design (Level 9) returns 13 unique programme revisions", async (t) => {
-    const deliverable = await prisma.deliverable.findFirst({
-      where: { projectId, companyId, name: "Detailed Design", fragnet: { name: "Level 9" } },
-      select: { id: true },
-    });
-    if (!deliverable) return t.skip("requires seeded healthcare project in database");
-
+describe("fixture project evolution identity", () => {
+  it("Detailed Design (on a fragnet) returns the full set of unique programme revisions", async () => {
     const report = await getDeliverableProjectEvolution({
-      projectId,
-      companyId,
-      deliverableId: deliverable.id,
+      projectId: fixture.projectId,
+      companyId: fixture.companyId,
+      deliverableId: fixture.deliverables.detailedDesign.id,
     });
 
     assert.equal(report.revisions.length, EXPECTED_REVISIONS);
@@ -80,17 +84,11 @@ describe("seeded healthcare project evolution identity", () => {
     assert.equal(new Set(snapIds).size, EXPECTED_REVISIONS);
   });
 
-  it("Reinforcement Detailing returns 13 unique programme revisions", async (t) => {
-    const deliverable = await prisma.deliverable.findFirst({
-      where: { projectId, companyId, name: "Reinforcement Detailing" },
-      select: { id: true },
-    });
-    if (!deliverable) return t.skip("requires seeded healthcare project in database");
-
+  it("Reinforcement Detailing (bare, no fragnet) returns the full set of unique programme revisions", async () => {
     const report = await getDeliverableProjectEvolution({
-      projectId,
-      companyId,
-      deliverableId: deliverable.id,
+      projectId: fixture.projectId,
+      companyId: fixture.companyId,
+      deliverableId: fixture.deliverables.reinforcement.id,
     });
 
     assert.equal(report.revisions.length, EXPECTED_REVISIONS);
@@ -98,38 +96,24 @@ describe("seeded healthcare project evolution identity", () => {
     assert.equal(new Set(snapIds).size, EXPECTED_REVISIONS);
   });
 
-  it("random sample deliverables retain full revision history without duplicate snapshotIds", async (t) => {
-    const all = await prisma.deliverable.findMany({
-      where: { projectId, companyId },
-      select: { id: true, name: true },
-      orderBy: { name: "asc" },
-    });
-    if (all.length === 0) return t.skip("requires seeded healthcare project in database");
-    const picks = [0, 7, 17, 31, 52]
-      .map((i) => all[i])
-      .filter(Boolean);
-
-    for (const d of picks) {
+  it("every fixture deliverable retains full revision history without duplicate snapshotIds", async () => {
+    for (const [key, deliverable] of Object.entries(fixture.deliverables)) {
       const report = await getDeliverableProjectEvolution({
-        projectId,
-        companyId,
-        deliverableId: d.id,
+        projectId: fixture.projectId,
+        companyId: fixture.companyId,
+        deliverableId: deliverable.id,
       });
       const snapIds = report.revisions.map((r) => r.snapshotId);
       assert.equal(
         report.revisions.length,
         new Set(snapIds).size,
-        `${d.name}: duplicate programme snapshotIds in revisions`
+        `${key}: duplicate programme snapshotIds in revisions`
       );
       assert.equal(
         report.revisions.length,
         EXPECTED_REVISIONS,
-        `${d.name}: expected ${EXPECTED_REVISIONS} revisions, got ${report.revisions.length}`
+        `${key}: expected ${EXPECTED_REVISIONS} revisions, got ${report.revisions.length}`
       );
     }
   });
-});
-
-test.after(async () => {
-  await prisma.$disconnect();
 });
