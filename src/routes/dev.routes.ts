@@ -10,6 +10,14 @@ router.use(requireAuth, requireDevEmail);
 
 router.get("/engineering-brain", engineeringBrainDiagnosticsController.getEngineeringBrainDashboard);
 router.post("/engineering-brain/review", engineeringBrainDiagnosticsController.reviewEngineeringIdentity);
+router.post(
+  "/engineering-brain/rule-proposals/:id/approve",
+  engineeringBrainDiagnosticsController.approveRuleProposalHandler
+);
+router.post(
+  "/engineering-brain/rule-proposals/:id/reject",
+  engineeringBrainDiagnosticsController.rejectRuleProposalHandler
+);
 router.get("/admin-requests", devController.listAdminRequests);
 router.post("/admin-requests/:id/approve", devController.approveAdminRequest);
 router.post("/admin-requests/:id/reject", devController.rejectAdminRequest);

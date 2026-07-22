@@ -17,7 +17,10 @@ import {
   computeEngineeringRuleProposalCandidates,
   mineObjectPattern,
   persistEngineeringRuleProposals,
+  approveRuleProposal,
+  rejectRuleProposal,
 } from "../../dist/services/intelligence/diagnostics/engineeringRuleProposal.service.js";
+import { loadActiveLearnedObjectRules } from "../../dist/services/intelligence/diagnostics/engineeringLearnedRule.service.js";
 import { computeEngineeringBrainDiagnostics } from "../../dist/services/intelligence/diagnostics/engineeringBrainDiagnostics.service.js";
 import { engineeringIdentityFingerprint } from "../../dist/services/intelligence/taxonomy/engineeringTrust.service.js";
 import { resolveEngineeringIdentity } from "../../dist/services/intelligence/taxonomy/engineeringIdentity.service.js";
@@ -391,6 +394,133 @@ test("persistEngineeringRuleProposals: creates a real EngineeringRuleProposal ro
     assert.equal(rowsAfterReject[0].occurrences, 5, "a rejected proposal's evidence must not be silently refreshed either");
   } finally {
     await runWithAuthContextAsync(bootstrapCtx, async () => {
+      await prisma.engineeringRuleProposal.deleteMany({ where: { companyId: company.id } });
+      await prisma.company.delete({ where: { id: company.id } });
+    });
+  }
+});
+
+/* -------------------------------------------------------------------------- */
+/* Review UI backend — Phase 3 (spec section 6): approve / reject / load.    */
+/* -------------------------------------------------------------------------- */
+
+test("approveRuleProposal creates a real EngineeringLearnedRule and it loads via loadActiveLearnedObjectRules; rejectRuleProposal marks REJECTED without creating one", async () => {
+  const bootstrapCtx = { userId: "bootstrap", companyId: "bootstrap" };
+  const company = await runWithAuthContextAsync(bootstrapCtx, async () =>
+    prisma.company.create({
+      data: {
+        name: "Rule Proposal Review Test Co",
+        joinCode: `RPR${Date.now()}${Math.random().toString(36).slice(2, 8)}`.toUpperCase().slice(0, 32),
+      },
+    })
+  );
+
+  try {
+    const approveCandidate = {
+      kind: "OBJECT",
+      targetId: "temporary_marine_works",
+      targetLabel: "Temporary Marine Works",
+      proposedPattern: "\\bcofferdam\\b",
+      rationale: "test fixture",
+      supportingFingerprints: ["fp-a"],
+      occurrences: 4,
+      projectCount: 2,
+      confirmedDecisionCount: 1,
+      consistency: 1,
+      confidenceScore: 0.6,
+    };
+    const rejectCandidate = {
+      ...approveCandidate,
+      targetId: "should_not_learn",
+      targetLabel: "Should Not Learn",
+      proposedPattern: "\\bshould-not-learn\\b",
+    };
+
+    await runWithAuthContextAsync({ userId: "bootstrap", companyId: company.id }, async () =>
+      persistEngineeringRuleProposals({ companyId: company.id, candidates: [approveCandidate, rejectCandidate] })
+    );
+    const [pendingApprove, pendingReject] = await runWithAuthContextAsync(
+      { userId: "bootstrap", companyId: company.id },
+      async () =>
+        Promise.all([
+          prisma.engineeringRuleProposal.findFirst({ where: { companyId: company.id, targetId: approveCandidate.targetId } }),
+          prisma.engineeringRuleProposal.findFirst({ where: { companyId: company.id, targetId: rejectCandidate.targetId } }),
+        ])
+    );
+    assert.ok(pendingApprove);
+    assert.ok(pendingReject);
+
+    // Approve.
+    const approveResult = await runWithAuthContextAsync({ userId: "bootstrap", companyId: company.id }, async () =>
+      approveRuleProposal({ companyId: company.id, proposalId: pendingApprove.id, reviewedBy: "dev@example.com" })
+    );
+    assert.equal(approveResult.ok, true, JSON.stringify(approveResult));
+    assert.equal(approveResult.proposal.status, "APPROVED");
+    assert.equal(approveResult.proposal.reviewedBy, "dev@example.com");
+
+    const learnedRows = await runWithAuthContextAsync({ userId: "bootstrap", companyId: company.id }, async () =>
+      prisma.engineeringLearnedRule.findMany({ where: { companyId: company.id } })
+    );
+    assert.equal(learnedRows.length, 1, "approving must create exactly one EngineeringLearnedRule row");
+    assert.equal(learnedRows[0].targetId, "temporary_marine_works");
+    assert.equal(learnedRows[0].pattern, "\\bcofferdam\\b");
+    assert.equal(learnedRows[0].sourceProposalId, pendingApprove.id);
+    assert.equal(learnedRows[0].active, true);
+
+    // Re-approving an already-APPROVED proposal must fail cleanly, not double-create.
+    const doubleApprove = await runWithAuthContextAsync({ userId: "bootstrap", companyId: company.id }, async () =>
+      approveRuleProposal({ companyId: company.id, proposalId: pendingApprove.id, reviewedBy: "dev@example.com" })
+    );
+    assert.equal(doubleApprove.ok, false);
+    const learnedRowsAfterDouble = await runWithAuthContextAsync({ userId: "bootstrap", companyId: company.id }, async () =>
+      prisma.engineeringLearnedRule.findMany({ where: { companyId: company.id } })
+    );
+    assert.equal(learnedRowsAfterDouble.length, 1, "re-approving must never create a second learned rule");
+
+    // The approved rule now loads as an EngineeringObjectRule ready to merge in.
+    const activeRules = await loadActiveLearnedObjectRules(company.id);
+    assert.equal(activeRules.length, 1);
+    assert.equal(activeRules[0].id, "temporary_marine_works");
+    assert.equal(activeRules[0].label, "Temporary Marine Works");
+    assert.deepEqual(activeRules[0].patterns, ["\\bcofferdam\\b"]);
+    assert.equal(activeRules[0].origin, "LEARNED_RULE");
+
+    // Reject the other proposal.
+    const rejectResult = await runWithAuthContextAsync({ userId: "bootstrap", companyId: company.id }, async () =>
+      rejectRuleProposal({ companyId: company.id, proposalId: pendingReject.id, reviewedBy: "dev@example.com", notes: "not a real gap" })
+    );
+    assert.equal(rejectResult.ok, true, JSON.stringify(rejectResult));
+    assert.equal(rejectResult.proposal.status, "REJECTED");
+    assert.equal(rejectResult.proposal.reviewNotes, "not a real gap");
+
+    const learnedRowsAfterReject = await runWithAuthContextAsync({ userId: "bootstrap", companyId: company.id }, async () =>
+      prisma.engineeringLearnedRule.findMany({ where: { companyId: company.id } })
+    );
+    assert.equal(learnedRowsAfterReject.length, 1, "rejecting must never create a learned rule");
+
+    // Tenant isolation: a different company can never approve/reject this company's proposal.
+    const otherCompany = await runWithAuthContextAsync(bootstrapCtx, async () =>
+      prisma.company.create({
+        data: {
+          name: "Rule Proposal Review Test Co 2",
+          joinCode: `RPR2${Date.now()}${Math.random().toString(36).slice(2, 8)}`.toUpperCase().slice(0, 32),
+        },
+      })
+    );
+    try {
+      const crossTenantResult = await runWithAuthContextAsync({ userId: "bootstrap", companyId: otherCompany.id }, async () =>
+        approveRuleProposal({ companyId: otherCompany.id, proposalId: pendingReject.id, reviewedBy: "attacker@example.com" })
+      );
+      assert.equal(crossTenantResult.ok, false, "a proposal must never be actionable from a different company");
+      assert.equal(crossTenantResult.error, "Proposal not found");
+    } finally {
+      await runWithAuthContextAsync(bootstrapCtx, async () => {
+        await prisma.company.delete({ where: { id: otherCompany.id } });
+      });
+    }
+  } finally {
+    await runWithAuthContextAsync(bootstrapCtx, async () => {
+      await prisma.engineeringLearnedRule.deleteMany({ where: { companyId: company.id } });
       await prisma.engineeringRuleProposal.deleteMany({ where: { companyId: company.id } });
       await prisma.company.delete({ where: { id: company.id } });
     });

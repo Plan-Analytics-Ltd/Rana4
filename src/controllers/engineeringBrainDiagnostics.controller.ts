@@ -6,6 +6,10 @@ import {
   isEngineeringKnowledgeStoreAvailable,
   type EngineeringReviewAction,
 } from "../services/intelligence/diagnostics/engineeringKnowledgeStore.service.js";
+import {
+  approveRuleProposal,
+  rejectRuleProposal,
+} from "../services/intelligence/diagnostics/engineeringRuleProposal.service.js";
 
 const ACTION_MAP: Record<string, EngineeringReviewAction> = {
   approve: "APPROVE",
@@ -108,6 +112,81 @@ export async function reviewEngineeringIdentity(req: AuthRequest, res: Response)
     console.error(err);
     res.status(500).json({
       error: err instanceof Error ? err.message : "Failed to record review decision",
+    });
+  }
+}
+
+/**
+ * POST /dev/engineering-brain/rule-proposals/:id/approve
+ *
+ * Approve a PENDING rule proposal (spec section 6, Phase 3): creates the
+ * corresponding EngineeringLearnedRule row and marks the proposal APPROVED.
+ * Developer-only, tenant-scoped — the proposal is looked up by (id, companyId)
+ * together, same posture as every other Engineering Brain mutation.
+ */
+export async function approveRuleProposalHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const proposalId = str(req.params.id);
+    if (!proposalId) {
+      res.status(400).json({ error: "proposal id is required" });
+      return;
+    }
+    const result = await approveRuleProposal({
+      companyId: req.user.companyId,
+      proposalId,
+      reviewedBy: req.user.email,
+    });
+    if (!result.ok) {
+      res.status(result.error === "Proposal not found" ? 404 : 503).json({ error: result.error });
+      return;
+    }
+    res.json({ proposal: result.proposal });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Failed to approve rule proposal",
+    });
+  }
+}
+
+/**
+ * POST /dev/engineering-brain/rule-proposals/:id/reject
+ *
+ * Reject a PENDING rule proposal (spec section 6, Phase 3): marks REJECTED
+ * with optional notes so the same evidence cluster never resurfaces an
+ * identical proposal on a later diagnostics run.
+ */
+export async function rejectRuleProposalHandler(req: AuthRequest, res: Response): Promise<void> {
+  try {
+    if (!req.user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const proposalId = str(req.params.id);
+    if (!proposalId) {
+      res.status(400).json({ error: "proposal id is required" });
+      return;
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const result = await rejectRuleProposal({
+      companyId: req.user.companyId,
+      proposalId,
+      reviewedBy: req.user.email,
+      notes: str(body.notes),
+    });
+    if (!result.ok) {
+      res.status(result.error === "Proposal not found" ? 404 : 503).json({ error: result.error });
+      return;
+    }
+    res.json({ proposal: result.proposal });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Failed to reject rule proposal",
     });
   }
 }

@@ -16,6 +16,7 @@ import {
   resolveEngineeringIdentity,
   type EngineeringIdentity,
 } from "../taxonomy/engineeringIdentity.service.js";
+import type { EngineeringObjectRule } from "../taxonomy/engineeringVocabulary.data.js";
 import {
   enforceEngineeringIdentityValidation,
   type EngineeringIdentityValidation,
@@ -66,8 +67,15 @@ import {
 import {
   computeEngineeringRuleProposalCandidates,
   persistEngineeringRuleProposals,
+  listPendingRuleProposals,
+  isEngineeringRuleProposalStoreAvailable,
   type EngineeringRuleProposalCandidate,
+  type StoredEngineeringRuleProposal,
 } from "./engineeringRuleProposal.service.js";
+import {
+  loadActiveLearnedObjectRules,
+  isEngineeringLearnedRuleStoreAvailable,
+} from "./engineeringLearnedRule.service.js";
 
 /* -------------------------------------------------------------------------- */
 /* Inputs                                                                     */
@@ -369,6 +377,13 @@ export type EngineeringBrainDiagnosticsReport = {
    * `candidateLearning` (spec section 5). Persisted to `EngineeringRuleProposal`
    * by the DB-touching wrapper immediately after this report is computed. */
   ruleProposalCandidates: EngineeringRuleProposalCandidate[];
+  /** PENDING rule proposals for the review UI (spec section 6, Phase 3).
+   * Populated by the DB-touching wrapper (getEngineeringBrainDiagnostics) —
+   * always [] from the pure function itself, same pattern as trustedKnowledge
+   * being companyId-free at this layer. */
+  ruleProposals: StoredEngineeringRuleProposal[];
+  ruleProposalStoreAvailable: boolean;
+  learnedRuleStoreAvailable: boolean;
   reasoningDrift: ReasoningDrift[];
   maturity: EngineeringMaturity;
   topOpportunities: LearningOpportunity[];
@@ -446,34 +461,40 @@ function signature(identity: EngineeringIdentity): string {
   ].join("|");
 }
 
-function resolveValidated(input: {
-  name: string;
-  fragnetName?: string | null;
-  parentWbs?: string | null;
-  wbsPath?: string | null;
-  discipline?: string | null;
-  activityCodeDiscipline?: string | null;
-  classificationTags?: Record<string, unknown> | null;
-  classification?: DeliverableClassification | null;
-  lifecycleStage?: string | null;
-  projectContext?: { sector?: string | null; projectType?: string | null } | null;
-  relatedActivityNames?: string[];
-}): { identity: EngineeringIdentity; validation: EngineeringIdentityValidation; durationMs: number } {
+function resolveValidated(
+  input: {
+    name: string;
+    fragnetName?: string | null;
+    parentWbs?: string | null;
+    wbsPath?: string | null;
+    discipline?: string | null;
+    activityCodeDiscipline?: string | null;
+    classificationTags?: Record<string, unknown> | null;
+    classification?: DeliverableClassification | null;
+    lifecycleStage?: string | null;
+    projectContext?: { sector?: string | null; projectType?: string | null } | null;
+    relatedActivityNames?: string[];
+  },
+  learnedObjectRules: EngineeringObjectRule[] = []
+): { identity: EngineeringIdentity; validation: EngineeringIdentityValidation; durationMs: number } {
   const startedAt = process.hrtime.bigint();
   const enforced = enforceEngineeringIdentityValidation(
-    resolveEngineeringIdentity({
-      deliverableName: input.name,
-      fragnetName: input.fragnetName,
-      parentWbs: input.parentWbs,
-      wbsPath: input.wbsPath,
-      disciplineTag: input.discipline,
-      activityCodeDiscipline: input.activityCodeDiscipline,
-      classificationTags: input.classificationTags,
-      classification: input.classification,
-      lifecycleStage: input.lifecycleStage,
-      projectContext: input.projectContext,
-      relatedActivityNames: input.relatedActivityNames,
-    })
+    resolveEngineeringIdentity(
+      {
+        deliverableName: input.name,
+        fragnetName: input.fragnetName,
+        parentWbs: input.parentWbs,
+        wbsPath: input.wbsPath,
+        disciplineTag: input.discipline,
+        activityCodeDiscipline: input.activityCodeDiscipline,
+        classificationTags: input.classificationTags,
+        classification: input.classification,
+        lifecycleStage: input.lifecycleStage,
+        projectContext: input.projectContext,
+        relatedActivityNames: input.relatedActivityNames,
+      },
+      { objectRules: learnedObjectRules }
+    )
   );
   const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
   return { identity: enforced, validation: enforced.validation, durationMs };
@@ -521,7 +542,17 @@ export async function computeEngineeringBrainDiagnostics(
   probes: ConsistencyProbe[] = DEFAULT_CONSISTENCY_PROBES,
   decisions: Map<string, StoredEngineeringKnowledge> = new Map(),
   storeAvailable = false,
-  options: EngineeringBrainDiagnosticsOptions = {}
+  options: EngineeringBrainDiagnosticsOptions = {},
+  /**
+   * Active, developer-approved learned object rules (spec section 7, Phase
+   * 3) to merge in alongside the hand-authored taxonomy. Plain data, not a
+   * companyId — the caller (getEngineeringBrainDiagnostics) loads these via
+   * loadActiveLearnedObjectRules before calling in, keeping this function
+   * itself companyId-free and directly testable (see
+   * tests/integration/engineering-brain-diagnostics.test.mjs, which never
+   * passes one and gets exactly the pre-Phase-3 behavior).
+   */
+  learnedObjectRules: EngineeringObjectRule[] = []
 ): Promise<EngineeringBrainDiagnosticsReport> {
   const versions = getEngineeringBrainVersions();
   const now = new Date().toISOString();
@@ -535,19 +566,22 @@ export async function computeEngineeringBrainDiagnostics(
     subject: { key: string; label: string };
   };
   const records: Record[] = observed.map((deliverable) => {
-    const resolved = resolveValidated({
-      name: deliverable.name,
-      fragnetName: deliverable.fragnetName,
-      parentWbs: deliverable.parentWbs,
-      wbsPath: deliverable.wbsPath,
-      discipline: deliverable.discipline,
-      activityCodeDiscipline: deliverable.activityCodeDiscipline,
-      classificationTags: deliverable.classificationTags,
-      classification: deliverable.classification,
-      lifecycleStage: deliverable.lifecycleStage,
-      projectContext: deliverable.projectContext,
-      relatedActivityNames: deliverable.relatedActivityNames,
-    });
+    const resolved = resolveValidated(
+      {
+        name: deliverable.name,
+        fragnetName: deliverable.fragnetName,
+        parentWbs: deliverable.parentWbs,
+        wbsPath: deliverable.wbsPath,
+        discipline: deliverable.discipline,
+        activityCodeDiscipline: deliverable.activityCodeDiscipline,
+        classificationTags: deliverable.classificationTags,
+        classification: deliverable.classification,
+        lifecycleStage: deliverable.lifecycleStage,
+        projectContext: deliverable.projectContext,
+        relatedActivityNames: deliverable.relatedActivityNames,
+      },
+      learnedObjectRules
+    );
     return {
       observed: deliverable,
       identity: resolved.identity,
@@ -560,7 +594,7 @@ export async function computeEngineeringBrainDiagnostics(
   /* 2. Consistency probes. */
   const probeResults: ConsistencyProbeResult[] = probes.map((probe) => {
     const variants = probe.variants.map((name) => {
-      const resolved = resolveValidated({ name, fragnetName: probe.fragnetName ?? null });
+      const resolved = resolveValidated({ name, fragnetName: probe.fragnetName ?? null }, learnedObjectRules);
       return {
         name,
         identity: resolved.identity,
@@ -1206,19 +1240,22 @@ export async function computeEngineeringBrainDiagnostics(
   // Repeatability: re-resolve a bounded sample and confirm identical signatures.
   const repeatSample = records.slice(0, 100);
   const repeatable = repeatSample.filter((record) => {
-    const again = resolveValidated({
-      name: record.observed.name,
-      fragnetName: record.observed.fragnetName,
-      parentWbs: record.observed.parentWbs,
-      wbsPath: record.observed.wbsPath,
-      discipline: record.observed.discipline,
-      activityCodeDiscipline: record.observed.activityCodeDiscipline,
-      classificationTags: record.observed.classificationTags,
-      classification: record.observed.classification,
-      lifecycleStage: record.observed.lifecycleStage,
-      projectContext: record.observed.projectContext,
-      relatedActivityNames: record.observed.relatedActivityNames,
-    });
+    const again = resolveValidated(
+      {
+        name: record.observed.name,
+        fragnetName: record.observed.fragnetName,
+        parentWbs: record.observed.parentWbs,
+        wbsPath: record.observed.wbsPath,
+        discipline: record.observed.discipline,
+        activityCodeDiscipline: record.observed.activityCodeDiscipline,
+        classificationTags: record.observed.classificationTags,
+        classification: record.observed.classification,
+        lifecycleStage: record.observed.lifecycleStage,
+        projectContext: record.observed.projectContext,
+        relatedActivityNames: record.observed.relatedActivityNames,
+      },
+      learnedObjectRules
+    );
     return signature(again.identity) === signature(record.identity);
   }).length;
   const repeatability = pct(repeatable, Math.max(1, repeatSample.length));
@@ -1326,6 +1363,9 @@ export async function computeEngineeringBrainDiagnostics(
     unknownWork,
     candidateLearning,
     ruleProposalCandidates,
+    ruleProposals: [],
+    ruleProposalStoreAvailable: false,
+    learnedRuleStoreAvailable: false,
     reasoningDrift,
     maturity,
     topOpportunities,
@@ -1475,12 +1515,17 @@ export async function getEngineeringBrainDiagnostics(args: {
 }): Promise<EngineeringBrainDiagnosticsReport> {
   const observed = await loadObservedDeliverablesForCompany({ companyId: args.companyId });
   const decisions = await loadEngineeringKnowledge(args.companyId);
+  // Phase 3 (spec section 7): load developer-approved learned object rules
+  // for this company so they're merged into resolution before matching runs.
+  // Never throws — [] if the migration hasn't been deployed yet.
+  const learnedObjectRules = await loadActiveLearnedObjectRules(args.companyId);
   const report = await computeEngineeringBrainDiagnostics(
     observed,
     DEFAULT_CONSISTENCY_PROBES,
     decisions,
     isEngineeringKnowledgeStoreAvailable(),
-    args.options ?? {}
+    args.options ?? {},
+    learnedObjectRules
   );
   // Phase 2 (spec section 5): persist scored rule-proposal candidates
   // immediately after computing the report — this is the DB-touching half of
@@ -1493,5 +1538,9 @@ export async function getEngineeringBrainDiagnostics(args: {
     companyId: args.companyId,
     candidates: report.ruleProposalCandidates,
   });
+  // Phase 3 (spec section 6): attach PENDING proposals for the review UI.
+  report.ruleProposals = await listPendingRuleProposals(args.companyId);
+  report.ruleProposalStoreAvailable = isEngineeringRuleProposalStoreAvailable();
+  report.learnedRuleStoreAvailable = isEngineeringLearnedRuleStoreAvailable();
   return report;
 }

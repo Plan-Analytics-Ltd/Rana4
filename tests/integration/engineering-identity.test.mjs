@@ -143,6 +143,46 @@ test("insufficient core identity fails closed", () => {
   assert.equal(comparison.reason, "INSUFFICIENT_IDENTITY");
 });
 
+test("Phase 3: learned object rules merge in alongside the hand-authored taxonomy", () => {
+  // "Cofferdam Installation" is the same genuinely-unresolved fixture used in
+  // tests/integration/engineering-rule-proposal.test.mjs (confirmed there:
+  // resolves with engineeringObject.id === null against the current taxonomy,
+  // unlike "Combined MEP Coordination" which turns out to resolve via a
+  // discipline fallback and so isn't a useful "before" case).
+  const before = resolveEngineeringIdentity({ deliverableName: "Cofferdam Installation" });
+  assert.equal(before.engineeringObject.id, null, JSON.stringify(before.engineeringObject));
+
+  const learnedRule = {
+    id: "temporary_marine_works",
+    label: "Temporary Marine Works",
+    patterns: ["\\bcofferdam\\b"],
+    origin: "LEARNED_RULE",
+  };
+  const after = resolveEngineeringIdentity(
+    { deliverableName: "Cofferdam Installation" },
+    { objectRules: [learnedRule] }
+  );
+  assert.equal(after.engineeringObject.id, "temporary_marine_works");
+  assert.equal(after.engineeringObject.label, "Temporary Marine Works");
+  assert.equal(
+    after.engineeringObject.evidence[0]?.ruleOrigin,
+    "LEARNED_RULE",
+    "a resolution driven by a learned rule must be tagged distinctly from hand-authored TAXONOMY rules"
+  );
+});
+
+test("Phase 3: omitting learnedRules entirely reproduces pre-Phase-3 behavior exactly", () => {
+  const withoutArg = resolveEngineeringIdentity({ deliverableName: "Reinforcement Detailing" });
+  const withEmptyOverlay = resolveEngineeringIdentity({ deliverableName: "Reinforcement Detailing" }, {});
+  const withEmptyArray = resolveEngineeringIdentity(
+    { deliverableName: "Reinforcement Detailing" },
+    { objectRules: [] }
+  );
+  assert.deepEqual(withEmptyOverlay, withoutArg);
+  assert.deepEqual(withEmptyArray, withoutArg);
+  assert.equal(withoutArg.engineeringObject.evidence[0]?.ruleOrigin, "TAXONOMY");
+});
+
 test("descriptor differences cannot override matching core engineering identity", () => {
   const target = identity("Reinforcement Detailing - Stage 3", "Structures", {
     lifecycleStage: "Stage 3",

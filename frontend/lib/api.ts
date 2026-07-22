@@ -500,6 +500,27 @@ export type EngineeringBrainCollections = {
   rejected: TrustedKnowledgeEntry[];
 };
 
+/** A rule proposal awaiting developer review (spec section 6, Phase 3). */
+export type EngineeringRuleProposal = {
+  id: string;
+  kind: string;
+  targetId: string;
+  targetLabel: string;
+  proposedPattern: string;
+  rationale: string;
+  supportingFingerprints: string[];
+  occurrences: number;
+  projectCount: number;
+  confirmedDecisionCount: number;
+  consistency: number;
+  confidenceScore: number;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  reviewedBy: string | null;
+  reviewNotes: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+};
+
 export type EngineeringBrainDiagnosticsReport = {
   generatedAt: string;
   versions: EngineeringBrainVersions;
@@ -514,6 +535,10 @@ export type EngineeringBrainDiagnosticsReport = {
   unknownObjects: EngineeringUnknownConcept[];
   unknownWork: EngineeringUnknownConcept[];
   candidateLearning: EngineeringCandidateLearning[];
+  /** PENDING rule proposals for the review UI (spec section 6, Phase 3). */
+  ruleProposals: EngineeringRuleProposal[];
+  ruleProposalStoreAvailable: boolean;
+  learnedRuleStoreAvailable: boolean;
   reasoningDrift: EngineeringReasoningDrift[];
   maturity: EngineeringMaturity;
   topOpportunities: EngineeringLearningOpportunity[];
@@ -637,6 +662,10 @@ export const devApi = {
   engineeringBrain: () => api.get<EngineeringBrainDiagnosticsReport>("/dev/engineering-brain"),
   reviewEngineeringIdentity: (payload: EngineeringReviewPayload) =>
     api.post<{ entry: TrustedKnowledgeEntry }>("/dev/engineering-brain/review", payload),
+  approveRuleProposal: (id: string) =>
+    api.post<{ proposal: EngineeringRuleProposal }>(`/dev/engineering-brain/rule-proposals/${id}/approve`, {}),
+  rejectRuleProposal: (id: string, notes?: string) =>
+    api.post<{ proposal: EngineeringRuleProposal }>(`/dev/engineering-brain/rule-proposals/${id}/reject`, { notes }),
   /**
    * Full identity-resolution pipeline dump. Completeness over size — may be large.
    * Gated by requireDevEmail on the server.

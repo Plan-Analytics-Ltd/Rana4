@@ -37,6 +37,7 @@ import {
   DISCIPLINE_OBJECT_FALLBACKS,
 } from "../taxonomy/engineeringVocabulary.data.js";
 import type { StoredEngineeringKnowledge } from "./engineeringKnowledgeStore.service.js";
+import { createLearnedRule } from "./engineeringLearnedRule.service.js";
 
 /* -------------------------------------------------------------------------- */
 /* Inputs                                                                     */
@@ -284,6 +285,7 @@ export function computeEngineeringRuleProposalCandidates(args: {
 
 type ProposalDelegate = {
   findFirst: (args: unknown) => Promise<Record<string, unknown> | null>;
+  findMany: (args: unknown) => Promise<Array<Record<string, unknown>>>;
   create: (args: unknown) => Promise<Record<string, unknown>>;
   update: (args: unknown) => Promise<Record<string, unknown>>;
 };
@@ -383,4 +385,151 @@ export async function persistEngineeringRuleProposals(args: {
   }
 
   return result;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Review UI backend — Phase 3 (spec section 6): list / approve / reject.    */
+/* -------------------------------------------------------------------------- */
+
+export type StoredEngineeringRuleProposal = {
+  id: string;
+  kind: string;
+  targetId: string;
+  targetLabel: string;
+  proposedPattern: string;
+  rationale: string;
+  supportingFingerprints: string[];
+  occurrences: number;
+  projectCount: number;
+  confirmedDecisionCount: number;
+  consistency: number;
+  confidenceScore: number;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  reviewedBy: string | null;
+  reviewNotes: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+};
+
+function toStoredProposal(row: Record<string, unknown>): StoredEngineeringRuleProposal {
+  return {
+    id: String(row.id ?? ""),
+    kind: String(row.kind ?? ""),
+    targetId: String(row.targetId ?? ""),
+    targetLabel: String(row.targetLabel ?? ""),
+    proposedPattern: String(row.proposedPattern ?? ""),
+    rationale: String(row.rationale ?? ""),
+    supportingFingerprints: Array.isArray(row.supportingFingerprints)
+      ? (row.supportingFingerprints as unknown[]).filter((v): v is string => typeof v === "string")
+      : [],
+    occurrences: Number(row.occurrences ?? 0),
+    projectCount: Number(row.projectCount ?? 0),
+    confirmedDecisionCount: Number(row.confirmedDecisionCount ?? 0),
+    consistency: Number(row.consistency ?? 0),
+    confidenceScore: Number(row.confidenceScore ?? 0),
+    status: (row.status as StoredEngineeringRuleProposal["status"]) ?? "PENDING",
+    reviewedBy: (row.reviewedBy as string | null) ?? null,
+    reviewNotes: (row.reviewNotes as string | null) ?? null,
+    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt ?? new Date().toISOString()),
+    reviewedAt: row.reviewedAt instanceof Date ? row.reviewedAt.toISOString() : (row.reviewedAt as string | null) ?? null,
+  };
+}
+
+/**
+ * List PENDING proposals for the review UI. Never throws: [] if the store
+ * isn't available or on any query failure.
+ */
+export async function listPendingRuleProposals(companyId: string): Promise<StoredEngineeringRuleProposal[]> {
+  const delegate = proposalDelegate();
+  if (!delegate) return [];
+  try {
+    const rows = await delegate.findMany({
+      where: { companyId, status: "PENDING" },
+      orderBy: { confidenceScore: "desc" },
+    });
+    return rows.map(toStoredProposal);
+  } catch {
+    return [];
+  }
+}
+
+export type RuleProposalReviewResult =
+  | { ok: true; proposal: StoredEngineeringRuleProposal }
+  | { ok: false; error: string };
+
+/**
+ * Approve a PENDING proposal: creates the EngineeringLearnedRule row (spec
+ * section 4.2) and marks the proposal APPROVED. Tenant-scoped — only ever
+ * looks up a proposal by (id, companyId) together, same posture as every
+ * other Engineering Brain mutation.
+ */
+export async function approveRuleProposal(args: {
+  companyId: string;
+  proposalId: string;
+  reviewedBy: string;
+}): Promise<RuleProposalReviewResult> {
+  const delegate = proposalDelegate();
+  if (!delegate) return { ok: false, error: "Rule proposal store is unavailable (migration not applied)" };
+
+  const existing = await delegate.findFirst({ where: { id: args.proposalId, companyId: args.companyId } });
+  if (!existing) return { ok: false, error: "Proposal not found" };
+  if (String(existing.status) !== "PENDING") {
+    return { ok: false, error: `Proposal is already ${String(existing.status)}, not PENDING` };
+  }
+
+  const learned = await createLearnedRule({
+    companyId: args.companyId,
+    kind: String(existing.kind),
+    targetId: String(existing.targetId),
+    targetLabel: String(existing.targetLabel),
+    pattern: String(existing.proposedPattern),
+    sourceProposalId: String(existing.id),
+  });
+  if (!learned) {
+    return { ok: false, error: "Failed to create learned rule (learned rule store unavailable)" };
+  }
+
+  const updated = await delegate.update({
+    where: { id: String(existing.id) },
+    data: {
+      status: "APPROVED",
+      reviewedBy: args.reviewedBy,
+      reviewedAt: new Date(),
+    },
+  });
+  return { ok: true, proposal: toStoredProposal(updated) };
+}
+
+/**
+ * Reject a PENDING proposal: marks REJECTED with optional notes. Per spec
+ * section 6, the (companyId, kind, targetId, proposedPattern) uniqueness
+ * constraint plus persistEngineeringRuleProposals' own REJECTED short-circuit
+ * (see above) together ensure the same evidence cluster never resurfaces an
+ * identical proposal on a later diagnostics run.
+ */
+export async function rejectRuleProposal(args: {
+  companyId: string;
+  proposalId: string;
+  reviewedBy: string;
+  notes?: string | null;
+}): Promise<RuleProposalReviewResult> {
+  const delegate = proposalDelegate();
+  if (!delegate) return { ok: false, error: "Rule proposal store is unavailable (migration not applied)" };
+
+  const existing = await delegate.findFirst({ where: { id: args.proposalId, companyId: args.companyId } });
+  if (!existing) return { ok: false, error: "Proposal not found" };
+  if (String(existing.status) !== "PENDING") {
+    return { ok: false, error: `Proposal is already ${String(existing.status)}, not PENDING` };
+  }
+
+  const updated = await delegate.update({
+    where: { id: String(existing.id) },
+    data: {
+      status: "REJECTED",
+      reviewedBy: args.reviewedBy,
+      reviewNotes: args.notes ?? null,
+      reviewedAt: new Date(),
+    },
+  });
+  return { ok: true, proposal: toStoredProposal(updated) };
 }

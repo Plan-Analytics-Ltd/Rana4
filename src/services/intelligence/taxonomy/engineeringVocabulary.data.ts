@@ -9,6 +9,15 @@ export type EngineeringObjectRule = {
   patterns: string[];
   disciplines?: string[];
   priority?: number;
+  /**
+   * Set on rules merged in from an approved EngineeringLearnedRule (Phase 3 of
+   * docs/engineering-brain-self-learning-spec.md) rather than hand-authored
+   * here. Absent (undefined) means this is a hand-authored, git-tracked rule.
+   * Surfaced on the resulting evidence so a developer can always tell whether
+   * a resolution came from a rule a person wrote or one the system proposed
+   * and a person approved.
+   */
+  origin?: "LEARNED_RULE";
 };
 
 export const ENGINEERING_OBJECT_RULES: EngineeringObjectRule[] = [

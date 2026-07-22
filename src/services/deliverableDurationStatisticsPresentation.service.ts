@@ -11,6 +11,7 @@ import {
   loadEngineeringKnowledge,
   type StoredEngineeringKnowledge,
 } from "./intelligence/diagnostics/engineeringKnowledgeStore.service.js";
+import { loadActiveLearnedObjectRules } from "./intelligence/diagnostics/engineeringLearnedRule.service.js";
 import {
   compareEngineeringIdentities,
   resolveEngineeringIdentity,
@@ -27,7 +28,10 @@ import {
 } from "./intelligence/taxonomy/engineeringReasoningOrchestration.service.js";
 import { classifyDeliverableName } from "./intelligence/profiles/deliverableClassification.service.js";
 import { P6_HOURS_PER_DAY } from "./intelligence/shared/types.js";
-import { ENGINEERING_OBJECT_RULES } from "./intelligence/taxonomy/engineeringVocabulary.data.js";
+import {
+  ENGINEERING_OBJECT_RULES,
+  type EngineeringObjectRule,
+} from "./intelligence/taxonomy/engineeringVocabulary.data.js";
 
 /** Rough starting point — tune once more project history exists; not validated. */
 export const LOW_NAME_CONSISTENCY_THRESHOLD = 0.3;
@@ -297,25 +301,31 @@ const NULL_IDENTITY_COMPONENT: EngineeringIdentityComponent = {
   evidence: [],
 };
 
-function engineeringIdentity(input: EngineeringIdentityInput): EngineeringIdentity {
+function engineeringIdentity(
+  input: EngineeringIdentityInput,
+  learnedObjectRules: EngineeringObjectRule[] = []
+): EngineeringIdentity {
   // Validation gate: reject internally contradictory identities before any
   // historical comparison. Rule-based identities are consistent by
   // construction, so this is inert for extraction but fails closed if a
   // reasoning-produced identity ever contradicts itself.
   return enforceEngineeringIdentityValidation(
-    resolveEngineeringIdentity({
-      deliverableName: input.name,
-      fragnetName: input.fragnetName,
-      parentWbs: input.parentWbs,
-      wbsPath: input.wbsPath,
-      disciplineTag: input.discipline,
-      activityCodeDiscipline: input.activityCodeDiscipline,
-      classificationTags: input.classificationTags,
-      classification: input.classification,
-      lifecycleStage: input.lifecycleStage,
-      projectContext: input.projectContext,
-      relatedActivityNames: input.relatedActivityNames,
-    })
+    resolveEngineeringIdentity(
+      {
+        deliverableName: input.name,
+        fragnetName: input.fragnetName,
+        parentWbs: input.parentWbs,
+        wbsPath: input.wbsPath,
+        disciplineTag: input.discipline,
+        activityCodeDiscipline: input.activityCodeDiscipline,
+        classificationTags: input.classificationTags,
+        classification: input.classification,
+        lifecycleStage: input.lifecycleStage,
+        projectContext: input.projectContext,
+        relatedActivityNames: input.relatedActivityNames,
+      },
+      { objectRules: learnedObjectRules }
+    )
   );
 }
 
@@ -437,11 +447,12 @@ function resolveCandidateIdentityFromSnapshot(
     reasoningSource?: string | null;
   },
   knowledge: Map<string, StoredEngineeringKnowledge>,
-  useKnowledge: boolean
+  useKnowledge: boolean,
+  learnedObjectRules: EngineeringObjectRule[] = []
 ): EngineeringIdentity {
   // Fingerprint always uses rule-based signature so existing knowledge-store
   // decisions continue to look up correctly.
-  const raw = engineeringIdentity(input);
+  const raw = engineeringIdentity(input, learnedObjectRules);
   const withReasoning = applyStoredReasonedIdentity(raw, stored);
   if (!useKnowledge) return withReasoning;
   const fingerprint = engineeringIdentityFingerprint(conceptSubject(input.name).key, raw);
@@ -452,7 +463,8 @@ function resolveTargetIdentity(
   target: TargetContext,
   knowledge: Map<string, StoredEngineeringKnowledge>,
   useKnowledge: boolean,
-  reasonedTargetIdentities?: Map<string, EngineeringIdentity>
+  reasonedTargetIdentities?: Map<string, EngineeringIdentity>,
+  learnedObjectRules: EngineeringObjectRule[] = []
 ): EngineeringIdentity {
   const input: EngineeringIdentityInput = {
     name: target.name,
@@ -463,21 +475,22 @@ function resolveTargetIdentity(
     relatedActivityNames: target.relatedActivityNames,
   };
   if (reasonedTargetIdentities?.has(target.key)) {
-    const raw = engineeringIdentity(input);
+    const raw = engineeringIdentity(input, learnedObjectRules);
     const reasoned = reasonedTargetIdentities.get(target.key)!;
     if (!useKnowledge) return reasoned;
     const fingerprint = engineeringIdentityFingerprint(conceptSubject(input.name).key, raw);
     return applyKnowledgeDecision(reasoned, knowledge.get(fingerprint));
   }
-  return resolveIdentityWithReview(input, knowledge, useKnowledge);
+  return resolveIdentityWithReview(input, knowledge, useKnowledge, learnedObjectRules);
 }
 
 function resolveIdentityWithReview(
   input: EngineeringIdentityInput,
   knowledge: Map<string, StoredEngineeringKnowledge>,
-  useKnowledge: boolean
+  useKnowledge: boolean,
+  learnedObjectRules: EngineeringObjectRule[] = []
 ): EngineeringIdentity {
-  const raw = engineeringIdentity(input);
+  const raw = engineeringIdentity(input, learnedObjectRules);
   if (!useKnowledge) return raw;
   const fingerprint = engineeringIdentityFingerprint(conceptSubject(input.name).key, raw);
   return applyKnowledgeDecision(raw, knowledge.get(fingerprint));
@@ -639,7 +652,8 @@ function buildActivitiesByDeliverable(
 function precomputeSnapshotCandidates(
   snapshot: HistoricalSnapshotInput,
   knowledge: Map<string, StoredEngineeringKnowledge>,
-  useKnowledge: boolean
+  useKnowledge: boolean,
+  learnedObjectRules: EngineeringObjectRule[] = []
 ): PrecomputedSnapshotContext {
   const activitiesByDeliverable = buildActivitiesByDeliverable(snapshot);
   const candidates = snapshot.deliverableSnapshots.map((deliverable) => {
@@ -666,7 +680,8 @@ function precomputeSnapshotCandidates(
       },
       deliverable,
       knowledge,
-      useKnowledge
+      useKnowledge,
+      learnedObjectRules
     );
     return {
       deliverable,
@@ -680,7 +695,8 @@ function precomputeSnapshotCandidates(
 function precomputeLiveCandidates(
   project: HistoricalLiveProjectInput,
   knowledge: Map<string, StoredEngineeringKnowledge>,
-  useKnowledge: boolean
+  useKnowledge: boolean,
+  learnedObjectRules: EngineeringObjectRule[] = []
 ): PrecomputedLiveContext {
   const candidates = project.deliverables.map((deliverable) => ({
     deliverable,
@@ -696,7 +712,8 @@ function precomputeLiveCandidates(
           .filter((name): name is string => Boolean(name)),
       },
       knowledge,
-      useKnowledge
+      useKnowledge,
+      learnedObjectRules
     ),
     fragnetName: deliverable.fragnetName,
   }));
@@ -730,7 +747,17 @@ export function computeStrictOriginalDurationItems(
   liveProjects: HistoricalLiveProjectInput[] = [],
   knowledge: Map<string, StoredEngineeringKnowledge> = new Map(),
   useKnowledge = false,
-  reasonedTargetIdentities?: Map<string, EngineeringIdentity>
+  reasonedTargetIdentities?: Map<string, EngineeringIdentity>,
+  /**
+   * Active, developer-approved learned object rules (spec section 7, Phase
+   * 3). Plain data, not a companyId — the caller loads these once via
+   * loadActiveLearnedObjectRules and passes them in, keeping this function
+   * itself free of any DB access (see the many tests in
+   * tests/integration/deliverable-duration-statistics-presentation.test.mjs,
+   * none of which pass this and all of which must keep behaving exactly as
+   * before).
+   */
+  learnedObjectRules: EngineeringObjectRule[] = []
 ): HistoricalDurationItem[] {
   const latestSnapshotByProject = new Map<string, HistoricalSnapshotInput>();
   for (const snapshot of snapshots) {
@@ -750,10 +777,10 @@ export function computeStrictOriginalDurationItems(
   );
 
   const precomputedSnapshots = [...latestSnapshotByProject.values()].map((snapshot) =>
-    precomputeSnapshotCandidates(snapshot, knowledge, useKnowledge)
+    precomputeSnapshotCandidates(snapshot, knowledge, useKnowledge, learnedObjectRules)
   );
   const precomputedLiveProjects = eligibleLiveProjects.map((project) =>
-    precomputeLiveCandidates(project, knowledge, useKnowledge)
+    precomputeLiveCandidates(project, knowledge, useKnowledge, learnedObjectRules)
   );
 
   return targets.map((target) => {
@@ -761,7 +788,8 @@ export function computeStrictOriginalDurationItems(
       target,
       knowledge,
       useKnowledge,
-      reasonedTargetIdentities
+      reasonedTargetIdentities,
+      learnedObjectRules
     );
     let matchingProjectCount = 0;
     const samplesByBasis: Record<
@@ -1204,6 +1232,9 @@ export async function getDeliverableDurationStatisticsPresentation(args: {
 
   const storeAvailable = isEngineeringKnowledgeStoreAvailable();
   const knowledge = storeAvailable ? await loadEngineeringKnowledge(args.companyId) : new Map();
+  // Phase 3 (spec section 7): merge in developer-approved learned object
+  // rules for this company. Never throws — [] if not deployed yet.
+  const learnedObjectRules = await loadActiveLearnedObjectRules(args.companyId);
 
   let reasonedTargetIdentities: Map<string, EngineeringIdentity> | undefined;
   if (isEngineeringReasoningActive()) {
@@ -1249,7 +1280,8 @@ export async function getDeliverableDurationStatisticsPresentation(args: {
       })),
       knowledge,
       storeAvailable,
-      reasonedTargetIdentities
+      reasonedTargetIdentities,
+      learnedObjectRules
     ),
   };
 }

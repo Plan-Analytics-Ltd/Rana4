@@ -15,6 +15,7 @@ import {
   type EngineeringIdentityFields,
   type EngineeringIdentityView,
   type EngineeringReviewPayload,
+  type EngineeringRuleProposal,
   type HistoricalMatch,
   type InboxReasonDetail,
   type TrustedKnowledgeEntry,
@@ -597,6 +598,55 @@ function TrustedRow({
   );
 }
 
+function RuleProposalCard({
+  proposal,
+  busy,
+  onApprove,
+  onReject,
+}: {
+  proposal: EngineeringRuleProposal;
+  busy: boolean;
+  onApprove: () => void;
+  onReject: () => void;
+}) {
+  return (
+    <div className="rounded-md border border-slate-200 p-3 dark:border-slate-700">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-slate-900 dark:text-white">{proposal.targetLabel}</span>
+            <Chip>{proposal.kind}</Chip>
+            <span className="text-xs text-slate-400">
+              confidence {Math.round(proposal.confidenceScore * 100)}%
+            </span>
+          </div>
+          <div className="mt-1 font-mono text-xs text-slate-500 dark:text-slate-400">/{proposal.proposedPattern}/i</div>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <Button type="button" size="sm" variant="outline" disabled={busy} onClick={onApprove}>
+            Approve
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="text-rose-600 dark:text-rose-300"
+            disabled={busy}
+            onClick={onReject}
+          >
+            Reject
+          </Button>
+        </div>
+      </div>
+      <p className="mt-2 text-sm text-slate-700 dark:text-slate-300">{proposal.rationale}</p>
+      <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+        Seen {proposal.occurrences} time(s) · {proposal.projectCount} project(s) · {proposal.confirmedDecisionCount}{" "}
+        confirming developer decision(s) · {Math.round(proposal.consistency * 100)}% consistent
+      </div>
+    </div>
+  );
+}
+
 export default function EngineeringBrainPage() {
   const { user, loading, refreshUser } = useAuth();
   const router = useRouter();
@@ -606,6 +656,7 @@ export default function EngineeringBrainPage() {
   const [busyFingerprint, setBusyFingerprint] = useState<string | null>(null);
   const [editing, setEditing] = useState<EditingState | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [busyProposalId, setBusyProposalId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoadingData(true);
@@ -640,6 +691,38 @@ export default function EngineeringBrainPage() {
         toast.error(getApiErrorMessage(err));
       } finally {
         setBusyFingerprint(null);
+      }
+    },
+    [load]
+  );
+
+  const approveProposal = useCallback(
+    async (id: string) => {
+      setBusyProposalId(id);
+      try {
+        await devApi.approveRuleProposal(id);
+        toast.success("Approved — learned rule is now active");
+        await load();
+      } catch (err) {
+        toast.error(getApiErrorMessage(err));
+      } finally {
+        setBusyProposalId(null);
+      }
+    },
+    [load]
+  );
+
+  const rejectProposal = useCallback(
+    async (id: string) => {
+      setBusyProposalId(id);
+      try {
+        await devApi.rejectRuleProposal(id);
+        toast.success("Rejected");
+        await load();
+      } catch (err) {
+        toast.error(getApiErrorMessage(err));
+      } finally {
+        setBusyProposalId(null);
       }
     },
     [load]
@@ -827,6 +910,46 @@ export default function EngineeringBrainPage() {
                     setEditing={setEditing}
                     busy={busyFingerprint === item.fingerprint}
                     review={(payload) => void review(payload)}
+                  />
+                ))
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Rule Proposals */}
+          <Card className="border-sky-200 dark:border-sky-900/50 dark:bg-slate-900/50">
+            <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
+              <div>
+                <CardTitle className="text-base">Rule Proposals</CardTitle>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  Draft taxonomy rules mined from accumulated, cross-project evidence. Nothing is auto-promoted —
+                  approve to activate a learned rule, reject to archive it for good.
+                </p>
+              </div>
+              <span className="rounded bg-sky-100 px-2 py-1 text-sm font-semibold text-sky-800 dark:bg-sky-900/40 dark:text-sky-200">
+                {report.ruleProposals.length}
+              </span>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {!report.ruleProposalStoreAvailable || !report.learnedRuleStoreAvailable ? (
+                <p className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:border-sky-900/50 dark:bg-sky-900/20 dark:text-sky-200">
+                  Rule proposal / learned rule store offline — proposals won&apos;t persist or take effect until the
+                  migration is deployed.
+                </p>
+              ) : null}
+              {report.ruleProposals.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No proposals clearing the confidence threshold yet. Keep reviewing Brain Inbox items — every
+                  developer decision is potential ground truth for a future proposal.
+                </p>
+              ) : (
+                report.ruleProposals.map((proposal) => (
+                  <RuleProposalCard
+                    key={proposal.id}
+                    proposal={proposal}
+                    busy={busyProposalId === proposal.id}
+                    onApprove={() => void approveProposal(proposal.id)}
+                    onReject={() => void rejectProposal(proposal.id)}
                   />
                 ))
               )}

@@ -3,6 +3,7 @@ import {
   DISCIPLINE_OBJECT_FALLBACKS,
   ENGINEERING_OBJECT_RULES,
   WORK_PACKAGE_OBJECT_FALLBACKS,
+  type EngineeringObjectRule,
 } from "./engineeringVocabulary.data.js";
 import { extractDocumentType } from "./documentType.extraction.js";
 import {
@@ -27,6 +28,14 @@ export type EngineeringIdentityEvidence = {
   source: EngineeringEvidenceSource;
   value: string;
   matched: string;
+  /**
+   * Which rule produced this — a hand-authored taxonomy rule, or one merged
+   * in from an approved EngineeringLearnedRule (spec section 7). Only ever
+   * set on engineeringObject evidence today, the only injection point wired
+   * so far. Absent means TAXONOMY (hand-authored); never omitted vs. explicit
+   * "TAXONOMY" for backward compatibility with existing evidence consumers.
+   */
+  ruleOrigin?: "LEARNED_RULE" | "TAXONOMY";
 };
 
 export type EngineeringIdentityComponent = {
@@ -168,17 +177,27 @@ export type EngineeringObjectCandidate = {
   value: string;
   matchedPattern: string;
   winner: boolean;
+  ruleOrigin: "LEARNED_RULE" | "TAXONOMY";
 };
 
 /**
  * All scored engineering-object candidates considered by the rule engine.
  * Debug/export only — resolveEngineeringIdentity still returns the same winner.
+ *
+ * `learnedObjectRules` (spec section 7, Phase 3): additional rules merged in
+ * from developer-approved EngineeringLearnedRule records, on top of the
+ * hand-authored ENGINEERING_OBJECT_RULES. Defaults to empty so every existing
+ * caller is unaffected until it explicitly opts in by passing learned rules.
  */
 export function listEngineeringObjectCandidates(
   input: EngineeringIdentityInput,
-  resolution: WorkPackageTaxonomyResolution
+  resolution: WorkPackageTaxonomyResolution,
+  learnedObjectRules: EngineeringObjectRule[] = []
 ): EngineeringObjectCandidate[] {
-  const candidates = ENGINEERING_OBJECT_RULES.flatMap((rule) => {
+  const rulePool = learnedObjectRules.length
+    ? [...ENGINEERING_OBJECT_RULES, ...learnedObjectRules]
+    : ENGINEERING_OBJECT_RULES;
+  const candidates = rulePool.flatMap((rule) => {
     if (
       rule.disciplines?.length &&
       resolution.disciplineId &&
@@ -212,14 +231,16 @@ export function listEngineeringObjectCandidates(
     value: c.value,
     matchedPattern: c.matchedPattern,
     winner: index === 0,
+    ruleOrigin: c.rule.origin ?? "TAXONOMY",
   }));
 }
 
 function resolveEngineeringObject(
   input: EngineeringIdentityInput,
-  resolution: WorkPackageTaxonomyResolution
+  resolution: WorkPackageTaxonomyResolution,
+  learnedObjectRules: EngineeringObjectRule[] = []
 ): EngineeringIdentityComponent {
-  const candidates = listEngineeringObjectCandidates(input, resolution);
+  const candidates = listEngineeringObjectCandidates(input, resolution, learnedObjectRules);
   const winner = candidates[0];
   if (winner) {
     return {
@@ -229,6 +250,7 @@ function resolveEngineeringObject(
         source: winner.source,
         value: winner.value,
         matched: winner.matchedPattern,
+        ruleOrigin: winner.ruleOrigin,
       }],
     };
   }
@@ -447,8 +469,21 @@ function fragnetContext(input: EngineeringIdentityInput): EngineeringIdentityCom
     : { id: null, label: null, evidence: [] };
 }
 
+/**
+ * Learned rules merged in at resolution time (spec section 7, Phase 3).
+ * Company-scoped, loaded by the caller (engineeringLearnedRule.service.ts)
+ * from developer-approved EngineeringLearnedRule records. Every field
+ * defaults to empty so omitting this argument entirely reproduces the exact
+ * pre-Phase-3 behavior — only OBJECT rules are wired today, matching the
+ * only kind the proposal engine currently generates.
+ */
+export type EngineeringLearnedRuleOverlay = {
+  objectRules?: EngineeringObjectRule[];
+};
+
 export function resolveEngineeringIdentity(
-  input: EngineeringIdentityInput
+  input: EngineeringIdentityInput,
+  learnedRules: EngineeringLearnedRuleOverlay = {}
 ): EngineeringIdentity {
   const resolution = resolveWorkPackageTaxonomy(input);
   const discipline: EngineeringIdentityComponent = {
@@ -456,7 +491,7 @@ export function resolveEngineeringIdentity(
     label: resolution.matched ? resolution.disciplineLabel : null,
     evidence: taxonomyDisciplineEvidence(resolution, input),
   };
-  const engineeringObject = resolveEngineeringObject(input, resolution);
+  const engineeringObject = resolveEngineeringObject(input, resolution, learnedRules.objectRules ?? []);
   const engineeringWork = resolveEngineeringWork(input, resolution);
   const deliverableType = resolveDeliverableType(input, resolution);
   const lifecycleStage = normaliseLifecycleStage(input);
