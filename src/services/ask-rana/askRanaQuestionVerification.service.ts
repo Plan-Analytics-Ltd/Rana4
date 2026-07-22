@@ -121,6 +121,26 @@ function isFollowUpQuestion(question: string, conversation?: AskRanaConversation
   return false;
 }
 
+const WORD_NUMBER: Record<string, number> = {
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+};
+
+/** "four" / "4" -> 4, for count phrases that mix numerals and number words. */
+function parseCount(raw: string): number {
+  const digit = Number(raw);
+  if (Number.isFinite(digit)) return digit;
+  return WORD_NUMBER[raw.toLowerCase()] ?? NaN;
+}
+
 function extractDoNotRepeat(conversation: AskRanaConversationTurn[] | undefined): string[] {
   if (!conversation?.length) return [];
   const recentRana = conversation
@@ -136,17 +156,34 @@ function extractDoNotRepeat(conversation: AskRanaConversationTurn[] | undefined)
     if (baseline) avoid.push(`baseline duration (${baseline[1]} days)`);
     if (latest) avoid.push(`latest duration (${latest[1]} days)`);
     if (revision) avoid.push(`revision count (${revision[1]} revisions)`);
-    if (/\b10\s*(?:to|→|-)\s*5\b/.test(msg) || /\breduced from 10 to 5\b/i.test(msg)) {
-      avoid.push("the 10 → 5 day change summary");
+
+    // Any "reduced/increased/changed from N to M [days]" narrative — the
+    // change-summary phrasing itself, distinct from the baseline/latest
+    // figures matched above (which require the literal words "baseline"/
+    // "latest"). Generic across whatever numbers this deliverable actually has.
+    const changeSummary = msg.match(
+      /\b(?:reduced|increased|changed|moved)\s+from\s+(?:the\s+)?(?:baseline\s+)?(\d+)\s*days?\s*(?:to|→|-)\s*(?:the\s+)?(?:latest\s+)?(\d+)\s*days?\b/i
+    );
+    if (changeSummary) {
+      avoid.push(`the ${changeSummary[1]} → ${changeSummary[2]} day change summary`);
     }
+
     if (/\b0 comparable\b|\bno (?:comparable )?completed\b|\bisn'?t enough completed\b/i.test(msg)) {
       avoid.push("zero / thin completed-project benchmarking counts");
     }
-    if (/\badditional structural works\b/i.test(msg) && /\+?\s*8\b/i.test(msg)) {
-      avoid.push("Additional Structural Works +8 remaining-work figure");
+
+    // Any "<named work package> +N" remaining-work figure, whatever the
+    // deliverable name and number happen to be for this conversation.
+    const remainingWorkFigure = msg.match(/\b([A-Z][A-Za-z0-9/&' -]{2,60}?)\s*\(?\+\s*(\d+)\b(?=[^.]*?remaining)/i);
+    if (remainingWorkFigure) {
+      avoid.push(`${remainingWorkFigure[1].trim()} +${remainingWorkFigure[2]} remaining-work figure`);
     }
-    if (/\b(?:four|4)\s+work packages?\b/i.test(msg) && /\bincreas/i.test(msg)) {
-      avoid.push("four work packages with increasing remaining work");
+
+    // Any "<N> work packages ... increas..." narrative, whatever count is real.
+    const workPackageCount = msg.match(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+work packages?\b/i);
+    if (workPackageCount && /\bincreas/i.test(msg)) {
+      const count = parseCount(workPackageCount[1]!);
+      avoid.push(`${Number.isFinite(count) ? count : workPackageCount[1]} work packages with increasing remaining work`);
     }
   }
   return [...new Set(avoid)];

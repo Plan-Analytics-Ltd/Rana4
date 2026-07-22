@@ -96,6 +96,40 @@ test("follow-up why question avoids repeating established facts", () => {
   assert.ok(result.doNotRepeat.length > 0);
 });
 
+test("do-not-repeat extraction is genuinely generic — not hardcoded to any one deliverable's numbers", () => {
+  // Deliberately DIFFERENT numbers/name from every other fixture in this test
+  // suite (which mostly reuse 10/5/13, the real seeded project's real values).
+  // If extractDoNotRepeat ever regresses into matching a specific example's
+  // literal numbers instead of the general shape, this is what would catch it.
+  const pkg = mockEvolutionPkg();
+  const result = verifyPlannerQuestion({
+    question: "Why?",
+    evidencePackage: pkg,
+    conversation: [
+      { role: "planner", content: "What changed?" },
+      {
+        role: "rana",
+        content:
+          "Duration reduced from baseline 37 days to latest 22 days across 9 programme revisions. " +
+          "Cladding Repair Package (+14 remaining) and 6 work packages showed increasing remaining work.",
+      },
+    ],
+  });
+
+  assert.ok(result.isFollowUp);
+  assert.ok(result.doNotRepeat.some((a) => a.includes("37")), JSON.stringify(result.doNotRepeat));
+  assert.ok(result.doNotRepeat.some((a) => a.includes("22")), JSON.stringify(result.doNotRepeat));
+  assert.ok(result.doNotRepeat.some((a) => a.includes("9 revisions")), JSON.stringify(result.doNotRepeat));
+  assert.ok(
+    result.doNotRepeat.some((a) => a.includes("Cladding Repair Package") && a.includes("+14")),
+    JSON.stringify(result.doNotRepeat)
+  );
+  assert.ok(result.doNotRepeat.some((a) => a.includes("6") && a.includes("work packages")), JSON.stringify(result.doNotRepeat));
+  // And explicitly not tied to the OTHER example's literal numbers/name.
+  assert.ok(!result.doNotRepeat.some((a) => a.includes("Additional Structural Works")));
+  assert.ok(!result.doNotRepeat.some((a) => /\b10\s*→\s*5\b/.test(a)));
+});
+
 function buildPromptFromPkg(question, pkg, conversation) {
   const plannerQuery = interpretPlannerQuery(question);
   const responseDepth = classifyPlannerResponseDepth({ question, plannerQuery, conversation });
