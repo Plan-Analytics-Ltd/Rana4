@@ -59,6 +59,14 @@ export type ObjectGapClusterInput = {
   occurrences: number;
   projectCount: number;
   members: ObjectGapClusterMember[];
+  /** The cluster's dominant resolved discipline id (majority across `members`,
+   * null if none resolved). Additive, optional: populated by
+   * `computeEngineeringBrainDiagnostics` (see engineeringBrainDiagnostics.
+   * service.ts) so `groupObjectGapClustersBySimilarity` (Phase 4, spec section
+   * 5 step 1) can batch clusters that "share a discipline" before calling the
+   * LLM. `computeEngineeringRuleProposalCandidates` itself never reads this
+   * field — it is carried through untouched. */
+  discipline?: string | null;
 };
 
 /* -------------------------------------------------------------------------- */

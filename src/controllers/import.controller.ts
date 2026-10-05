@@ -5,6 +5,7 @@ import { importFullTemplate } from "../services/import/fullImport.service.js";
 import { requireProjectAccess } from "../services/projectAccess.service.js";
 import { requirePermission } from "../permissions/projectPermissions.js";
 import { auditLog } from "../services/audit.service.js";
+import { captureLiveBaselineSnapshot } from "../services/intelligence/shared/programmeSnapshotCapture.service.js";
 
 type RequestWithFile = AuthRequest & { file?: Express.Multer.File };
 
@@ -58,6 +59,17 @@ export async function importProjectTemplate(req: AuthRequest, res: Response): Pr
     }
 
     const result = await importFullTemplate(file.buffer, projectId, req.user.companyId, dryRun);
+
+    if (!dryRun) {
+      try {
+        await captureLiveBaselineSnapshot(projectId, req.user.companyId, req.user.id, "Excel/Hybrid import");
+      } catch (snapshotErr) {
+        console.error(
+          `[import.controller] Failed to capture programme snapshot after Excel/Hybrid import (projectId=${projectId})`,
+          snapshotErr
+        );
+      }
+    }
 
     await auditLog({
       userId: req.user.id,

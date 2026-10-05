@@ -30,6 +30,7 @@
     "test:explanation-prompt-hygiene": "tsc && node --test tests/integration/explanation-prompt-hygiene.test.mjs",
     "test:explanation-validator": "tsc && node --test tests/integration/explanation-validator.test.mjs",
     "test:explanation-openai": "tsc && node --test tests/integration/explanation-openai-provider.test.mjs",
+    "test:engineering-cluster-similarity": "tsc && node --test tests/integration/engineering-cluster-similarity.test.mjs",
     "test:openai-key": "tsc && node scripts/validation/smoke/openai-key-smoke.mjs",
     "validate:e2e": "tsc && node scripts/validation/e2e/e2e-validation.mjs",
     "test:security": "npm run build && node --test \"tests/**/*.test.mjs\"",

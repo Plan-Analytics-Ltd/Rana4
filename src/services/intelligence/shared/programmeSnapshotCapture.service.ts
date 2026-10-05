@@ -470,14 +470,36 @@ export async function captureBaselineSnapshotFromImport(args: {
   });
 }
 
-/** Capture live programme state as baseline without file import. */
+/**
+ * Capture live programme state as a snapshot without a file import.
+ *
+ * Auto-detects whether this project already has a prior ProgrammeSnapshot:
+ * - No prior snapshot (from-scratch project, first capture): sourceType "BASELINE_GENERATED",
+ *   snapshotRole "BASELINE" — same as historical behaviour of this function.
+ * - Prior snapshot exists (live CRUD on an already-baselined project): sourceType "LIVE_UPDATE",
+ *   snapshotRole "LIVE_IMPORT" — mirrors the role/sourceType pairing already established in
+ *   programmeImport.service.ts for LIVE_IMPORT snapshots.
+ */
 export async function captureLiveBaselineSnapshot(
   projectId: string,
   companyId: string,
   userId?: string,
   label = "Generated baseline",
-  options?: { sourceFileName?: string; programmeDisplayName?: string }
+  options?: {
+    sourceFileName?: string;
+    programmeDisplayName?: string;
+    /** When true, skip LLM reasoning and force rule-based classification (frequent live-CRUD captures). */
+    forceRuleBasedReasoning?: boolean;
+  }
 ): Promise<{ snapshotId: string; summary: SnapshotSummary }> {
+  const existingSnapshot = await prisma.programmeSnapshot.findFirst({
+    where: { projectId, companyId },
+    select: { id: true },
+  });
+  const hasPriorSnapshot = existingSnapshot != null;
+  const snapshotRole: ProgrammeSnapshotRole = hasPriorSnapshot ? "LIVE_IMPORT" : "BASELINE";
+  const sourceType: ProgrammeSnapshotSourceType = hasPriorSnapshot ? "LIVE_UPDATE" : "BASELINE_GENERATED";
+
   const activities = await prisma.activity.findMany({
     where: { projectId, companyId },
     select: {
@@ -547,8 +569,8 @@ export async function captureLiveBaselineSnapshot(
     projectId,
     companyId,
     userId,
-    sourceType: "BASELINE_GENERATED",
-    snapshotRole: "BASELINE",
+    sourceType,
+    snapshotRole,
     label,
     sourceFileName: options?.sourceFileName,
     importSummary: {
@@ -572,5 +594,6 @@ export async function captureLiveBaselineSnapshot(
       activityCount: activities.length,
       criticalCount: activities.filter((a) => a.isCritical).length,
     },
+    forceRuleBasedReasoning: options?.forceRuleBasedReasoning,
   });
 }

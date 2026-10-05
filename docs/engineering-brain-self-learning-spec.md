@@ -1,7 +1,7 @@
 # Engineering Brain — Self-Learning Spec
 
-Status: DRAFT — not yet implemented
-Author: Ahmed Elsaman (spec drafted by Claude, 2026-07-16)
+Status: IMPLEMENTED (Phases 1-4 complete, 2026-07-23)
+Author: Ahmed Elsaman (drafted 2026-07-16)
 Depends on: `EngineeringKnowledgeEntry` (existing), `engineeringReasoning.service.ts` (existing, currently disabled), `engineeringBrainDiagnostics.service.ts` (existing)
 
 ## 1. Problem
@@ -150,14 +150,26 @@ Both are optional accelerants. The proposal pipeline in §5 works with pure stri
 
 ## 9. Rollout plan
 
-1. Migration: add `EngineeringRuleProposal` + `EngineeringLearnedRule` tables (additive only, same degrade-gracefully pattern as the existing knowledge store — nothing breaks if the migration lags behind a deploy).
-2. Ship proposal generation (§5) reading from existing `candidateLearning` + `EngineeringKnowledgeEntry`, using plain subject-string clustering first (no LLM dependency to start).
-3. Ship the review UI (§6) and resolution-time merge (§7) together — a proposal is useless until approving it visibly changes something.
-4. Once stable, add the LLM similarity clustering (§5 step 1) to catch fuzzier duplicates, and separately consider enabling `AI_ENGINEERING_REASONING_ENABLED` with the `aliases` few-shot wiring (§8) as an independent improvement.
-5. Instrument: log every proposal's confidence score and whether it was approved/rejected, so the threshold in §5.5 can be tuned against real approve/reject rates instead of guessed once and left alone.
+1. **Done.** Migration: added `EngineeringRuleProposal` + `EngineeringLearnedRule` tables (additive only, same degrade-gracefully pattern as the existing knowledge store — nothing breaks if the migration lags behind a deploy).
+2. **Done.** Proposal generation (§5) reading from existing `candidateLearning` + `EngineeringKnowledgeEntry`, using plain subject-string clustering (`engineeringRuleProposal.service.ts`).
+3. **Done.** Review UI (§6) and resolution-time merge (§7) shipped together (`engineeringLearnedRule.service.ts`, the Rule Proposals dashboard card, and the learned-rule merge in `resolveEngineeringIdentity()`).
+4. **Done.** LLM similarity clustering (§5 step 1) added to catch fuzzier duplicates — see §11 below. `AI_ENGINEERING_REASONING_ENABLED` + the `aliases` few-shot wiring (§8) remains a separate, not-yet-enabled improvement, exactly as this item anticipated.
+5. Not yet done: instrumenting proposal confidence/approve-reject outcomes so the §5.5 threshold can be tuned against real data instead of the initial guessed values. Worth revisiting once there's a few weeks of real reviewer decisions to look at.
 
 ## 10. Open questions to settle before building
 
 - Should a rejected proposal block on `(kind, targetId, proposedPattern)` exactly, or on the underlying evidence cluster (so a slightly different mined pattern from the same rejected cluster doesn't just resurface)?
 - Should `confidenceScore` weighting (§5.3) be configurable per company, or fixed?
 - Does a learned rule ever get promoted back into the hand-authored `.data.ts` files (e.g. after N months of stability), or does it stay in the DB overlay forever? Leaving it in the overlay forever is simpler and equally effective at resolution time; moving it into source is really only about wanting it visible in code review/git history.
+
+## 11. Implementation notes (Phase 4, as actually built — 2026-07-23)
+
+`§5 step 1`'s LLM similarity clustering shipped as `groupObjectGapClustersBySimilarity()` in a new file, `src/services/intelligence/diagnostics/engineeringClusterSimilarity.service.ts`, gated behind its own env flag `AI_ENGINEERING_CLUSTER_SIMILARITY_ENABLED` — deliberately separate from `AI_ENGINEERING_REASONING_ENABLED`, per this spec's own §8/§9 instruction not to conflate the two uses.
+
+Key design points, since they weren't fully pinned down in §5 step 1's original wording:
+
+- **Batching**: candidates are grouped by shared `discipline` (a new optional field added to `ObjectGapClusterInput`) before any LLM call — the LLM only ever compares concepts already known to sit in the same discipline, one `provider.complete()` call per batch, not one call per candidate or one call for the whole company.
+- **What the LLM actually returns**: only a grouping of indices (`{"groups": [[0,2],[1]]}`), never a label or pattern. The merged cluster's `conceptLabel`/`subjectKey` are always taken from the largest input cluster by occurrence count, so nothing the model writes freeform ends up as a taxonomy label — matching this spec's "not free-form LLM generation" constraint in §5 step 4.
+- **Merge math**: `occurrences` sums across merged clusters; `projectCount` is recomputed as the deduplicated union of project IDs across all merged members (not summed — a project appearing in two source clusters must only count once).
+- **Determinism preserved**: `computeEngineeringBrainDiagnostics` (the pure, directly-unit-tested function) is untouched — it still produces the same exact-subject clusters it always did. The LLM grouping step runs afterward, in the async `getEngineeringBrainDiagnostics` wrapper, which re-scores the merged clusters through the existing (unchanged) `computeEngineeringRuleProposalCandidates` before persisting. With the flag off (the default), this whole extra step is an identity passthrough, so behavior is byte-identical to pre-Phase-4.
+- **Tests**: `tests/integration/engineering-cluster-similarity.test.mjs` (`npm run test:engineering-cluster-similarity`) — covers the disabled/passthrough path, the merge math (including the dedup-vs-sum distinction above), discipline-based batching, and defensive parsing of malformed/partial/out-of-range LLM responses.

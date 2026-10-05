@@ -17,3 +17,5 @@ frontend/.next/
 *secret*.json
 scripts/database/reconcile/reconcile-to-migrations.generated.sql
 scripts/database/reconcile/reconcile-to-migrations.no-drops.sql
+
+rd-evidence/

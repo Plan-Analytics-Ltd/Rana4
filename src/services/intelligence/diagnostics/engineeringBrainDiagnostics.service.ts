@@ -71,11 +71,13 @@ import {
   isEngineeringRuleProposalStoreAvailable,
   type EngineeringRuleProposalCandidate,
   type StoredEngineeringRuleProposal,
+  type ObjectGapClusterInput,
 } from "./engineeringRuleProposal.service.js";
 import {
   loadActiveLearnedObjectRules,
   isEngineeringLearnedRuleStoreAvailable,
 } from "./engineeringLearnedRule.service.js";
+import { groupObjectGapClustersBySimilarity } from "./engineeringClusterSimilarity.service.js";
 
 /* -------------------------------------------------------------------------- */
 /* Inputs                                                                     */
@@ -377,6 +379,15 @@ export type EngineeringBrainDiagnosticsReport = {
    * `candidateLearning` (spec section 5). Persisted to `EngineeringRuleProposal`
    * by the DB-touching wrapper immediately after this report is computed. */
   ruleProposalCandidates: EngineeringRuleProposalCandidate[];
+  /** The pre-scoring clusters that fed `ruleProposalCandidates` above (spec
+   * section 5 step 1, Phase 4). Exposed so the DB-touching wrapper
+   * (`getEngineeringBrainDiagnostics`) can run them through
+   * `groupObjectGapClustersBySimilarity` (LLM-assisted fuzzy grouping) and
+   * re-score with `computeEngineeringRuleProposalCandidates`, overwriting
+   * `ruleProposalCandidates` above with the merged result. This function
+   * itself never calls the similarity grouper — it stays pure/sync/DB-free,
+   * per its documented contract. */
+  objectGapClusters: ObjectGapClusterInput[];
   /** PENDING rule proposals for the review UI (spec section 6, Phase 3).
    * Populated by the DB-touching wrapper (getEngineeringBrainDiagnostics) —
    * always [] from the pure function itself, same pattern as trustedKnowledge
@@ -508,6 +519,33 @@ function internalConfidence(identity: EngineeringIdentity): number {
   const base = 60 + evidenced * 10; // 60..90
   const fragnetBonus = identity.fragnetContext.id ? 5 : 0;
   return Math.min(100, base + fragnetBonus);
+}
+
+/**
+ * Majority discipline id across a cluster's member records (spec section 5
+ * step 1 / Phase 4: clusters are batched for LLM similarity grouping by
+ * "shared discipline"). Ties are broken deterministically by first-seen order
+ * within `group` — `Map` iteration order is insertion order, and each
+ * discipline id is inserted into the map the first time it is encountered, so
+ * the discipline that appears earliest in `group` wins any tie. Returns null
+ * if no member resolved a discipline.
+ */
+function majorityDiscipline(group: Array<{ identity: EngineeringIdentity }>): string | null {
+  const counts = new Map<string, number>();
+  for (const record of group) {
+    const id = record.identity.discipline.id;
+    if (!id) continue;
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  let best: string | null = null;
+  let bestCount = 0;
+  for (const [id, count] of counts) {
+    if (count > bestCount) {
+      best = id;
+      bestCount = count;
+    }
+  }
+  return best;
 }
 
 function pct(part: number, whole: number): number {
@@ -783,18 +821,20 @@ export async function computeEngineeringBrainDiagnostics(
    * (this function has no DB access and is exercised directly in tests
    * without a companyId). Scope: ENGINEERING_OBJECT only — see module-level
    * comment in engineeringRuleProposal.service.ts. */
-  const ruleProposalCandidates: EngineeringRuleProposalCandidate[] = computeEngineeringRuleProposalCandidates({
-    clusters: candidateLearningConcepts.map((concept) => ({
-      subjectKey: concept.subjectKey,
-      conceptLabel: concept.concept,
-      occurrences: concept.occurrences,
-      projectCount: concept.projects,
-      members: concept.group.map((record) => ({
-        fingerprint: engineeringIdentityFingerprint(record.subject.key, record.identity),
-        deliverableName: record.observed.name,
-        projectId: record.observed.projectId,
-      })),
+  const objectGapClusters: ObjectGapClusterInput[] = candidateLearningConcepts.map((concept) => ({
+    subjectKey: concept.subjectKey,
+    conceptLabel: concept.concept,
+    occurrences: concept.occurrences,
+    projectCount: concept.projects,
+    members: concept.group.map((record) => ({
+      fingerprint: engineeringIdentityFingerprint(record.subject.key, record.identity),
+      deliverableName: record.observed.name,
+      projectId: record.observed.projectId,
     })),
+    discipline: majorityDiscipline(concept.group),
+  }));
+  const ruleProposalCandidates: EngineeringRuleProposalCandidate[] = computeEngineeringRuleProposalCandidates({
+    clusters: objectGapClusters,
     decisions,
   });
 
@@ -1363,6 +1403,7 @@ export async function computeEngineeringBrainDiagnostics(
     unknownWork,
     candidateLearning,
     ruleProposalCandidates,
+    objectGapClusters,
     ruleProposals: [],
     ruleProposalStoreAvailable: false,
     learnedRuleStoreAvailable: false,
@@ -1527,6 +1568,24 @@ export async function getEngineeringBrainDiagnostics(args: {
     args.options ?? {},
     learnedObjectRules
   );
+  // Phase 4 (spec section 5 step 1): re-group the pre-scoring clusters with
+  // LLM-assisted fuzzy similarity (an optional accelerant — see
+  // engineeringClusterSimilarity.service.ts) and re-score with the same pure
+  // `computeEngineeringRuleProposalCandidates` used above, overwriting
+  // `ruleProposalCandidates` with the merged result before persistence. When
+  // the feature is disabled (default) or `forceRuleBased` is set,
+  // `groupObjectGapClustersBySimilarity` returns `report.objectGapClusters`
+  // completely unchanged, so this re-scoring step reproduces byte-identical
+  // `ruleProposalCandidates` to the ones `computeEngineeringBrainDiagnostics`
+  // already computed above — see engineering-cluster-similarity.test.mjs for
+  // the check that this identity path really is a no-op.
+  const similarityGroupedClusters = await groupObjectGapClustersBySimilarity(report.objectGapClusters, {
+    forceRuleBased: args.options?.forceRuleBased,
+  });
+  report.ruleProposalCandidates = computeEngineeringRuleProposalCandidates({
+    clusters: similarityGroupedClusters,
+    decisions,
+  });
   // Phase 2 (spec section 5): persist scored rule-proposal candidates
   // immediately after computing the report — this is the DB-touching half of
   // step 5b, kept out of the pure `computeEngineeringBrainDiagnostics` so that

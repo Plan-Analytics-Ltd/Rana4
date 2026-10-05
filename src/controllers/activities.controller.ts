@@ -35,6 +35,7 @@ import {
   applyActivityDeleteSideEffects,
   noteActivityDeleteLinkageTarget,
 } from "../services/activityDeleteSideEffects.service.js";
+import { captureLiveBaselineSnapshot } from "../services/intelligence/shared/programmeSnapshotCapture.service.js";
 import type { ProjectRole } from "../permissions/projectPermissions.js";
 const activityInclude = {
   activityCodeAssignments: { include: { type: true as const, code: true as const } },
@@ -55,6 +56,30 @@ function parseDuration(value: unknown): number | null {
   const n = Number(value);
   if (Number.isNaN(n) || !Number.isInteger(n)) return null;
   return n;
+}
+
+/**
+ * Capture a live ProgrammeSnapshot after an activity create/update/delete commits.
+ * These fire on every activity mutation, so LLM reasoning is always forced off
+ * (rule-based only) to avoid runaway cost/latency — only real imports (XER, Excel)
+ * get full LLM-based reasoning. Failures are logged but never fail the CRUD request.
+ */
+async function captureLiveActivitySnapshot(
+  projectId: string,
+  companyId: string,
+  userId: string | undefined,
+  operation: string
+): Promise<void> {
+  try {
+    await captureLiveBaselineSnapshot(projectId, companyId, userId, `Live update (${operation})`, {
+      forceRuleBasedReasoning: true,
+    });
+  } catch (err) {
+    console.error(
+      `[activities.controller] Failed to capture live programme snapshot after ${operation} (projectId=${projectId})`,
+      err
+    );
+  }
 }
 
 async function resolveCreateActivityContext(args: {
@@ -316,6 +341,7 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
           companyId: req.user.companyId,
         });
         await recalculateProjectScheduleAfterMutation(resolved.projectId, req.user.companyId);
+        await captureLiveActivitySnapshot(resolved.projectId, req.user.companyId, req.user.id, "activity.create");
         res.status(201).json(serializeLinkedDeliverables(existingShared as any));
         return;
       }
@@ -365,6 +391,7 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
           entityId: primaryActivityId,
         });
         await recalculateProjectScheduleAfterMutation(resolved.projectId, req.user.companyId);
+        await captureLiveActivitySnapshot(resolved.projectId, req.user.companyId, req.user.id, "activity.create");
         res.status(201).json(serializeLinkedDeliverables(activityWithCodes));
         return;
       } catch (e) {
@@ -438,6 +465,7 @@ export async function create(req: AuthRequest, res: Response): Promise<void> {
       await syncDeliverableActivityLinkage(resolved.deliverableId, req.user.companyId);
     }
     await recalculateProjectScheduleAfterMutation(resolved.projectId, req.user.companyId);
+    await captureLiveActivitySnapshot(resolved.projectId, req.user.companyId, req.user.id, "activity.create");
     res.status(201).json(serializeLinkedDeliverables(activityWithCodes));
   } catch (err) {
     if (isPrismaUniqueViolation(err)) {
@@ -811,6 +839,7 @@ export async function update(req: AuthRequest, res: Response): Promise<void> {
       fields: ["name", "deliverableId", "bestDuration", "likelyDuration", "assuranceNoteId", "assignedResources", "isSharedAcrossDeliverables"],
     });
     await recalculateProjectScheduleAfterMutation(existing.projectId, req.user.companyId);
+    await captureLiveActivitySnapshot(existing.projectId, req.user.companyId, req.user.id, "activity.update");
     res.json(serializeLinkedDeliverables(activityOut));
   } catch (err) {
     if (isPrismaForeignKeyViolation(err)) {
@@ -954,6 +983,7 @@ export async function bulkRemove(req: AuthRequest, res: Response): Promise<void>
         fragnetIds,
         deliverableIds,
       });
+      await captureLiveActivitySnapshot(projectId, req.user.companyId, req.user.id, "activity.bulkRemove");
     }
 
     res.json({ deleted, failed });
@@ -1023,6 +1053,7 @@ export async function remove(req: AuthRequest, res: Response): Promise<void> {
       fragnetIds,
       deliverableIds,
     });
+    await captureLiveActivitySnapshot(existing.projectId, req.user.companyId, req.user.id, "activity.remove");
     res.status(204).send();
   } catch (err) {
     const status = err && typeof err === "object" && "status" in err ? Number((err as any).status) : undefined;
